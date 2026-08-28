@@ -75,6 +75,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const res = await fetch(buildApiUrl('/api/me'), {
           headers: {
+            Authorization: `Bearer ${authToken}`,
             'x-institution-id': instId,
           },
         });
@@ -172,6 +173,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ newPassword }),
     });
