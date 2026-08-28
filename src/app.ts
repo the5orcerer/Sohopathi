@@ -9,8 +9,6 @@ import { coreManifest } from './modules/core/manifest';
 import { attendanceManifest } from './modules/attendance/manifest';
 import { noticesManifest } from './modules/notices/manifest';
 import { assignmentsManifest } from './modules/assignments/manifest';
-import { financeManifest } from './modules/finance/manifest';
-import { transportManifest } from './modules/transport/manifest';
 import { authRouter } from './core/auth/auth-routes';
 
 function enableCors(app: express.Application) {
@@ -100,15 +98,13 @@ export function bootApp(): express.Application {
   // Public unauthenticated auth routes
   app.use('/api/auth', authRouter);
 
-  // Register All Platform Modules in memory (<5ms boot time)
+  // Register Active Platform Modules in memory (<5ms boot time)
   registerModule(onboardingManifest, router);
   registerModule(systemManifest, router);
   registerModule(coreManifest, router);
   registerModule(attendanceManifest, router);
   registerModule(noticesManifest, router);
   registerModule(assignmentsManifest, router);
-  registerModule(financeManifest, router);
-  registerModule(transportManifest, router);
 
   app.use(router);
 

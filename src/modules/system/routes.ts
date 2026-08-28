@@ -47,15 +47,9 @@ export async function getNav(req: Request, res: Response) {
     }
   }
 
-  // Filter navigation items by user's resolved permissions or admin role
-  const isSuperAdmin =
-    req.ctx?.roleName?.toLowerCase().includes('admin') ||
-    req.ctx?.roleName?.toLowerCase().includes('principal') ||
-    req.ctx?.roleName?.toLowerCase().includes('owner');
-
+  // Filter navigation items by user's resolved permissions (which includes all active module permissions for admins)
   const authorizedNavItems = allNavItems.filter((item) =>
     !item.requiredPermission ||
-    isSuperAdmin ||
     req.ctx?.permissions.has(item.requiredPermission)
   );
 
