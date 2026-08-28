@@ -107,6 +107,19 @@ export async function bootApp(): Promise<express.Application> {
   await registerModule(assignmentsManifest, router);
 
   app.use(router);
+
+  // Serve production frontend build if dist directory exists
+  const frontendDistPath = path.resolve(__dirname, '../frontend/dist');
+  if (fs.existsSync(frontendDistPath)) {
+    app.use(express.static(frontendDistPath));
+    app.get('*', (req: Request, res: Response, next) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/storage-uploads')) {
+        return next();
+      }
+      res.sendFile(path.join(frontendDistPath, 'index.html'));
+    });
+  }
+
   app.use(errorHandler);
 
   return app;
