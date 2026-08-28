@@ -1,0 +1,332 @@
+erDiagram
+    %% ===================== PLATFORM CORE (global, not tenant-scoped) =====================
+    USER {
+        uuid id PK
+        string email
+        string phone
+        string password_hash
+        string name
+        string status
+        timestamp created_at
+    }
+
+    PERMISSION {
+        uuid id PK
+        string key "e.g. attendance.read"
+        uuid module_id FK
+        string description
+        string[] scope_options "institution, assigned_sections, self"
+    }
+
+    MODULE {
+        uuid id PK
+        string key "e.g. assignments"
+        string name
+        string version
+        string status "active, disabled"
+    }
+
+    WIDGET {
+        uuid id PK
+        string key
+        uuid module_id FK
+        string[] required_permissions
+        json default_size
+        string data_source
+        string renderer
+    }
+
+    %% ===================== TENANCY =====================
+    INSTITUTION {
+        uuid id PK
+        string name
+        string subdomain
+        json branding
+        string status
+        timestamp created_at
+    }
+
+    CAMPUS {
+        uuid id PK
+        uuid institution_id FK
+        string name
+        string address
+    }
+
+    ACADEMIC_YEAR {
+        uuid id PK
+        uuid institution_id FK
+        string label
+        date start_date
+        date end_date
+        bool is_current
+    }
+
+    ROLE {
+        uuid id PK
+        uuid institution_id FK "null = platform-default role"
+        string name
+        bool is_system
+    }
+
+    ROLE_PERMISSION {
+        uuid id PK
+        uuid role_id FK
+        uuid permission_id FK
+        string scope "institution, assigned_sections, self"
+    }
+
+    MEMBERSHIP {
+        uuid id PK
+        uuid user_id FK
+        uuid institution_id FK
+        uuid role_id FK
+        string status
+        timestamp created_at
+    }
+
+    %% ===================== ACADEMIC CORE =====================
+    STUDENT {
+        uuid id PK
+        uuid institution_id FK
+        uuid user_id FK "nullable"
+        string admission_no
+        string name
+        date date_of_birth
+        string status
+    }
+
+    GUARDIAN {
+        uuid id PK
+        uuid institution_id FK
+        uuid user_id FK "nullable"
+        string name
+        string phone
+    }
+
+    STUDENT_GUARDIAN {
+        uuid student_id FK
+        uuid guardian_id FK
+        string relation_type
+    }
+
+    CLASS {
+        uuid id PK
+        uuid institution_id FK
+        uuid academic_year_id FK
+        string name
+        int sort_order
+    }
+
+    SECTION {
+        uuid id PK
+        uuid class_id FK
+        string name
+        int capacity
+    }
+
+    SUBJECT {
+        uuid id PK
+        uuid institution_id FK
+        string name
+        string code
+    }
+
+    CLASS_SUBJECT_TEACHER {
+        uuid id PK
+        uuid section_id FK
+        uuid subject_id FK
+        uuid teacher_membership_id FK
+    }
+
+    ENROLLMENT {
+        uuid id PK
+        uuid student_id FK
+        uuid academic_year_id FK
+        uuid class_id FK
+        uuid section_id FK
+        string roll_no
+        string status
+        timestamp enrolled_at
+    }
+
+    %% ===================== OPERATIONAL MODULES =====================
+    ATTENDANCE {
+        uuid id PK
+        uuid institution_id FK
+        uuid student_id FK
+        uuid section_id FK
+        date date
+        string status
+        uuid recorded_by_membership_id FK
+    }
+
+    EXAM {
+        uuid id PK
+        uuid institution_id FK
+        uuid academic_year_id FK
+        string name
+        string term
+    }
+
+    MARK {
+        uuid id PK
+        uuid exam_id FK
+        uuid student_id FK
+        uuid subject_id FK
+        decimal marks_obtained
+        decimal max_marks
+        string grade
+        uuid recorded_by_membership_id FK
+    }
+
+    NOTICE {
+        uuid id PK
+        uuid institution_id FK
+        string title
+        text body
+        string audience_scope
+        uuid published_by_membership_id FK
+        timestamp published_at
+    }
+
+    FEE_INVOICE {
+        uuid id PK
+        uuid institution_id FK
+        uuid student_id FK
+        uuid academic_year_id FK
+        decimal amount
+        date due_date
+        string status
+    }
+
+    PAYMENT {
+        uuid id PK
+        uuid invoice_id FK
+        decimal amount
+        date payment_date
+        string method
+        string status
+    }
+
+    %% ===================== EXAMPLE PLUG-IN MODULE: ASSIGNMENTS =====================
+    ASSIGNMENT {
+        uuid id PK
+        uuid institution_id FK
+        uuid section_id FK
+        uuid subject_id FK
+        string title
+        text description
+        date due_date
+        uuid created_by_membership_id FK
+    }
+
+    ASSIGNMENT_ATTACHMENT {
+        uuid id PK
+        uuid assignment_id FK
+        string file_key "R2 object key"
+        string file_name
+    }
+
+    ASSIGNMENT_SUBMISSION {
+        uuid id PK
+        uuid assignment_id FK
+        uuid student_id FK
+        string file_key
+        timestamp submitted_at
+        string status
+    }
+
+    ASSIGNMENT_GRADE {
+        uuid id PK
+        uuid submission_id FK
+        string grade
+        text feedback
+        uuid graded_by_membership_id FK
+    }
+
+    %% ===================== DASHBOARD / SYSTEM =====================
+    DASHBOARD_LAYOUT {
+        uuid id PK
+        string scope_type "platform, institution, role, user"
+        uuid scope_id FK
+        uuid widget_id FK
+        int x
+        int y
+        int width
+        int height
+    }
+
+    EVENT {
+        uuid id PK
+        uuid institution_id FK
+        string type "e.g. assignment.submitted"
+        json payload
+        timestamp occurred_at
+        timestamp processed_at
+    }
+
+    AUDIT_LOG {
+        uuid id PK
+        uuid institution_id FK
+        uuid actor_membership_id FK
+        string action
+        string entity_type
+        uuid entity_id
+        json before
+        json after
+        timestamp created_at
+    }
+
+    %% ===================== RELATIONSHIPS =====================
+    MODULE ||--o{ PERMISSION : declares
+    MODULE ||--o{ WIDGET : declares
+    WIDGET ||--o{ DASHBOARD_LAYOUT : "placed as"
+
+    INSTITUTION ||--o{ CAMPUS : has
+    INSTITUTION ||--o{ ACADEMIC_YEAR : has
+    INSTITUTION ||--o{ ROLE : defines
+    INSTITUTION ||--o{ MEMBERSHIP : has
+    INSTITUTION ||--o{ STUDENT : enrolls
+    INSTITUTION ||--o{ NOTICE : publishes
+    INSTITUTION ||--o{ EVENT : emits
+    INSTITUTION ||--o{ AUDIT_LOG : logs
+
+    USER ||--o{ MEMBERSHIP : holds
+    MEMBERSHIP }o--|| ROLE : "assigned as"
+    ROLE ||--o{ ROLE_PERMISSION : grants
+    PERMISSION ||--o{ ROLE_PERMISSION : "referenced by"
+
+    STUDENT ||--o{ STUDENT_GUARDIAN : has
+    GUARDIAN ||--o{ STUDENT_GUARDIAN : "linked to"
+
+    ACADEMIC_YEAR ||--o{ CLASS : contains
+    CLASS ||--o{ SECTION : has
+    SECTION ||--o{ CLASS_SUBJECT_TEACHER : has
+    SUBJECT ||--o{ CLASS_SUBJECT_TEACHER : "taught as"
+    MEMBERSHIP ||--o{ CLASS_SUBJECT_TEACHER : teaches
+
+    STUDENT ||--o{ ENROLLMENT : has
+    ACADEMIC_YEAR ||--o{ ENROLLMENT : contains
+    CLASS ||--o{ ENROLLMENT : groups
+    SECTION ||--o{ ENROLLMENT : contains
+
+    SECTION ||--o{ ATTENDANCE : "recorded for"
+    STUDENT ||--o{ ATTENDANCE : has
+    MEMBERSHIP ||--o{ ATTENDANCE : records
+
+    ACADEMIC_YEAR ||--o{ EXAM : "scheduled in"
+    EXAM ||--o{ MARK : produces
+    STUDENT ||--o{ MARK : receives
+    SUBJECT ||--o{ MARK : "scored in"
+
+    STUDENT ||--o{ FEE_INVOICE : billed
+    FEE_INVOICE ||--o{ PAYMENT : "settled by"
+
+    SECTION ||--o{ ASSIGNMENT : "assigned to"
+    SUBJECT ||--o{ ASSIGNMENT : "belongs to"
+    MEMBERSHIP ||--o{ ASSIGNMENT : creates
+    ASSIGNMENT ||--o{ ASSIGNMENT_ATTACHMENT : has
+    ASSIGNMENT ||--o{ ASSIGNMENT_SUBMISSION : receives
+    STUDENT ||--o{ ASSIGNMENT_SUBMISSION : submits
+    ASSIGNMENT_SUBMISSION ||--o| ASSIGNMENT_GRADE : "graded as"

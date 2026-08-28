@@ -1,0 +1,13 @@
+[build]
+  command = "npm run build"
+  functions = "api"
+
+[[redirects]]
+  from = "/health"
+  to = "/.netlify/functions/index"
+  status = 200
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/index"
+  status = 200

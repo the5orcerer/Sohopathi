@@ -1,0 +1,188 @@
+import { Request, Response } from 'express';
+import { PoolClient } from 'pg';
+import { attendanceRepository } from './repository';
+
+export async function getAttendanceSummary(req: Request, res: Response, client: PoolClient) {
+  const grantedScope = req.grantedScope;
+  const sectionId = req.query.sectionId as string | undefined;
+  const date = req.query.date as string | undefined;
+
+  let allowedSectionIds: string[] | undefined;
+
+  if (grantedScope === 'assigned_sections') {
+    allowedSectionIds = await attendanceRepository.getTeacherAssignedSectionIds(client, req.ctx!.membershipId);
+    if (sectionId && !allowedSectionIds.includes(sectionId)) {
+      return res.status(403).json({ error: 'insufficient scope for requested section', code: 'FORBIDDEN' });
+    }
+  }
+
+  const summary = await attendanceRepository.getAttendanceSummary(client, req.ctx!.institutionId, {
+    sectionId,
+    date,
+    allowedSectionIds,
+  });
+  res.json(summary);
+}
+
+export async function getAttendanceSheet(req: Request, res: Response, client: PoolClient) {
+  const grantedScope = req.grantedScope;
+  const sectionId = req.query.sectionId as string;
+  const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
+
+  if (!sectionId) {
+    return res.status(400).json({ error: 'sectionId query parameter is required', code: 'VALIDATION_ERROR' });
+  }
+
+  if (grantedScope === 'assigned_sections') {
+    const allowedSectionIds = await attendanceRepository.getTeacherAssignedSectionIds(client, req.ctx!.membershipId);
+    if (!allowedSectionIds.includes(sectionId)) {
+      return res.status(403).json({ error: 'insufficient scope for requested section', code: 'FORBIDDEN' });
+    }
+  }
+
+  const sheet = await attendanceRepository.getAttendanceSheet(client, req.ctx!.institutionId, sectionId, date);
+  res.json(sheet);
+}
+
+export async function listAttendance(req: Request, res: Response, client: PoolClient) {
+  const grantedScope = req.grantedScope;
+  let sectionId = req.query.sectionId as string | undefined;
+  const date = req.query.date as string | undefined;
+  let studentId = req.query.studentId as string | undefined;
+
+  let allowedSectionIds: string[] | undefined;
+
+  if (grantedScope === 'assigned_sections') {
+    allowedSectionIds = await attendanceRepository.getTeacherAssignedSectionIds(client, req.ctx!.membershipId);
+    if (sectionId && !allowedSectionIds.includes(sectionId)) {
+      return res.status(403).json({ error: 'insufficient scope for requested section', code: 'FORBIDDEN' });
+    }
+  } else if (grantedScope === 'self') {
+    const selfStudentId = await attendanceRepository.getStudentIdForUser(client, req.ctx!.userId);
+    if (!selfStudentId) {
+      return res.json([]);
+    }
+    studentId = selfStudentId;
+  }
+
+  const records = await attendanceRepository.listAttendance(client, req.ctx!.institutionId, {
+    sectionId,
+    date,
+    studentId,
+    allowedSectionIds,
+  });
+  res.json(records);
+}
+
+export async function markAttendance(req: Request, res: Response, client: PoolClient) {
+  const grantedScope = req.grantedScope;
+  const { records } = req.body; // array of { studentId, sectionId, date, status }
+
+  if (!Array.isArray(records) || records.length === 0) {
+    return res.status(400).json({ error: 'records must be a non-empty array', code: 'VALIDATION_ERROR' });
+  }
+
+  if (grantedScope === 'assigned_sections') {
+    const allowedSectionIds = await attendanceRepository.getTeacherAssignedSectionIds(client, req.ctx!.membershipId);
+    for (const r of records) {
+      if (!allowedSectionIds.includes(r.sectionId)) {
+        return res.status(403).json({ error: `insufficient scope for section ${r.sectionId}`, code: 'FORBIDDEN' });
+      }
+    }
+  }
+
+  const results = await attendanceRepository.markAttendance(
+    client,
+    req.ctx!.institutionId,
+    req.ctx!.membershipId,
+    records
+  );
+  res.status(201).json(results);
+}
+
+export async function listExams(req: Request, res: Response, client: PoolClient) {
+  const academicYearId = req.query.academicYearId as string | undefined;
+  const exams = await attendanceRepository.listExams(client, req.ctx!.institutionId, academicYearId);
+  res.json(exams);
+}
+
+export async function createExam(req: Request, res: Response, client: PoolClient) {
+  const exam = await attendanceRepository.createExam(client, req.ctx!.institutionId, req.body, req.ctx?.membershipId);
+  res.status(201).json(exam);
+}
+
+export async function updateExam(req: Request, res: Response, client: PoolClient) {
+  const exam = await attendanceRepository.updateExam(
+    client,
+    req.ctx!.institutionId,
+    req.params.id,
+    req.body,
+    req.ctx?.membershipId
+  );
+  res.json(exam);
+}
+
+export async function deleteExam(req: Request, res: Response, client: PoolClient) {
+  await attendanceRepository.deleteExam(client, req.ctx!.institutionId, req.params.id, req.ctx?.membershipId);
+  res.json({ success: true });
+}
+
+export async function listExamPapers(req: Request, res: Response, client: PoolClient) {
+  const examId = req.params.id || (req.query.examId as string);
+  if (!examId) return res.status(400).json({ error: 'examId is required' });
+  const papers = await attendanceRepository.listExamPapers(client, req.ctx!.institutionId, examId);
+  res.json(papers);
+}
+
+export async function createExamPaper(req: Request, res: Response, client: PoolClient) {
+  const examId = req.params.id || req.body.examId;
+  const paper = await attendanceRepository.createExamPaper(
+    client,
+    req.ctx!.institutionId,
+    { ...req.body, examId },
+    req.ctx?.membershipId
+  );
+  res.status(201).json(paper);
+}
+
+export async function deleteExamPaper(req: Request, res: Response, client: PoolClient) {
+  await attendanceRepository.deleteExamPaper(client, req.ctx!.institutionId, req.params.paperId, req.ctx?.membershipId);
+  res.json({ success: true });
+}
+
+export async function listMarks(req: Request, res: Response, client: PoolClient) {
+  const grantedScope = req.grantedScope;
+  let studentId = req.query.studentId as string | undefined;
+  const examId = req.query.examId as string | undefined;
+  const subjectId = req.query.subjectId as string | undefined;
+
+  if (grantedScope === 'self') {
+    const selfStudentId = await attendanceRepository.getStudentIdForUser(client, req.ctx!.userId);
+    if (!selfStudentId) {
+      return res.json([]);
+    }
+    studentId = selfStudentId;
+  }
+
+  const marks = await attendanceRepository.listMarks(client, req.ctx!.institutionId, {
+    examId,
+    studentId,
+    subjectId,
+  });
+  res.json(marks);
+}
+
+export async function recordMarks(req: Request, res: Response, client: PoolClient) {
+  const { marks } = req.body;
+  if (!Array.isArray(marks) || marks.length === 0) {
+    return res.status(400).json({ error: 'marks must be a non-empty array', code: 'VALIDATION_ERROR' });
+  }
+
+  const results = await attendanceRepository.recordMarks(
+    client,
+    req.ctx!.institutionId,
+    req.ctx!.membershipId,
+    marks
+  );
+  res.status(201).json(results);
+}
