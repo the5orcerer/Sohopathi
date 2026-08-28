@@ -22,16 +22,17 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
       begin
         create role app_user with login password 'password' nosuperuser nobypassrls;
       exception
-        when duplicate_object then null;
+        when others then null;
+      end;
+      begin
+        grant all on schema public to app_user;
+        grant all on all tables in schema public to app_user;
+        grant all on all sequences in schema public to app_user;
+        grant all on all functions in schema public to app_user;
+      exception
+        when others then null;
       end;
     end $$;
-    grant all on schema public to app_user;
-    grant all on all tables in schema public to app_user;
-    grant all on all sequences in schema public to app_user;
-    grant all on all functions in schema public to app_user;
-
-    grant usage on schema auth to app_user;
-    grant all on all tables in schema auth to app_user;
 
     -- Update institution tenant isolation policy to allow creation / lookup when current_institution_id is NULL
     drop policy if exists tenant_isolation on public.institution;
@@ -218,7 +219,6 @@ export async function withTenantContext<T>(
       if (!UUID_REGEX.test(institutionId)) {
         throw new Error(`Invalid institutionId format: ${institutionId}`);
       }
-      await client.query('SET LOCAL ROLE app_user');
       // SET LOCAL is transaction-scoped — safe with transaction poolers
       await client.query(`SET LOCAL app.current_institution_id = '${institutionId}'`);
     }

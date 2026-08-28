@@ -28,59 +28,80 @@ export async function resolveContext(
     resolvedInstId = instRows[0].id;
   }
 
-  const { rows: memberRows } = await client.query(
-    `select m.id as membership_id, m.role_id, coalesce(r.name, 'Member') as role_name
-     from membership m
-     left join role r on r.id = m.role_id
-     where m.user_id = $1 and m.institution_id = $2 and m.status = 'active'`,
-    [userId, resolvedInstId]
-  );
+  try {
+    await client.query('BEGIN');
+    // Set tenant context for this connection so RLS allows reading membership and role_permission
+    await client.query(`SET LOCAL app.current_institution_id = '${resolvedInstId}'`);
 
-  if (memberRows.length === 0) return null;
-
-  const membershipId = memberRows[0].membership_id;
-  const roleId = memberRows[0].role_id;
-  const roleName = memberRows[0].role_name || 'Member';
-
-  // 1. Fetch direct role permissions OR inherited template role permissions
-  const { rows: permRows } = await client.query(
-    `select p.key as permission_key, rp.scope
-     from role_permission rp
-     join permission p on p.id = rp.permission_id
-     where rp.role_id = $1
-        or rp.role_id in (
-          select id from role
-          where lower(name) = lower($2) and institution_id is null
-        )`,
-    [roleId, roleName]
-  );
-
-  const permissions = new Map<string, string>();
-  for (const row of permRows) {
-    permissions.set(row.permission_key, row.scope || 'institution');
-  }
-
-  // 2. If the user is an Administrator / Owner / Principal, ensure all system permissions are granted
-  const isSuperAdmin =
-    roleName.toLowerCase().includes('admin') ||
-    roleName.toLowerCase().includes('owner') ||
-    roleName.toLowerCase().includes('principal');
-
-  if (isSuperAdmin && permissions.size === 0) {
-    const { rows: allPerms } = await client.query(
-      `select key, case when 'institution' = any(scope_options) then 'institution' else scope_options[1] end as scope from permission`
+    const { rows: memberRows } = await client.query(
+      `select m.id as membership_id, m.role_id, coalesce(r.name, 'Member') as role_name
+       from membership m
+       left join role r on r.id = m.role_id
+       where m.user_id = $1 and m.institution_id = $2 and m.status = 'active'`,
+      [userId, resolvedInstId]
     );
-    for (const p of allPerms) {
-      permissions.set(p.key, p.scope || 'institution');
-    }
-  }
 
-  return {
-    userId,
-    institutionId: resolvedInstId,
-    membershipId,
-    roleId,
-    roleName,
-    permissions,
-  };
+    if (memberRows.length === 0) {
+      await client.query('COMMIT');
+      return null;
+    }
+
+    const membershipId = memberRows[0].membership_id;
+    const roleId = memberRows[0].role_id;
+    const roleName = memberRows[0].role_name || 'Member';
+
+    // 1. Fetch direct role permissions OR inherited template role permissions
+    const { rows: permRows } = await client.query(
+      `select p.key as permission_key, rp.scope
+       from role_permission rp
+       join permission p on p.id = rp.permission_id
+       where rp.role_id = $1
+          or rp.role_id in (
+            select id from role
+            where lower(name) = lower($2) and institution_id is null
+          )`,
+      [roleId, roleName]
+    );
+
+    const permissions = new Map<string, string>();
+    for (const row of permRows) {
+      permissions.set(row.permission_key, row.scope || 'institution');
+    }
+
+    // 2. If user has an administrative role (Institution Admin, Owner, Principal, Academic Coordinator),
+    // ensure full access to all registered platform permissions
+    const isSuperAdmin =
+      roleName.toLowerCase().includes('admin') ||
+      roleName.toLowerCase().includes('owner') ||
+      roleName.toLowerCase().includes('principal') ||
+      roleName.toLowerCase().includes('headmaster') ||
+      roleName.toLowerCase().includes('coordinator');
+
+    if (isSuperAdmin) {
+      const { rows: allPerms } = await client.query(
+        `select key, case when 'institution' = any(scope_options) then 'institution' else coalesce(scope_options[1], 'institution') end as scope from permission`
+      );
+      for (const p of allPerms) {
+        if (!permissions.has(p.key) || permissions.get(p.key) !== 'institution') {
+          permissions.set(p.key, 'institution');
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+
+    return {
+      userId,
+      institutionId: resolvedInstId,
+      membershipId,
+      roleId,
+      roleName,
+      permissions,
+    };
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {}
+    throw err;
+  }
 }
