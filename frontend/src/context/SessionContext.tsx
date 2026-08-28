@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { Session, NavItem, DashboardWidget, User, ActiveMembership } from '../types';
-import { setApiAuth, fetchNav, fetchDashboard } from '../services/api';
-
+import { setApiAuth, fetchNav, fetchDashboard, buildApiUrl } from '../services/api';
 interface SessionContextValue {
   isAuthenticated: boolean;
   user: User | null;
@@ -74,9 +73,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     async (authToken: string, instId: string) => {
       setApiAuth(authToken, instId);
       try {
-        const res = await fetch('/api/me', {
+        const res = await fetch(buildApiUrl('/api/me'), {
           headers: {
-            Authorization: `Bearer ${authToken}`,
             'x-institution-id': instId,
           },
         });
@@ -132,7 +130,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     institutionId?: string;
   }) => {
     setLoading(true);
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch(buildApiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
@@ -170,11 +168,10 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const changePassword = async (newPassword: string) => {
     if (!token) return;
-    const res = await fetch('/api/auth/change-password', {
+    const res = await fetch(buildApiUrl('/api/auth/change-password'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ newPassword }),
     });
@@ -197,12 +194,11 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     institutionId?: string;
   }) => {
     setLoading(true);
-    const res = await fetch('/api/auth/signup', {
+    const res = await fetch(buildApiUrl('/api/auth/signup'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(formData),
     });
-
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Signup failed' }));
       setLoading(false);

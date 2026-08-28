@@ -3,10 +3,22 @@ import path from 'path';
 import { StorageAdapter } from './storage-adapter';
 import { env } from '../env';
 
-const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads');
-
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+function getUploadsDir(): string {
+  try {
+    const dir = path.resolve(process.cwd(), 'uploads');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+  } catch {
+    const fallback = path.join('/tmp', 'uploads');
+    try {
+      if (!fs.existsSync(fallback)) {
+        fs.mkdirSync(fallback, { recursive: true });
+      }
+    } catch {}
+    return fallback;
+  }
 }
 
 /**
@@ -16,11 +28,14 @@ if (!fs.existsSync(UPLOADS_DIR)) {
  */
 export const localStorageAdapter: StorageAdapter = {
   async getSignedUploadUrl(key: string, contentType: string, ttlSeconds = 300): Promise<string> {
-    const filePath = path.join(UPLOADS_DIR, key);
+    const uploadsDir = getUploadsDir();
+    const filePath = path.join(uploadsDir, key);
     const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    } catch {}
     // Return a direct upload URL pointing to the local server
     return `/api/storage/local-upload?key=${encodeURIComponent(key)}&contentType=${encodeURIComponent(contentType)}&expires=${Date.now() + ttlSeconds * 1000}`;
   },
@@ -31,9 +46,12 @@ export const localStorageAdapter: StorageAdapter = {
   },
 
   async deleteObject(key: string): Promise<void> {
-    const filePath = path.join(UPLOADS_DIR, key);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    const uploadsDir = getUploadsDir();
+    const filePath = path.join(uploadsDir, key);
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {}
   },
 };

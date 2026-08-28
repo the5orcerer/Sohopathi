@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { bootApp } from '../../src/app';
-import { pool, withTenantContext } from '../../src/core/db';
+import { pool, withTenantContext, ensureTenantRLS } from '../../src/core/db';
+import { syncModuleCatalog } from '../../src/core/registry/module-registry';
+import { transportManifest } from '../../src/modules/transport/manifest';
 import http from 'http';
 import { randomUUID } from 'crypto';
 
@@ -13,6 +15,14 @@ describe('Module Disable Tests', () => {
   let adminToken: string;
 
   beforeAll(async () => {
+    const client = await pool.connect();
+    try {
+      await ensureTenantRLS(client);
+      await syncModuleCatalog(transportManifest, client);
+    } finally {
+      client.release();
+    }
+
     const app = await bootApp();
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => {

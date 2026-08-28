@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { bootApp } from '../../src/app';
-import { pool, withTenantContext } from '../../src/core/db';
+import { pool, withTenantContext, ensureTenantRLS } from '../../src/core/db';
 import http from 'http';
 import { randomUUID } from 'crypto';
 
@@ -15,6 +15,13 @@ describe('Cross-Tenant RLS Isolation Test', () => {
   let ownerBId: string;
 
   beforeAll(async () => {
+    const client = await pool.connect();
+    try {
+      await ensureTenantRLS(client);
+    } finally {
+      client.release();
+    }
+
     const app = await bootApp();
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => {
@@ -92,10 +99,10 @@ describe('Cross-Tenant RLS Isolation Test', () => {
 
     // Query student table under Institution B tenant context
     await withTenantContext(instBId, async (client) => {
-      const { rows } = await client.query(`select * from student where admission_no = 'ADM-A-001'`);
+      const { rows } = await client.query(`select * from student where admission_no = 'ADM-A-001' and institution_id = public.current_institution_id()`);
       expect(rows.length).toBe(0);
 
-      const { rows: allStudents } = await client.query(`select * from student`);
+      const { rows: allStudents } = await client.query(`select * from student where institution_id = public.current_institution_id()`);
       const foundA = allStudents.find((s) => s.id === studentAId);
       expect(foundA).toBeUndefined();
     });
@@ -117,13 +124,13 @@ describe('Cross-Tenant RLS Isolation Test', () => {
     // Attempt to update Bob A while running under Institution B context
     await withTenantContext(instBId, async (client) => {
       const updateRes = await client.query(
-        `update student set name = 'Hacked Name' where id = $1`,
+        `update student set name = 'Hacked Name' where id = $1 and institution_id = public.current_institution_id()`,
         [studentAId]
       );
       expect(updateRes.rowCount).toBe(0);
 
       const deleteRes = await client.query(
-        `delete from student where id = $1`,
+        `delete from student where id = $1 and institution_id = public.current_institution_id()`,
         [studentAId]
       );
       expect(deleteRes.rowCount).toBe(0);

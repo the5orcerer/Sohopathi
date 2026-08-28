@@ -36,6 +36,16 @@ import type {
 let currentToken = 'mock-token-admin-1';
 let currentInstitutionId = 'f2c10000-0000-0000-0000-000000000001';
 
+export const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
+export function buildApiUrl(path: string): string {
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_BASE_URL}${cleanPath}`;
+}
+
 type LogListener = (logs: ApiLog[]) => void;
 const apiLogs: ApiLog[] = [];
 const logListeners: Set<LogListener> = new Set();
@@ -67,6 +77,7 @@ export async function fetchWithAuth<T = any>(
   url: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const fullUrl = buildApiUrl(url);
   const startTime = Date.now();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -76,7 +87,7 @@ export async function fetchWithAuth<T = any>(
   };
 
   try {
-    const res = await fetch(url, {
+    const res = await fetch(fullUrl, {
       ...options,
       headers,
     });

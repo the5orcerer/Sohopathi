@@ -2,7 +2,6 @@ import express, { Request, Response, Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { errorHandler } from './core/errors';
-import { pool, ensureTenantRLS } from './core/db';
 import { registerModule } from './core/registry/module-registry';
 import { onboardingManifest } from './modules/onboarding/manifest';
 import { systemManifest } from './modules/system/manifest';
@@ -10,6 +9,8 @@ import { coreManifest } from './modules/core/manifest';
 import { attendanceManifest } from './modules/attendance/manifest';
 import { noticesManifest } from './modules/notices/manifest';
 import { assignmentsManifest } from './modules/assignments/manifest';
+import { financeManifest } from './modules/finance/manifest';
+import { transportManifest } from './modules/transport/manifest';
 import { authRouter } from './core/auth/auth-routes';
 
 function enableCors(app: express.Application) {
@@ -26,9 +27,19 @@ function enableCors(app: express.Application) {
 }
 
 function mountStorage(app: express.Application) {
-  const uploadsDir = path.resolve(process.cwd(), 'uploads');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
+  let uploadsDir: string;
+  try {
+    uploadsDir = path.resolve(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+  } catch {
+    uploadsDir = path.join('/tmp', 'uploads');
+    try {
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+    } catch {}
   }
 
   // Serve static files uploaded locally
@@ -41,13 +52,17 @@ function mountStorage(app: express.Application) {
       res.status(400).json({ error: 'Missing key query parameter' });
       return;
     }
-    const targetFile = path.join(uploadsDir, key);
-    const targetDir = path.dirname(targetFile);
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true });
+    try {
+      const targetFile = path.join(uploadsDir, key);
+      const targetDir = path.dirname(targetFile);
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      fs.writeFileSync(targetFile, req.body as Buffer);
+      res.status(200).json({ status: 'ok', key, downloadUrl: `/storage-uploads/${key}` });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to write local file', message: err.message });
     }
-    fs.writeFileSync(targetFile, req.body as Buffer);
-    res.status(200).json({ status: 'ok', key, downloadUrl: `/storage-uploads/${key}` });
   });
 }
 
@@ -69,26 +84,13 @@ export function createApp(): express.Application {
   return app;
 }
 
-export async function bootApp(): Promise<express.Application> {
+export function bootApp(): express.Application {
   const app = express();
   enableCors(app);
   mountStorage(app);
   app.use(express.json());
 
   const router = Router();
-
-  // Ensure FORCE RLS on tenant tables if DB connection is available
-  try {
-    const dbClient = await pool.connect();
-    try {
-      await ensureTenantRLS(dbClient);
-    } finally {
-      dbClient.release();
-    }
-  } catch (err: any) {
-    // Log warning if offline/unreachable during early boot
-    console.warn('Database connection unavailable during early boot:', err.message);
-  }
 
   // Public unauthenticated health check
   app.get('/health', (req: Request, res: Response) => {
@@ -98,13 +100,15 @@ export async function bootApp(): Promise<express.Application> {
   // Public unauthenticated auth routes
   app.use('/api/auth', authRouter);
 
-  // Register Core & Soft-Launch Active Modules
-  await registerModule(onboardingManifest, router);
-  await registerModule(systemManifest, router);
-  await registerModule(coreManifest, router);
-  await registerModule(attendanceManifest, router);
-  await registerModule(noticesManifest, router);
-  await registerModule(assignmentsManifest, router);
+  // Register All Platform Modules in memory (<5ms boot time)
+  registerModule(onboardingManifest, router);
+  registerModule(systemManifest, router);
+  registerModule(coreManifest, router);
+  registerModule(attendanceManifest, router);
+  registerModule(noticesManifest, router);
+  registerModule(assignmentsManifest, router);
+  registerModule(financeManifest, router);
+  registerModule(transportManifest, router);
 
   app.use(router);
 
@@ -125,15 +129,16 @@ export async function bootApp(): Promise<express.Application> {
   return app;
 }
 
-let cachedAppPromise: Promise<express.Application> | null = null;
+let cachedApp: express.Application | null = null;
 
 /**
  * Singleton app loader for serverless environments (Vercel, Netlify, AWS Lambda).
- * Ensures app initialization and module registration happens once per cold start.
+ * Ensures app initialization and module route mounting happens once per cold start.
  */
 export async function getApp(): Promise<express.Application> {
-  if (!cachedAppPromise) {
-    cachedAppPromise = bootApp();
+  if (!cachedApp) {
+    cachedApp = bootApp();
   }
-  return cachedAppPromise;
+  return cachedApp;
 }
+

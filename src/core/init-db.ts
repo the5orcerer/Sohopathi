@@ -66,11 +66,14 @@ export async function initializeDatabase(reset = true) {
     logger.info('Registering platform modules...');
     await client.query(`
       insert into public.module (key, name, version) values
+        ('onboarding', 'Institution Onboarding', '1.0.0'),
         ('system', 'System / Dashboard', '1.0.0'),
         ('core', 'Core / Academic & Administration', '1.0.0'),
         ('attendance', 'Attendance & Marks', '1.0.0'),
         ('notices', 'Notices & Circulars', '1.0.0'),
-        ('assignments', 'Assignments & Homework', '1.0.0')
+        ('assignments', 'Assignments & Homework', '1.0.0'),
+        ('finance', 'Finance & Invoicing', '1.0.0'),
+        ('transport', 'Transport & Fleet', '1.0.0')
       on conflict (key) do update set name = excluded.name;
     `);
 
@@ -108,6 +111,13 @@ export async function initializeDatabase(reset = true) {
       ['assignments.grade', 'assignments', 'Grade student submissions and provide feedback', ['assigned_sections', 'institution']],
       ['notices.read', 'notices', 'View campus notices and circulars', ['institution', 'self']],
       ['notices.write', 'notices', 'Publish and manage campus announcements', ['institution']],
+      ['finance.read', 'finance', 'View fee invoices and payment status', ['institution', 'self']],
+      ['finance.write', 'finance', 'Create invoices and collect payments', ['institution']],
+      ['finance.reports', 'finance', 'Access financial collection reports', ['institution']],
+      ['transport.read', 'transport', 'View routes and vehicle info', ['institution', 'assigned_routes', 'self']],
+      ['transport.manage', 'transport', 'Create and manage routes, vehicles, and stops', ['institution']],
+      ['transport.assign_driver', 'transport', 'Assign driver to a vehicle or route', ['institution']],
+      ['transport.track', 'transport', 'View live vehicle location', ['assigned_routes', 'self']],
     ];
 
     for (const [key, moduleKey, desc, scopes] of permissions) {

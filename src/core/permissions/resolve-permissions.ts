@@ -50,17 +50,18 @@ export async function resolveContext(
     const roleId = memberRows[0].role_id;
     const roleName = memberRows[0].role_name || 'Member';
 
-    // 1. Fetch direct role permissions OR inherited template role permissions
+    // 1. Fetch direct role permissions OR inherited template role permissions for enabled modules
     const { rows: permRows } = await client.query(
       `select p.key as permission_key, rp.scope
        from role_permission rp
        join permission p on p.id = rp.permission_id
-       where rp.role_id = $1
+       join institution_module im on im.module_id = p.module_id and im.institution_id = $1 and im.enabled = true
+       where rp.role_id = $2
           or rp.role_id in (
             select id from role
-            where lower(name) = lower($2) and institution_id is null
+            where lower(name) = lower($3) and institution_id is null
           )`,
-      [roleId, roleName]
+      [resolvedInstId, roleId, roleName]
     );
 
     const permissions = new Map<string, string>();
@@ -69,7 +70,7 @@ export async function resolveContext(
     }
 
     // 2. If user has an administrative role (Institution Admin, Owner, Principal, Academic Coordinator),
-    // ensure full access to all registered platform permissions
+    // ensure full access to all registered platform permissions for enabled modules
     const isSuperAdmin =
       roleName.toLowerCase().includes('admin') ||
       roleName.toLowerCase().includes('owner') ||
@@ -79,7 +80,10 @@ export async function resolveContext(
 
     if (isSuperAdmin) {
       const { rows: allPerms } = await client.query(
-        `select key, case when 'institution' = any(scope_options) then 'institution' else coalesce(scope_options[1], 'institution') end as scope from permission`
+        `select p.key, case when 'institution' = any(p.scope_options) then 'institution' else coalesce(p.scope_options[1], 'institution') end as scope
+         from permission p
+         join institution_module im on im.module_id = p.module_id and im.institution_id = $1 and im.enabled = true`,
+        [resolvedInstId]
       );
       for (const p of allPerms) {
         if (!permissions.has(p.key) || permissions.get(p.key) !== 'institution') {
