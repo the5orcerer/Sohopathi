@@ -59,6 +59,7 @@ async function tightenPermissions() {
 
     // 4. Ensure Student role permissions are set to self (or institution for notices)
     const studentSelfPermissions = [
+      'students.read',
       'schedules.read',
       'attendance.read',
       'marks.read',
