@@ -53,7 +53,7 @@ export function errorHandler(
 
   logger.error(err, 'Unhandled error encountered');
   return res.status(500).json({
-    error: 'Internal Server Error',
+    error: err.message || 'Internal Server Error',
     code: 'INTERNAL_SERVER_ERROR',
   });
 }

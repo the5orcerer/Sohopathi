@@ -9,6 +9,7 @@ import { coreManifest } from './modules/core/manifest';
 import { attendanceManifest } from './modules/attendance/manifest';
 import { noticesManifest } from './modules/notices/manifest';
 import { assignmentsManifest } from './modules/assignments/manifest';
+import { admissionManifest } from './modules/admission/manifest';
 import { authRouter } from './core/auth/auth-routes';
 
 function enableCors(app: express.Application) {
@@ -105,6 +106,7 @@ export function bootApp(): express.Application {
   registerModule(attendanceManifest, router);
   registerModule(noticesManifest, router);
   registerModule(assignmentsManifest, router);
+  registerModule(admissionManifest, router);
 
   app.use(router);
 

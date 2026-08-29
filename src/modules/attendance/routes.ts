@@ -9,7 +9,18 @@ export async function getAttendanceSummary(req: Request, res: Response, client: 
 
   let allowedSectionIds: string[] | undefined;
 
-  if (grantedScope === 'assigned_sections') {
+  if (grantedScope === 'self') {
+    const studentId = await attendanceRepository.getStudentIdForUser(client, req.ctx!.userId);
+    if (studentId) {
+      const { rows: enrollRows } = await client.query(
+        `select section_id from enrollment where student_id = $1 and status = 'active'`,
+        [studentId]
+      );
+      allowedSectionIds = enrollRows.map((r) => r.section_id);
+    } else {
+      allowedSectionIds = [];
+    }
+  } else if (grantedScope === 'assigned_sections') {
     allowedSectionIds = await attendanceRepository.getTeacherAssignedSectionIds(client, req.ctx!.membershipId);
     if (sectionId && !allowedSectionIds.includes(sectionId)) {
       return res.status(403).json({ error: 'insufficient scope for requested section', code: 'FORBIDDEN' });
@@ -156,26 +167,49 @@ export async function listMarks(req: Request, res: Response, client: PoolClient)
   const examId = req.query.examId as string | undefined;
   const subjectId = req.query.subjectId as string | undefined;
 
+  let allowedSectionIds: string[] | undefined;
+
   if (grantedScope === 'self') {
     const selfStudentId = await attendanceRepository.getStudentIdForUser(client, req.ctx!.userId);
     if (!selfStudentId) {
       return res.json([]);
     }
     studentId = selfStudentId;
+  } else if (grantedScope === 'assigned_sections') {
+    allowedSectionIds = await attendanceRepository.getTeacherAssignedSectionIds(client, req.ctx!.membershipId);
   }
 
   const marks = await attendanceRepository.listMarks(client, req.ctx!.institutionId, {
     examId,
     studentId,
     subjectId,
+    allowedSectionIds,
   });
   res.json(marks);
 }
 
 export async function recordMarks(req: Request, res: Response, client: PoolClient) {
+  const grantedScope = req.grantedScope;
   const { marks } = req.body;
   if (!Array.isArray(marks) || marks.length === 0) {
     return res.status(400).json({ error: 'marks must be a non-empty array', code: 'VALIDATION_ERROR' });
+  }
+
+  if (grantedScope === 'assigned_sections') {
+    for (const m of marks) {
+      const isAllowed = await attendanceRepository.isTeacherAllowedForStudentSubject(
+        client,
+        req.ctx!.membershipId,
+        m.studentId,
+        m.subjectId
+      );
+      if (!isAllowed) {
+        return res.status(403).json({
+          error: `Teacher is not assigned to teach subject ${m.subjectId} for student ${m.studentId}`,
+          code: 'FORBIDDEN',
+        });
+      }
+    }
   }
 
   const results = await attendanceRepository.recordMarks(

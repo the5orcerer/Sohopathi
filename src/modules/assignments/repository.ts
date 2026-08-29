@@ -63,21 +63,124 @@ export const assignmentRepository = {
     institutionId: string,
     filters: { sectionId?: string; status?: string; studentId?: string; allowedSectionIds?: string[] }
   ): Promise<Assignment[]> {
-    let query = `select id, institution_id as "institutionId", section_id as "sectionId", subject_id as "subjectId", title, description, due_date as "dueDate", created_by_membership_id as "createdByMembershipId", created_at as "createdAt" from assignment where 1=1`;
-    const params: any[] = [];
+    let query = `
+      select 
+        a.id,
+        a.institution_id as "institutionId",
+        a.section_id as "sectionId",
+        sec.name as "sectionName",
+        cls.name as "className",
+        a.subject_id as "subjectId",
+        sub.name as "subjectName",
+        a.title,
+        a.description,
+        a.due_date as "dueDate",
+        a.created_by_membership_id as "createdByMembershipId",
+        a.created_at as "createdAt",
+        (select count(*)::int from assignment_submission s where s.assignment_id = a.id) as "totalSubmissions"
+    `;
+
+    const params: any[] = [institutionId];
+
+    if (filters.studentId) {
+      params.push(filters.studentId);
+      const studentIdx = params.length;
+      query += `,
+        asub.id as "submissionId",
+        coalesce(asub.status, 'pending') as "submissionStatus",
+        asub.submitted_at as "submittedAt",
+        ag.grade as "grade",
+        ag.feedback as "feedback"
+      from assignment a
+      left join section sec on sec.id = a.section_id
+      left join class cls on cls.id = sec.class_id
+      left join subject sub on sub.id = a.subject_id
+      left join assignment_submission asub on asub.assignment_id = a.id and asub.student_id = $${studentIdx}
+      left join assignment_grade ag on ag.submission_id = asub.id
+      where a.institution_id = $1
+      `;
+    } else {
+      query += `
+      from assignment a
+      left join section sec on sec.id = a.section_id
+      left join class cls on cls.id = sec.class_id
+      left join subject sub on sub.id = a.subject_id
+      where a.institution_id = $1
+      `;
+    }
 
     if (filters.sectionId) {
       params.push(filters.sectionId);
-      query += ` and section_id = $${params.length}`;
+      query += ` and a.section_id = $${params.length}`;
     } else if (filters.allowedSectionIds) {
       if (filters.allowedSectionIds.length === 0) return [];
       params.push(filters.allowedSectionIds);
-      query += ` and section_id = any($${params.length})`;
+      query += ` and a.section_id = any($${params.length})`;
     }
 
-    query += ` order by created_at desc`;
+    if (filters.status === 'pending' && filters.studentId) {
+      query += ` and (asub.id is null or asub.status = 'pending')`;
+    }
+
+    query += ` order by a.created_at desc`;
     const { rows } = await client.query(query, params);
     return rows;
+  },
+
+  async isTeacherAssignedToSectionAndSubject(
+    client: PoolClient,
+    teacherMembershipId: string,
+    sectionId: string,
+    subjectId: string
+  ): Promise<boolean> {
+    const { rows } = await client.query(
+      `select 1 from class_subject_teacher
+       where teacher_membership_id = $1 and section_id = $2 and subject_id = $3
+       union
+       select 1 from membership_scope
+       where membership_id = $1 and scope_type in ('section', 'institution') and (scope_id = $2 or scope_type = 'institution')
+       limit 1`,
+      [teacherMembershipId, sectionId, subjectId]
+    );
+    return rows.length > 0;
+  },
+
+  async isTeacherAssignment(
+    client: PoolClient,
+    teacherMembershipId: string,
+    assignmentId: string
+  ): Promise<boolean> {
+    const { rows } = await client.query(
+      `select 1 from assignment a
+       join class_subject_teacher cst on cst.section_id = a.section_id and cst.subject_id = a.subject_id
+       where cst.teacher_membership_id = $1 and a.id = $2
+       union
+       select 1 from assignment a
+       where a.created_by_membership_id = $1 and a.id = $2
+       limit 1`,
+      [teacherMembershipId, assignmentId]
+    );
+    return rows.length > 0;
+  },
+
+  async isTeacherSubmission(
+    client: PoolClient,
+    teacherMembershipId: string,
+    submissionId: string
+  ): Promise<boolean> {
+    const { rows } = await client.query(
+      `select 1 from assignment_submission asub
+       join assignment a on a.id = asub.assignment_id
+       join class_subject_teacher cst on cst.section_id = a.section_id and cst.subject_id = a.subject_id
+       where cst.teacher_membership_id = $1 and asub.id = $2
+       union
+       select 1 from assignment_submission asub
+       join assignment a on a.id = asub.assignment_id
+       where a.created_by_membership_id = $1 and asub.id = $2
+       limit 1`,
+      [teacherMembershipId, submissionId]
+    );
+    return rows.length > 0;
   },
 
   async update(

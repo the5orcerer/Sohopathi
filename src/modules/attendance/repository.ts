@@ -144,7 +144,7 @@ export const attendanceRepository = {
         actorMembershipId: recordedByMembershipId,
         action: 'mark_attendance',
         entityType: 'attendance',
-        entityId: `${records[0].sectionId}_${records[0].date}`,
+        entityId: results[0].id,
         after: { count: results.length },
       });
     }
@@ -398,10 +398,31 @@ export const attendanceRepository = {
   },
 
   // --- Marks Recording ---
+  async isTeacherAllowedForStudentSubject(
+    client: PoolClient,
+    teacherMembershipId: string,
+    studentId: string,
+    subjectId: string
+  ): Promise<boolean> {
+    const { rows } = await client.query(
+      `select 1
+       from enrollment e
+       join class_subject_teacher cst on cst.section_id = e.section_id and cst.subject_id = $3
+       where e.student_id = $2 and e.status = 'active' and cst.teacher_membership_id = $1
+       union
+       select 1
+       from membership_scope ms
+       where ms.membership_id = $1 and ms.scope_type in ('institution', 'section')
+       limit 1`,
+      [teacherMembershipId, studentId, subjectId]
+    );
+    return rows.length > 0;
+  },
+
   async listMarks(
     client: PoolClient,
     institutionId: string,
-    filters: { examId?: string; studentId?: string; subjectId?: string }
+    filters: { examId?: string; studentId?: string; subjectId?: string; allowedSectionIds?: string[] }
   ): Promise<Mark[]> {
     let query = `
       select 
@@ -420,6 +441,7 @@ export const attendanceRepository = {
       from mark m
       join student s on s.id = m.student_id
       join subject sub on sub.id = m.subject_id
+      left join enrollment e on e.student_id = s.id and e.status = 'active'
       where m.institution_id = $1
     `;
     const params: any[] = [institutionId];
@@ -435,6 +457,11 @@ export const attendanceRepository = {
     if (filters.subjectId) {
       params.push(filters.subjectId);
       query += ` and m.subject_id = $${params.length}`;
+    }
+    if (filters.allowedSectionIds) {
+      if (filters.allowedSectionIds.length === 0) return [];
+      params.push(filters.allowedSectionIds);
+      query += ` and e.section_id = any($${params.length})`;
     }
 
     query += ` order by s.name asc`;
@@ -473,7 +500,7 @@ export const attendanceRepository = {
         actorMembershipId: recordedByMembershipId,
         action: 'record_marks',
         entityType: 'mark',
-        entityId: `${marks[0].examId}_${marks[0].subjectId}`,
+        entityId: results[0].id,
         after: { count: results.length },
       });
     }

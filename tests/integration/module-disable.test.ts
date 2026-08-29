@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { bootApp } from '../../src/app';
 import { pool, withTenantContext, ensureTenantRLS } from '../../src/core/db';
 import { syncModuleCatalog } from '../../src/core/registry/module-registry';
-import { transportManifest } from '../../src/modules/transport/manifest';
+import { noticesManifest } from '../../src/modules/notices/manifest';
 import http from 'http';
 import { randomUUID } from 'crypto';
 
@@ -18,7 +18,7 @@ describe('Module Disable Tests', () => {
     const client = await pool.connect();
     try {
       await ensureTenantRLS(client);
-      await syncModuleCatalog(transportManifest, client);
+      await syncModuleCatalog(noticesManifest, client);
     } finally {
       client.release();
     }
@@ -55,9 +55,9 @@ describe('Module Disable Tests', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it('disabling transport module removes transport permissions from resolveContext and blocks transport routes', async () => {
-    // 1. Verify transport routes work while enabled
-    const resBefore = await fetch(`${baseUrl}/api/transport/routes`, {
+  it('disabling notices module removes notices permissions from resolveContext and blocks notices routes', async () => {
+    // 1. Verify notices routes work while enabled
+    const resBefore = await fetch(`${baseUrl}/api/notices`, {
       headers: {
         'Authorization': `Bearer ${adminToken}`,
         'x-institution-id': instId,
@@ -65,19 +65,19 @@ describe('Module Disable Tests', () => {
     });
     expect(resBefore.status).toBe(200);
 
-    // 2. Disable transport module in DB
+    // 2. Disable notices module in DB
     await withTenantContext(instId, async (client) => {
       await client.query(
         `update institution_module
          set enabled = false
          where institution_id = $1
-           and module_id = (select id from module where key = 'transport')`,
+           and module_id = (select id from module where key = 'notices')`,
         [instId]
       );
     });
 
-    // 3. Request transport route again -> resolveContext filters out disabled module's permissions -> returns 403 missing permission
-    const resAfter = await fetch(`${baseUrl}/api/transport/routes`, {
+    // 3. Request notices route again -> resolveContext filters out disabled module's permissions -> returns 403 missing permission
+    const resAfter = await fetch(`${baseUrl}/api/notices`, {
       headers: {
         'Authorization': `Bearer ${adminToken}`,
         'x-institution-id': instId,
@@ -85,6 +85,6 @@ describe('Module Disable Tests', () => {
     });
     expect(resAfter.status).toBe(403);
     const bodyAfter = await resAfter.json();
-    expect(bodyAfter.error).toContain('missing permission: transport.read');
+    expect(bodyAfter.error).toContain('missing permission: notices.read');
   });
 });

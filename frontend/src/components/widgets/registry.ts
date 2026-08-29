@@ -3,8 +3,7 @@ import type { WidgetProps } from '../../types';
 import { AttendanceSummary } from './AttendanceWidgets';
 import { NoticeBoard } from './NoticeWidgets';
 import { AssignmentList, PendingAssignments, AssignmentStatistics } from './AssignmentWidgets';
-import { FleetOverview, MyRoute } from './TransportWidgets';
-import { FeeCollectionSummary, MyInvoices } from './FinanceWidgets';
+import { RecentAdmissions, AdmissionStatsWidget } from './AdmissionsWidgets';
 
 /**
  * Canonical lookup table mapping widget 'renderer' strings to React components.
@@ -17,8 +16,6 @@ export const WIDGET_REGISTRY: Record<string, React.ComponentType<WidgetProps>> =
   AssignmentList,
   PendingAssignments,
   AssignmentStatistics,
-  FleetOverview,
-  MyRoute,
-  FeeCollectionSummary,
-  MyInvoices,
+  RecentAdmissions,
+  AdmissionStatsWidget,
 };

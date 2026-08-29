@@ -10,7 +10,10 @@ export interface AuditLogInput {
   after?: Record<string, any> | null;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function logAudit(client: PoolClient, input: AuditLogInput): Promise<void> {
+  const safeEntityId = input.entityId && UUID_REGEX.test(input.entityId) ? input.entityId : null;
   await client.query(
     `insert into audit_log (institution_id, actor_membership_id, action, entity_type, entity_id, before, after)
      values ($1, $2, $3, $4, $5, $6, $7)`,
@@ -19,7 +22,7 @@ export async function logAudit(client: PoolClient, input: AuditLogInput): Promis
       input.actorMembershipId ?? null,
       input.action,
       input.entityType,
-      input.entityId,
+      safeEntityId,
       input.before ? JSON.stringify(input.before) : null,
       input.after ? JSON.stringify(input.after) : null,
     ]
