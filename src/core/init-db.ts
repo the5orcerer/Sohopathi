@@ -205,7 +205,6 @@ export async function initializeDatabase(reset?: boolean) {
         { key: 'notices.read', scope: 'institution' },
       ],
       Student: [
-        { key: 'students.read', scope: 'self' },
         { key: 'schedules.read', scope: 'self' },
         { key: 'attendance.read', scope: 'self' },
         { key: 'marks.read', scope: 'self' },
@@ -214,7 +213,6 @@ export async function initializeDatabase(reset?: boolean) {
         { key: 'notices.read', scope: 'institution' },
       ],
       Guardian: [
-        { key: 'students.read', scope: 'self' },
         { key: 'schedules.read', scope: 'self' },
         { key: 'attendance.read', scope: 'self' },
         { key: 'marks.read', scope: 'self' },
