@@ -52,6 +52,7 @@ export interface Student {
   id: string;
   institutionId: string;
   userId: string | null;
+  username?: string;
   admissionNo: string;
   name: string;
   dateOfBirth: string | null;
@@ -66,6 +67,111 @@ export interface Student {
   customFields?: Record<string, any>;
   guardianName?: string;
   guardianPhone?: string;
+}
+
+export async function generateUniqueStudentUsername(
+  client: PoolClient,
+  institutionId: string,
+  studentName: string,
+  admissionNo?: string
+): Promise<string> {
+  const cleanName = studentName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join('.');
+
+  const baseCandidate = cleanName || 'student';
+
+  const { rows: existing } = await client.query(
+    `select login_username from membership where institution_id = $1 and lower(login_username) = lower($2)`,
+    [institutionId, baseCandidate]
+  );
+
+  if (existing.length === 0) {
+    return baseCandidate;
+  }
+
+  if (admissionNo) {
+    const cleanAdm = admissionNo.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const admCandidate = `${baseCandidate}.${cleanAdm}`;
+    const { rows: admExisting } = await client.query(
+      `select login_username from membership where institution_id = $1 and lower(login_username) = lower($2)`,
+      [institutionId, admCandidate]
+    );
+    if (admExisting.length === 0) {
+      return admCandidate;
+    }
+  }
+
+  let counter = 1;
+  while (true) {
+    const seqCandidate = `${baseCandidate}${counter}`;
+    const { rows: seqExisting } = await client.query(
+      `select login_username from membership where institution_id = $1 and lower(login_username) = lower($2)`,
+      [institutionId, seqCandidate]
+    );
+    if (seqExisting.length === 0) {
+      return seqCandidate;
+    }
+    counter++;
+  }
+}
+
+export async function provisionStudentUserAccount(
+  client: PoolClient,
+  institutionId: string,
+  studentName: string,
+  admissionNo: string,
+  email?: string
+): Promise<{ userId: string; username: string }> {
+  const username = await generateUniqueStudentUsername(client, institutionId, studentName, admissionNo);
+  const studentEmail = email?.trim().toLowerCase() || `${username}.${institutionId.substring(0, 8)}@student.local`;
+
+  // Create or resolve auth.users
+  const { rows: existingAuth } = await client.query(
+    `select id from auth.users where lower(email) = lower($1) limit 1`,
+    [studentEmail]
+  );
+  let userId: string;
+  if (existingAuth.length > 0) {
+    userId = existingAuth[0].id;
+  } else {
+    const { rows: newAuth } = await client.query(
+      `insert into auth.users (id, email, raw_user_meta_data, aud, role)
+       values (gen_random_uuid(), $1, $2, 'authenticated', 'authenticated')
+       returning id`,
+      [studentEmail, JSON.stringify({ name: studentName })]
+    );
+    userId = newAuth[0].id;
+  }
+
+  // Create or update profile with password changeme
+  await client.query(
+    `insert into profile (id, name, email, must_change_password, password_hash)
+     values ($1, $2, $3, true, 'changeme')
+     on conflict (id) do update set name = excluded.name, email = excluded.email, password_hash = coalesce(profile.password_hash, 'changeme')`,
+    [userId, studentName, studentEmail]
+  );
+
+  // Resolve Student role ID
+  const { rows: sRoles } = await client.query(
+    `select id from role where (institution_id = $1 or institution_id is null) and lower(name) = 'student' order by institution_id nulls last limit 1`,
+    [institutionId]
+  );
+  const studentRoleId = sRoles[0]?.id || null;
+
+  // Create membership
+  await client.query(
+    `insert into membership (user_id, institution_id, role_id, login_username, status, invite_status)
+     values ($1, $2, $3, $4, 'active', 'active')
+     on conflict (user_id, institution_id) do update set login_username = excluded.login_username`,
+    [userId, institutionId, studentRoleId, username]
+  );
+
+  return { userId, username };
 }
 
 export interface AcademicYear {
@@ -401,8 +507,8 @@ export const coreRepository = {
       userId = authRows[0].id;
     } else {
       const { rows: newAuth } = await client.query(
-        `insert into auth.users (email, raw_user_meta_data)
-         values ($1, $2)
+        `insert into auth.users (id, email, raw_user_meta_data, aud, role)
+         values (gen_random_uuid(), $1, $2, 'authenticated', 'authenticated')
          returning id`,
         [email, JSON.stringify({ name: data.name })]
       );
@@ -772,18 +878,25 @@ export const coreRepository = {
     await logAudit(client, { institutionId, actorMembershipId, action: 'create', entityType: 'class_subject_teacher', entityId: assignment.id, after: assignment });
     return assignment;
   },
-
   // --- Students & Enrollments ---
   async listStudents(
     client: PoolClient,
     institutionId: string,
-    filters?: { classId?: string; sectionId?: string; status?: string }
+    filters?: {
+      classId?: string;
+      sectionId?: string;
+      status?: string;
+      grantedScope?: string;
+      userId?: string;
+      membershipId?: string;
+    }
   ): Promise<Student[]> {
     let query = `
       select distinct on (s.id)
         s.id,
         s.institution_id as "institutionId",
         s.user_id as "userId",
+        m.login_username as "username",
         s.admission_no as "admissionNo",
         s.name,
         s.date_of_birth as "dateOfBirth",
@@ -799,6 +912,7 @@ export const coreRepository = {
         g.name as "guardianName",
         g.phone as "guardianPhone"
        from student s
+       left join membership m on m.user_id = s.user_id and m.institution_id = s.institution_id
        left join enrollment e on e.student_id = s.id and e.status = 'active'
        left join class cls on cls.id = e.class_id
        left join section sec on sec.id = e.section_id
@@ -812,6 +926,19 @@ export const coreRepository = {
        where s.institution_id = $1
     `;
     const params: any[] = [institutionId];
+
+    if (filters?.grantedScope === 'self' && filters.userId) {
+      params.push(filters.userId);
+      query += ` and (s.user_id = $${params.length} or s.id in (select sg2.student_id from student_guardian sg2 join guardian g2 on g2.id = sg2.guardian_id where g2.user_id = $${params.length}))`;
+    } else if (filters?.grantedScope === 'assigned_sections' && filters.membershipId) {
+      const { rows: tSections } = await client.query(
+        `select distinct section_id from class_subject_teacher where teacher_membership_id = $1 and institution_id = $2`,
+        [filters.membershipId, institutionId]
+      );
+      const allowedSectionIds = tSections.map((r) => r.section_id);
+      params.push(allowedSectionIds);
+      query += ` and e.section_id = any($${params.length})`;
+    }
 
     if (filters?.classId) {
       params.push(filters.classId);
@@ -851,12 +978,20 @@ export const coreRepository = {
     },
     actorMembershipId?: string
   ): Promise<Student> {
+    const { userId, username } = await provisionStudentUserAccount(
+      client,
+      institutionId,
+      data.name,
+      data.admissionNo
+    );
+
     const { rows: studentRows } = await client.query(
-      `insert into student (institution_id, admission_no, name, date_of_birth, gender, status, custom_fields)
-       values ($1, $2, $3, $4, $5, 'active', $6)
-       returning id, institution_id as "institutionId", admission_no as "admissionNo", name, date_of_birth as "dateOfBirth", gender, status, custom_fields as "customFields", created_at as "createdAt"`,
+      `insert into student (institution_id, user_id, admission_no, name, date_of_birth, gender, status, custom_fields)
+       values ($1, $2, $3, $4, $5, $6, 'active', $7)
+       returning id, institution_id as "institutionId", user_id as "userId", admission_no as "admissionNo", name, date_of_birth as "dateOfBirth", gender, status, custom_fields as "customFields", created_at as "createdAt"`,
       [
         institutionId,
+        userId,
         data.admissionNo.trim(),
         data.name.trim(),
         data.dateOfBirth || null,
@@ -864,7 +999,7 @@ export const coreRepository = {
         JSON.stringify(data.customFields || {}),
       ]
     );
-    const student = studentRows[0];
+    const student = { ...studentRows[0], username };
 
     // Enroll in academic year if specified
     if (data.classId && data.sectionId) {
@@ -1045,7 +1180,22 @@ export const coreRepository = {
   },
 
   // --- Student 360 Academic History ---
-  async getStudentAcademicHistory(client: PoolClient, institutionId: string, studentId: string): Promise<StudentAcademicHistory> {
+  async getStudentAcademicHistory(
+    client: PoolClient,
+    institutionId: string,
+    studentId: string,
+    scopeContext?: { grantedScope?: string; userId?: string; membershipId?: string }
+  ): Promise<StudentAcademicHistory> {
+    if (scopeContext?.grantedScope === 'self' && scopeContext.userId) {
+      const { rows: selfCheck } = await client.query(
+        `select id from student where id = $1 and (user_id = $2 or id in (select sg.student_id from student_guardian sg join guardian g on g.id = sg.guardian_id where g.user_id = $2)) and institution_id = $3`,
+        [studentId, scopeContext.userId, institutionId]
+      );
+      if (selfCheck.length === 0) {
+        throw new Error('Access denied to student academic history');
+      }
+    }
+
     const { rows: sRows } = await client.query(
       `select 
         s.id,
@@ -1127,7 +1277,7 @@ export const coreRepository = {
         g.id,
         g.name,
         g.phone,
-        sg.relation,
+        sg.relation_type as "relation",
         sg.is_primary as "isPrimary"
        from student_guardian sg
        join guardian g on g.id = sg.guardian_id
@@ -1154,7 +1304,17 @@ export const coreRepository = {
   },
 
   // --- Class Timetables & Schedules ---
-  async listSchedules(client: PoolClient, institutionId: string, filters?: { sectionId?: string; dayOfWeek?: string }): Promise<ClassSchedule[]> {
+  async listSchedules(
+    client: PoolClient,
+    institutionId: string,
+    filters?: {
+      sectionId?: string;
+      dayOfWeek?: string;
+      grantedScope?: string;
+      userId?: string;
+      membershipId?: string;
+    }
+  ): Promise<ClassSchedule[]> {
     let query = `
       select 
         cs.id,
@@ -1180,6 +1340,23 @@ export const coreRepository = {
        where cs.institution_id = $1
     `;
     const params: any[] = [institutionId];
+
+    if (filters?.grantedScope === 'self' && filters.userId) {
+      params.push(filters.userId);
+      query += ` and (
+        cs.section_id in (select e.section_id from enrollment e join student s on s.id = e.student_id where s.user_id = $${params.length} and e.status = 'active')
+        or cs.teacher_membership_id = (select m2.id from membership m2 where m2.user_id = $${params.length} and m2.institution_id = $1)
+      )`;
+    } else if (filters?.grantedScope === 'assigned_sections' && filters.membershipId) {
+      const { rows: tSections } = await client.query(
+        `select distinct section_id from class_subject_teacher where teacher_membership_id = $1 and institution_id = $2`,
+        [filters.membershipId, institutionId]
+      );
+      const allowedSectionIds = tSections.map((r) => r.section_id);
+      params.push(allowedSectionIds);
+      query += ` and cs.section_id = any($${params.length})`;
+    }
+
     if (filters?.sectionId) {
       params.push(filters.sectionId);
       query += ` and cs.section_id = $${params.length}`;
@@ -1388,12 +1565,15 @@ export const coreRepository = {
     const currentAyId = ayRows[0]?.id;
 
     for (const item of students) {
+      const { userId } = await provisionStudentUserAccount(client, institutionId, item.name, item.admissionNo);
+
       const { rows: sRows } = await client.query(
-        `insert into student (institution_id, admission_no, name, gender, date_of_birth, status, custom_fields)
-         values ($1, $2, $3, $4, $5, 'active', $6)
-         on conflict (institution_id, admission_no) do update set name = excluded.name, custom_fields = coalesce(student.custom_fields, '{}'::jsonb) || excluded.custom_fields
+        `insert into student (institution_id, user_id, admission_no, name, gender, date_of_birth, status, custom_fields)
+         values ($1, $2, $3, $4, $5, $6, 'active', $7)
+         on conflict (institution_id, admission_no) do update
+         set name = excluded.name, user_id = coalesce(student.user_id, excluded.user_id), custom_fields = coalesce(student.custom_fields, '{}'::jsonb) || excluded.custom_fields
          returning id`,
-        [institutionId, item.admissionNo.trim(), item.name.trim(), item.gender || 'Other', item.dateOfBirth || null, JSON.stringify(item.customFields || {})]
+        [institutionId, userId, item.admissionNo.trim(), item.name.trim(), item.gender || 'Other', item.dateOfBirth || null, JSON.stringify(item.customFields || {})]
       );
       const studentId = sRows[0].id;
 
@@ -1560,14 +1740,9 @@ export const coreRepository = {
     );
   },
 
-  async markAllNotificationsRead(
-    client: PoolClient,
-    institutionId: string,
-    userId: string,
-    membershipId: string
-  ): Promise<void> {
+  async markAllNotificationsRead(client: PoolClient, institutionId: string, userId: string, membershipId: string): Promise<void> {
     await client.query(
-      `update notification set is_read = true 
+      `update notification set is_read = true
        where institution_id = $1 and (recipient_membership_id = $2 or recipient_user_id = $3)`,
       [institutionId, membershipId, userId]
     );
@@ -1578,7 +1753,8 @@ export const coreRepository = {
     client: PoolClient,
     institutionId: string,
     membershipId: string,
-    filter: 'my_tasks' | 'assigned_by_me' | 'all' = 'all'
+    filter: 'my_tasks' | 'assigned_by_me' | 'all' = 'all',
+    grantedScope?: string
   ): Promise<any[]> {
     let query = `
       select 
@@ -1606,12 +1782,12 @@ export const coreRepository = {
     `;
     const params: any[] = [institutionId];
 
-    if (filter === 'my_tasks') {
+    if (grantedScope === 'self' || filter === 'my_tasks') {
       params.push(membershipId);
-      query += ` and t.assignee_membership_id = $2`;
+      query += ` and t.assignee_membership_id = $${params.length}`;
     } else if (filter === 'assigned_by_me') {
       params.push(membershipId);
-      query += ` and t.creator_membership_id = $2`;
+      query += ` and t.creator_membership_id = $${params.length}`;
     }
 
     query += ` order by case t.status when 'pending' then 1 when 'in_progress' then 2 else 3 end, t.due_date asc nulls last, t.created_at desc`;
@@ -1751,8 +1927,7 @@ export const coreRepository = {
       attendanceThreshold: 75,
       enableExaminations: true,
       enableAssignments: true,
-      enableTransport: false,
-      enableFinance: true,
+      enableAdmissions: true,
       enableTimetable: true,
       notificationSmsEnabled: false,
     };
@@ -1903,15 +2078,17 @@ export const coreRepository = {
         sectionsCreated++;
       }
 
-      // 4. Ensure Student exists or upsert
+      // 4. Ensure Student exists or upsert with auto-provisioned student user account
       const admNo = row.admissionNo?.trim() || `ADM-${Date.now().toString().slice(-4)}${i + 1}`;
+      const { userId } = await provisionStudentUserAccount(client, institutionId, row.studentName, admNo);
+
       const { rows: sRows } = await client.query(
-        `insert into student (institution_id, admission_no, name, date_of_birth, gender, status)
-         values ($1, $2, $3, $4, $5, 'active')
+        `insert into student (institution_id, user_id, admission_no, name, date_of_birth, gender, status)
+         values ($1, $2, $3, $4, $5, $6, 'active')
          on conflict (institution_id, admission_no) do update
-         set name = excluded.name, status = 'active'
+         set name = excluded.name, user_id = coalesce(student.user_id, excluded.user_id), status = 'active'
          returning id`,
-        [institutionId, admNo, row.studentName.trim(), row.dateOfBirth || null, row.gender || null]
+        [institutionId, userId, admNo, row.studentName.trim(), row.dateOfBirth || null, row.gender || null]
       );
       const studentId = sRows[0].id;
       studentsCreated++;

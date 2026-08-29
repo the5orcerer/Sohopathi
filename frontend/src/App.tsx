@@ -12,6 +12,7 @@ import { ActivityLogPage } from './pages/ActivityLogPage';
 import { ExaminationsPage } from './pages/ExaminationsPage';
 import { AssignmentsPage } from './pages/AssignmentsPage';
 import { TasksPage } from './pages/TasksPage';
+import { AdmissionsPage } from './pages/AdmissionsPage';
 import { InstitutionSettingsPage } from './pages/InstitutionSettingsPage';
 import { LoginPage } from './pages/LoginPage';
 import { ScopeChip } from './components/common/ScopeChip';
@@ -101,6 +102,8 @@ const MainAppContent: React.FC = () => {
         return <DashboardView onNavigate={handleNavigate} />;
       case '/attendance':
         return <AttendancePage />;
+      case '/admissions':
+        return <AdmissionsPage />;
       case '/examinations':
         return <ExaminationsPage onNavigateHome={() => handleNavigate('/')} />;
       case '/assignments':

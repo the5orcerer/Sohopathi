@@ -165,6 +165,7 @@ export interface StudentItem {
   id: string;
   institutionId: string;
   userId: string | null;
+  username?: string;
   admissionNo: string;
   name: string;
   dateOfBirth: string | null;
@@ -460,6 +461,9 @@ export interface Assignment {
   sectionName?: string;
   totalSubmissions?: number;
   status?: 'pending' | 'submitted' | 'graded' | 'active';
+  submissionStatus?: 'pending' | 'submitted' | 'graded';
+  grade?: string | number;
+  feedback?: string;
   score?: number;
   maxScore?: number;
   createdAt?: string;
@@ -493,49 +497,79 @@ export interface AssignmentStatisticsData {
   }[];
 }
 
-export interface RouteItem {
+export interface AdmissionApplicationItem {
   id: string;
-  name: string;
-  vehicleRegistration?: string;
-  vehicleCapacity?: number;
-  driverName?: string;
-  driverPhone?: string;
-  studentCount?: number;
-  status?: string;
+  institutionId: string;
+  applicationNo: string;
+  academicYearId?: string;
+  academicYearLabel?: string;
+  classId?: string;
+  className?: string;
+  applicantName: string;
+  dateOfBirth?: string;
+  gender?: string;
+  guardianName: string;
+  guardianPhone: string;
+  guardianEmail?: string;
+  guardianRelation?: string;
+  address?: string;
+  previousSchool?: string;
+  status: 'submitted' | 'under_review' | 'shortlisted' | 'admitted' | 'rejected';
+  applicationFee: number;
+  feeStatus: 'unpaid' | 'paid' | 'waived';
+  notes?: string;
+  reviewedByMembershipId?: string;
+  reviewerName?: string;
+  admittedStudentId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface MyRouteData {
-  routeName: string;
-  vehicleRegistration: string;
-  driverName: string;
-  driverPhone: string;
-  pickupTime: string;
-  dropTime: string;
-  stopName: string;
+export interface AdmissionStatsData {
+  summary: {
+    total: number;
+    submitted: number;
+    under_review: number;
+    shortlisted: number;
+    admitted: number;
+    rejected: number;
+    total_fees_collected: number;
+  };
+  classBreakdown?: Array<{
+    className: string;
+    count: number;
+  }>;
 }
 
-export interface FinanceSummaryData {
-  totalBilled: number;
-  totalCollected: number;
-  totalPending: number;
-  collectionRate: number;
-  recentTransactions: {
-    id: string;
-    studentName: string;
-    amount: number;
-    date: string;
-    method: string;
-  }[];
+export interface CreateAdmissionPayload {
+  applicantName: string;
+  guardianName: string;
+  guardianPhone: string;
+  classId?: string;
+  academicYearId?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  guardianEmail?: string;
+  guardianRelation?: string;
+  address?: string;
+  previousSchool?: string;
+  applicationFee?: number;
+  feeStatus?: string;
+  notes?: string;
 }
 
-export interface Invoice {
-  id: string;
-  title: string;
-  amount: number;
-  dueDate?: string;
-  status: 'paid' | 'unpaid' | 'overdue';
-  studentName?: string;
-  paidAt?: string;
+export interface UpdateAdmissionPayload {
+  status?: 'submitted' | 'under_review' | 'shortlisted' | 'admitted' | 'rejected';
+  feeStatus?: 'unpaid' | 'paid' | 'waived';
+  notes?: string;
+  classId?: string;
+}
+
+export interface AdmitStudentPayload {
+  sectionId: string;
+  admissionNo?: string;
+  rollNo?: string;
+  academicYearId?: string;
 }
 
 export interface Persona {

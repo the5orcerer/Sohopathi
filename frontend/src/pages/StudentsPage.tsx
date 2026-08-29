@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSession } from '../context/SessionContext';
 import {
   fetchStudents,
   fetchClasses,
@@ -74,6 +75,9 @@ export const StudentsPage: React.FC = () => {
   const [deleteTargetStudent, setDeleteTargetStudent] = useState<StudentItem | null>(null);
   const [deletingStudent, setDeletingStudent] = useState(false);
 
+  const { hasPermission } = useSession();
+  const canWrite = hasPermission('students.write') || hasPermission('classes.manage') || hasPermission('roles.manage');
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -83,8 +87,8 @@ export const StudentsPage: React.FC = () => {
           classId: selectedClassId || undefined,
           sectionId: selectedSectionId || undefined,
         }),
-        fetchClasses(),
-        fetchSections(selectedClassId || undefined),
+        fetchClasses().catch(() => []),
+        fetchSections(selectedClassId || undefined).catch(() => []),
       ]);
       setStudents(studentsRes);
       setClasses(classesRes);
@@ -266,12 +270,16 @@ export const StudentsPage: React.FC = () => {
           <Button variant="secondary" icon={<Download size={14} />} onClick={handleExportCsv}>
             Export CSV
           </Button>
-          <Button variant="secondary" icon={<Sparkles size={14} />} onClick={() => setShowMigrationModal(true)}>
-            Setup & Migration Wizard
-          </Button>
-          <Button variant="primary" icon={<Plus size={15} />} onClick={() => setShowAddModal(true)}>
-            Enroll Student
-          </Button>
+          {canWrite && (
+            <>
+              <Button variant="secondary" icon={<Sparkles size={14} />} onClick={() => setShowMigrationModal(true)}>
+                Setup & Migration Wizard
+              </Button>
+              <Button variant="primary" icon={<Plus size={15} />} onClick={() => setShowAddModal(true)}>
+                Enroll Student
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -464,6 +472,11 @@ export const StudentsPage: React.FC = () => {
                         <span>{st.name}</span>
                         <Eye size={13} style={{ opacity: 0.7 }} />
                       </button>
+                      {st.username && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '0.1rem' }}>
+                          login: @{st.username} &bull; default pwd: changeme
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '0.65rem 0.5rem' }}>
                       {st.className ? `${st.className} — ${st.sectionName}` : <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>}

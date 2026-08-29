@@ -10,6 +10,7 @@ import { coreManifest } from './modules/core/manifest';
 import { attendanceManifest } from './modules/attendance/manifest';
 import { noticesManifest } from './modules/notices/manifest';
 import { assignmentsManifest } from './modules/assignments/manifest';
+import { admissionManifest } from './modules/admission/manifest';
 import { authRouter } from './core/auth/auth-routes';
 
 function enableCors(app: express.Application) {
@@ -105,6 +106,7 @@ export async function bootApp(): Promise<express.Application> {
   await registerModule(attendanceManifest, router);
   await registerModule(noticesManifest, router);
   await registerModule(assignmentsManifest, router);
+  await registerModule(admissionManifest, router);
 
   app.use(router);
 

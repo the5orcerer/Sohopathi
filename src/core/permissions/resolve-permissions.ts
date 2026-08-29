@@ -50,42 +50,35 @@ export async function resolveContext(
     const roleId = memberRows[0].role_id;
     const roleName = memberRows[0].role_name || 'Member';
 
-    // 1. Fetch direct role permissions OR inherited template role permissions
+    // Fetch granted permissions where the parent module is enabled for this institution
     const { rows: permRows } = await client.query(
       `select p.key as permission_key, rp.scope
-       from role_permission rp
+       from membership m
+       join role_permission rp on rp.role_id = m.role_id
        join permission p on p.id = rp.permission_id
-       where rp.role_id = $1
-          or rp.role_id in (
-            select id from role
-            where lower(name) = lower($2) and institution_id is null
-          )`,
-      [roleId, roleName]
+       join institution_module im
+         on im.institution_id = m.institution_id
+        and im.module_id = p.module_id
+        and im.enabled = true
+       where m.id = $1 and m.status = 'active'
+       union
+       select p.key as permission_key, rp.scope
+       from membership m
+       join role r on r.id = m.role_id
+       join role tr on lower(tr.name) = lower(r.name) and tr.institution_id is null
+       join role_permission rp on rp.role_id = tr.id
+       join permission p on p.id = rp.permission_id
+       join institution_module im
+         on im.institution_id = m.institution_id
+        and im.module_id = p.module_id
+        and im.enabled = true
+       where m.id = $1 and m.status = 'active'`,
+      [membershipId]
     );
 
     const permissions = new Map<string, string>();
     for (const row of permRows) {
       permissions.set(row.permission_key, row.scope || 'institution');
-    }
-
-    // 2. If user has an administrative role (Institution Admin, Owner, Principal, Academic Coordinator),
-    // ensure full access to all registered platform permissions
-    const isSuperAdmin =
-      roleName.toLowerCase().includes('admin') ||
-      roleName.toLowerCase().includes('owner') ||
-      roleName.toLowerCase().includes('principal') ||
-      roleName.toLowerCase().includes('headmaster') ||
-      roleName.toLowerCase().includes('coordinator');
-
-    if (isSuperAdmin) {
-      const { rows: allPerms } = await client.query(
-        `select key, case when 'institution' = any(scope_options) then 'institution' else coalesce(scope_options[1], 'institution') end as scope from permission`
-      );
-      for (const p of allPerms) {
-        if (!permissions.has(p.key) || permissions.get(p.key) !== 'institution') {
-          permissions.set(p.key, 'institution');
-        }
-      }
     }
 
     await client.query('COMMIT');

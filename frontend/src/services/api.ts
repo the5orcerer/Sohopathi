@@ -31,6 +31,11 @@ import type {
   UserTaskItem,
   InstitutionSettingsData,
   AcademicMigrationSummary,
+  AdmissionApplicationItem,
+  AdmissionStatsData,
+  CreateAdmissionPayload,
+  UpdateAdmissionPayload,
+  AdmitStudentPayload,
 } from '../types';
 
 let currentToken = 'mock-token-admin-1';
@@ -558,6 +563,15 @@ export async function markAttendanceBatch(records: Array<{
   });
 }
 
+export async function fetchAttendanceRecords(filters?: { sectionId?: string; date?: string; studentId?: string }): Promise<any[]> {
+  const params = new URLSearchParams();
+  if (filters?.sectionId) params.append('sectionId', filters.sectionId);
+  if (filters?.date) params.append('date', filters.date);
+  if (filters?.studentId) params.append('studentId', filters.studentId);
+  const query = params.toString();
+  return fetchWithAuth<any[]>(`/api/attendance${query ? `?${query}` : ''}`);
+}
+
 export async function fetchAttendanceSummary(): Promise<AttendanceSummaryData[]> {
   return fetchWithAuth<AttendanceSummaryData[]>('/api/attendance/summary');
 }
@@ -836,5 +850,60 @@ export function exportToCsv(filename: string, rows: Record<string, any>[], custo
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+}
+
+// Admissions & Inquiries
+export async function fetchAdmissions(filters?: {
+  status?: string;
+  classId?: string;
+  academicYearId?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ applications: AdmissionApplicationItem[]; total: number }> {
+  const params = new URLSearchParams();
+  if (filters?.status && filters.status !== 'all') params.set('status', filters.status);
+  if (filters?.classId) params.set('classId', filters.classId);
+  if (filters?.academicYearId) params.set('academicYearId', filters.academicYearId);
+  if (filters?.search) params.set('search', filters.search);
+  if (filters?.limit) params.set('limit', String(filters.limit));
+  if (filters?.offset) params.set('offset', String(filters.offset));
+  const qs = params.toString();
+  return fetchWithAuth<{ applications: AdmissionApplicationItem[]; total: number }>(`/api/admissions${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchAdmissionStats(): Promise<AdmissionStatsData> {
+  return fetchWithAuth<AdmissionStatsData>('/api/admissions/stats');
+}
+
+export async function fetchAdmissionDetail(id: string): Promise<AdmissionApplicationItem> {
+  return fetchWithAuth<AdmissionApplicationItem>(`/api/admissions/${id}`);
+}
+
+export async function createAdmission(data: CreateAdmissionPayload): Promise<AdmissionApplicationItem> {
+  return fetchWithAuth<AdmissionApplicationItem>('/api/admissions', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateAdmission(id: string, data: UpdateAdmissionPayload): Promise<AdmissionApplicationItem> {
+  return fetchWithAuth<AdmissionApplicationItem>(`/api/admissions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function admitStudent(id: string, data: AdmitStudentPayload): Promise<{ student: StudentItem; username: string; defaultPassword: string; application: AdmissionApplicationItem }> {
+  return fetchWithAuth<{ student: StudentItem; username: string; defaultPassword: string; application: AdmissionApplicationItem }>(`/api/admissions/${id}/admit`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteAdmission(id: string): Promise<{ success: boolean }> {
+  return fetchWithAuth<{ success: boolean }>(`/api/admissions/${id}`, {
+    method: 'DELETE',
+  });
 }
 

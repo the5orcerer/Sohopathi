@@ -11,8 +11,20 @@ export async function listAssignments(req: Request, res: Response, client: PoolC
   const status = req.query.status as string | undefined;
 
   let allowedSectionIds: string[] | undefined;
+  let selfStudentId: string | null = null;
 
-  if (grantedScope === 'assigned_sections') {
+  if (grantedScope === 'self') {
+    selfStudentId = await attendanceRepository.getStudentIdForUser(client, req.ctx!.userId);
+    if (selfStudentId) {
+      const { rows: enrollRows } = await client.query(
+        `select section_id from enrollment where student_id = $1 and status = 'active'`,
+        [selfStudentId]
+      );
+      allowedSectionIds = enrollRows.map((r) => r.section_id);
+    } else {
+      allowedSectionIds = [];
+    }
+  } else if (grantedScope === 'assigned_sections') {
     allowedSectionIds = await attendanceRepository.getTeacherAssignedSectionIds(client, req.ctx!.membershipId);
     if (sectionId && !allowedSectionIds.includes(sectionId)) {
       return res.status(403).json({ error: 'insufficient scope for requested section', code: 'FORBIDDEN' });
@@ -22,6 +34,7 @@ export async function listAssignments(req: Request, res: Response, client: PoolC
   const assignments = await assignmentRepository.list(client, req.ctx!.institutionId, {
     sectionId,
     status,
+    studentId: selfStudentId || undefined,
     allowedSectionIds,
   });
   res.json(assignments);
@@ -32,9 +45,17 @@ export async function createAssignment(req: Request, res: Response, client: Pool
   const { sectionId, subjectId, title, description, dueDate } = req.body;
 
   if (grantedScope === 'assigned_sections') {
-    const allowedSectionIds = await attendanceRepository.getTeacherAssignedSectionIds(client, req.ctx!.membershipId);
-    if (!allowedSectionIds.includes(sectionId)) {
-      return res.status(403).json({ error: 'insufficient scope for section', code: 'FORBIDDEN' });
+    const isAssigned = await assignmentRepository.isTeacherAssignedToSectionAndSubject(
+      client,
+      req.ctx!.membershipId,
+      sectionId,
+      subjectId
+    );
+    if (!isAssigned) {
+      return res.status(403).json({
+        error: 'Teacher is not assigned to teach this subject in the selected section',
+        code: 'FORBIDDEN',
+      });
     }
   }
 
@@ -49,6 +70,13 @@ export async function createAssignment(req: Request, res: Response, client: Pool
 }
 
 export async function updateAssignment(req: Request, res: Response, client: PoolClient) {
+  const grantedScope = req.grantedScope;
+  if (grantedScope === 'assigned_sections') {
+    const isAllowed = await assignmentRepository.isTeacherAssignment(client, req.ctx!.membershipId, req.params.id);
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'You do not have permission to modify this assignment', code: 'FORBIDDEN' });
+    }
+  }
   const updated = await assignmentRepository.update(
     client,
     req.ctx!.institutionId,
@@ -60,6 +88,13 @@ export async function updateAssignment(req: Request, res: Response, client: Pool
 }
 
 export async function deleteAssignment(req: Request, res: Response, client: PoolClient) {
+  const grantedScope = req.grantedScope;
+  if (grantedScope === 'assigned_sections') {
+    const isAllowed = await assignmentRepository.isTeacherAssignment(client, req.ctx!.membershipId, req.params.id);
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'You do not have permission to delete this assignment', code: 'FORBIDDEN' });
+    }
+  }
   await assignmentRepository.delete(client, req.ctx!.institutionId, req.params.id, req.ctx?.membershipId);
   res.status(204).send();
 }
@@ -93,7 +128,7 @@ export async function submitAssignment(req: Request, res: Response, client: Pool
   const { fileKey } = req.body;
 
   let studentId = req.body.studentId;
-  if (!studentId) {
+  if (req.grantedScope === 'self' || !studentId) {
     const selfStudentId = await attendanceRepository.getStudentIdForUser(client, req.ctx!.userId);
     if (!selfStudentId) {
       return res.status(400).json({ error: 'student record not found for user', code: 'STUDENT_NOT_FOUND' });
@@ -112,7 +147,16 @@ export async function submitAssignment(req: Request, res: Response, client: Pool
 }
 
 export async function gradeSubmission(req: Request, res: Response, client: PoolClient) {
+  const grantedScope = req.grantedScope;
   const { submissionId, grade, feedback } = req.body;
+
+  if (grantedScope === 'assigned_sections') {
+    const isAllowed = await assignmentRepository.isTeacherSubmission(client, req.ctx!.membershipId, submissionId);
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'You do not have permission to grade this submission', code: 'FORBIDDEN' });
+    }
+  }
+
   await assignmentRepository.gradeSubmission(client, req.ctx!.institutionId, submissionId, req.ctx!.membershipId, {
     grade,
     feedback,

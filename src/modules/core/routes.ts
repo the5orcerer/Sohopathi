@@ -151,7 +151,13 @@ export async function assignClassSubjectTeacher(req: Request, res: Response, cli
 export async function listSchedules(req: Request, res: Response, client: PoolClient) {
   const sectionId = req.query.sectionId as string | undefined;
   const dayOfWeek = req.query.dayOfWeek as string | undefined;
-  const schedules = await coreRepository.listSchedules(client, req.ctx!.institutionId, { sectionId, dayOfWeek });
+  const schedules = await coreRepository.listSchedules(client, req.ctx!.institutionId, {
+    sectionId,
+    dayOfWeek,
+    grantedScope: req.grantedScope,
+    userId: req.ctx?.userId,
+    membershipId: req.ctx?.membershipId,
+  });
   res.json(schedules);
 }
 
@@ -230,7 +236,14 @@ export async function listStudents(req: Request, res: Response, client: PoolClie
   const classId = req.query.classId as string | undefined;
   const sectionId = req.query.sectionId as string | undefined;
   const status = req.query.status as string | undefined;
-  const students = await coreRepository.listStudents(client, req.ctx!.institutionId, { classId, sectionId, status });
+  const students = await coreRepository.listStudents(client, req.ctx!.institutionId, {
+    classId,
+    sectionId,
+    status,
+    grantedScope: req.grantedScope,
+    userId: req.ctx?.userId,
+    membershipId: req.ctx?.membershipId,
+  });
   res.json(students);
 }
 
@@ -270,7 +283,16 @@ export async function bulkDeleteStudents(req: Request, res: Response, client: Po
 }
 
 export async function getStudentAcademicHistory(req: Request, res: Response, client: PoolClient) {
-  const history = await coreRepository.getStudentAcademicHistory(client, req.ctx!.institutionId, req.params.id);
+  const history = await coreRepository.getStudentAcademicHistory(
+    client,
+    req.ctx!.institutionId,
+    req.params.id,
+    {
+      grantedScope: req.grantedScope,
+      userId: req.ctx?.userId,
+      membershipId: req.ctx?.membershipId,
+    }
+  );
   res.json(history);
 }
 
@@ -335,7 +357,13 @@ export async function markAllNotificationsRead(req: Request, res: Response, clie
 // --- Tasks Route Handlers ---
 export async function listTasks(req: Request, res: Response, client: PoolClient) {
   const filter = (req.query.filter as any) || 'all';
-  const tasks = await coreRepository.listTasks(client, req.ctx!.institutionId, req.ctx!.membershipId, filter);
+  const tasks = await coreRepository.listTasks(
+    client,
+    req.ctx!.institutionId,
+    req.ctx!.membershipId,
+    filter,
+    req.grantedScope
+  );
   res.json(tasks);
 }
 

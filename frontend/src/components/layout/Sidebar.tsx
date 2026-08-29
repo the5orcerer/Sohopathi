@@ -32,6 +32,8 @@ const getNavIcon = (path: string) => {
       return <LayoutDashboard size={18} />;
     case '/attendance':
       return <CalendarCheck size={18} />;
+    case '/admissions':
+      return <UserPlus size={18} />;
     case '/examinations':
       return <Award size={18} />;
     case '/assignments':
@@ -196,11 +198,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Dynamic Nav Items resolved from backend permissions */}
           {navItems.map((item) => {
-            const isActive = currentPath === item.path;
+            const itemPath = item.path || (item as any).href;
+            const isActive = currentPath === itemPath;
             return (
               <button
-                key={item.path}
-                onClick={() => handleItemClick(item.path)}
+                key={itemPath}
+                onClick={() => handleItemClick(itemPath)}
                 style={{
                   width: '100%',
                   display: 'flex',
@@ -227,7 +230,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
               >
                 <span style={{ color: isActive ? 'var(--primary-fg)' : 'var(--text-muted)' }}>
-                  {getNavIcon(item.path)}
+                  {getNavIcon(itemPath)}
                 </span>
                 <span style={{ flex: 1 }}>{item.label}</span>
                 {isActive && <ChevronRight size={14} />}

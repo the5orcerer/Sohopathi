@@ -10,8 +10,9 @@
     "dev": "tsx watch src/server.ts",
     "dev:frontend": "cd frontend && npm run dev",
     "preview:frontend": "cd frontend && npm run preview",
-    "seed:db": "tsx src/core/init-db.ts",
-    "test": "vitest run --fileParallelism false --pool=threads --poolOptions.threads.singleThread"
+    "seed:db": "DATABASE_URL=\"${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5433/education-platform}\" tsx src/core/init-db.ts",
+    "seed:env": "tsx src/core/init-db.ts",
+    "test": "DATABASE_URL=\"${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5433/education-platform}\" vitest run --fileParallelism false --maxConcurrency 1 --pool=threads --poolOptions.threads.singleThread"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",

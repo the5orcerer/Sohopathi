@@ -101,8 +101,8 @@ export async function onboardInstitution(req: Request, res: Response, client: Po
       userId = authRows[0].id;
     } else {
       const { rows: newAuthRows } = await client.query(
-        `insert into auth.users (email, raw_user_meta_data)
-         values ($1, $2)
+        `insert into auth.users (id, email, raw_user_meta_data, aud, role)
+         values (gen_random_uuid(), $1, $2, 'authenticated', 'authenticated')
          returning id`,
         [adminEmail.trim().toLowerCase(), JSON.stringify({ name: adminName })]
       );
@@ -145,13 +145,15 @@ export async function onboardInstitution(req: Request, res: Response, client: Po
     });
 
     res.status(201).json({
-      institutionId: cleanSubdomain,
+      institutionId,
+      subdomain: cleanSubdomain,
       institutionUuid: institutionId,
       institutionName: name,
       username: loginUsername,
       adminEmail,
       adminName,
       ownerMembershipId,
+      ownerUserId: userId,
     });
   } catch (err: any) {
     logger.error(err, 'Error in onboardInstitution');
