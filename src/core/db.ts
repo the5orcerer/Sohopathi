@@ -1,12 +1,11 @@
 import { Pool, PoolClient } from 'pg';
 import { env } from './env';
 
-const isCloudDb =
-  env.DATABASE_URL.includes('aivencloud.com') ||
-  env.DATABASE_URL.includes('supabase.co') ||
-  env.DATABASE_URL.includes('pooler.supabase.com') ||
-  env.DATABASE_URL.includes('neon.tech') ||
-  env.DATABASE_URL.includes('sslmode=require');
+const isLocalhost =
+  env.DATABASE_URL.includes('127.0.0.1') ||
+  env.DATABASE_URL.includes('localhost');
+
+const isCloudDb = !isLocalhost;
 
 export const pool = new Pool({
   connectionString: env.DATABASE_URL.split('?')[0],
