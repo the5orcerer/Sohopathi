@@ -170,7 +170,7 @@ export const NoticeBoard: React.FC<WidgetProps> = ({ dataSource }) => {
           </form>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '280px', overflowY: 'auto', paddingRight: '0.25rem' }}>
           {notices.length === 0 ? (
             <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
               No notices published yet.

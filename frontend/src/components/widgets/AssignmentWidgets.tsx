@@ -51,7 +51,7 @@ export const AssignmentList: React.FC<WidgetProps> = ({ dataSource }) => {
       </div>
 
       <div className="widget-body">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '280px', overflowY: 'auto', paddingRight: '0.25rem' }}>
           {assignments.length === 0 ? (
             <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
               No current assignments.

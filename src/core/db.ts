@@ -1,8 +1,16 @@
 import { Pool, PoolClient } from 'pg';
 import { env } from './env';
 
+const isCloudDb =
+  env.DATABASE_URL.includes('aivencloud.com') ||
+  env.DATABASE_URL.includes('supabase.co') ||
+  env.DATABASE_URL.includes('pooler.supabase.com') ||
+  env.DATABASE_URL.includes('neon.tech') ||
+  env.DATABASE_URL.includes('sslmode=require');
+
 export const pool = new Pool({
-  connectionString: env.DATABASE_URL,
+  connectionString: env.DATABASE_URL.split('?')[0],
+  ssl: isCloudDb ? { rejectUnauthorized: false } : undefined,
   max: parseInt(process.env.PG_MAX_POOL || (process.env.NODE_ENV === 'test' ? '10' : '2'), 10),
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 5000,
@@ -19,7 +27,6 @@ export async function ensureTenantRLS(client: PoolClient, force = false): Promis
   // Use advisory lock to prevent concurrent test runners from running DDL simultaneously
   await client.query(`SELECT pg_advisory_xact_lock(748291);`);
 
-  const isCloudDb = env.DATABASE_URL.includes('supabase.co') || env.DATABASE_URL.includes('pooler.supabase.com');
 
   if (!isCloudDb) {
     await client.query(`
@@ -304,8 +311,6 @@ export async function withTenantContext<T>(
 ): Promise<T> {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const isCloudDb = env.DATABASE_URL.includes('supabase.co') || env.DATABASE_URL.includes('pooler.supabase.com');
     if (!isCloudDb) {
       try {
         await client.query(`SET LOCAL ROLE app_user`);

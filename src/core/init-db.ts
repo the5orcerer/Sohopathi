@@ -9,7 +9,12 @@ export async function initializeDatabase(reset?: boolean) {
   try {
     logger.info('Connecting to PostgreSQL database...');
 
-    const isCloudDb = env.DATABASE_URL.includes('supabase.co') || env.DATABASE_URL.includes('pooler.supabase.com');
+    const isCloudDb =
+      env.DATABASE_URL.includes('aivencloud.com') ||
+      env.DATABASE_URL.includes('supabase.co') ||
+      env.DATABASE_URL.includes('pooler.supabase.com') ||
+      env.DATABASE_URL.includes('neon.tech') ||
+      env.DATABASE_URL.includes('sslmode=require');
     const shouldReset = reset ?? (!isCloudDb && !process.argv.includes('--no-reset'));
 
     if (shouldReset && !isCloudDb) {
@@ -37,8 +42,12 @@ export async function initializeDatabase(reset?: boolean) {
           id uuid primary key default gen_random_uuid(),
           email text unique,
           raw_user_meta_data jsonb default '{}'::jsonb,
+          aud text default 'authenticated',
+          role text default 'authenticated',
           created_at timestamptz default now()
         );
+        alter table auth.users add column if not exists aud text default 'authenticated';
+        alter table auth.users add column if not exists role text default 'authenticated';
         create or replace function auth.uid() returns uuid language sql stable as $$
           select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
         $$;
@@ -50,9 +59,13 @@ export async function initializeDatabase(reset?: boolean) {
     // 2. Read and apply canonical schema if available
     const schemaPath = path.join(__dirname, '../../instruction_set/education-platform-schema.sql');
     if (fs.existsSync(schemaPath)) {
-      const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-      logger.info('Applying canonical database schema...');
-      await client.query(schemaSql);
+      try {
+        const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+        logger.info('Applying canonical database schema...');
+        await client.query(schemaSql);
+      } catch (err: any) {
+        // Tables already exist on cloud database, continue with schema extensions & RLS
+      }
     }
 
     // 2b. Add additional columns for onboarding & institution-scoped authentication and ensure RLS schema
@@ -389,13 +402,13 @@ export async function initializeDatabase(reset?: boolean) {
         values (
           '${u.id}',
           '${instId}',
-          (select id from public.role where institution_id = '${instId}' and name = '${u.role}'),
+          (select id from public.role where (institution_id = '${instId}' or institution_id is null) and name = '${u.role}' order by institution_id nulls last limit 1),
           '${u.username}',
           'active',
           'active'
         )
         on conflict (user_id, institution_id) do update
-        set role_id = (select id from public.role where institution_id = '${instId}' and name = '${u.role}'),
+        set role_id = (select id from public.role where (institution_id = '${instId}' or institution_id is null) and name = '${u.role}' order by institution_id nulls last limit 1),
             login_username = '${u.username}';
       `);
     }
@@ -444,7 +457,7 @@ export async function initializeDatabase(reset?: boolean) {
         '${instId}',
         '30000000-0000-0000-0000-000000000001',
         '40000000-0000-0000-0000-000000000001',
-        (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003')
+        (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003' and institution_id = '${instId}' limit 1)
       ) on conflict do nothing;
 
       -- Seed Student (Tahmid Rahman)
@@ -478,21 +491,21 @@ export async function initializeDatabase(reset?: boolean) {
         88,
         100,
         'A+',
-        (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003')
+        (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003' and institution_id = '${instId}' limit 1)
       ) on conflict (exam_id, student_id, subject_id) do nothing;
 
       -- Attendance
       insert into public.attendance (institution_id, student_id, section_id, date, status, recorded_by_membership_id)
       values
-        ('${instId}', '50000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', current_date, 'present', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003')),
-        ('${instId}', '50000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', current_date, 'present', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003'))
+        ('${instId}', '50000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', current_date, 'present', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003' and institution_id = '${instId}' limit 1)),
+        ('${instId}', '50000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', current_date, 'present', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003' and institution_id = '${instId}' limit 1))
       on conflict (student_id, date) do nothing;
 
       -- Notices
       insert into public.notice (institution_id, title, body, audience_scope, published_by_membership_id)
       values
-        ('${instId}', 'Welcome to the New Academic Session 2026-2027', 'Classes have commenced for all grades. Students are advised to collect their curriculum schedules from their respective section coordinators.', 'institution', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000001')),
-        ('${instId}', 'Science Fair Abstract Submission Deadline', 'All Grade 9 and 10 students must submit their project abstracts by the upcoming Thursday.', 'institution', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000002'))
+        ('${instId}', 'Welcome to the New Academic Session 2026-2027', 'Classes have commenced for all grades. Students are advised to collect their curriculum schedules from their respective section coordinators.', 'institution', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000001' and institution_id = '${instId}' limit 1)),
+        ('${instId}', 'Science Fair Abstract Submission Deadline', 'All Grade 9 and 10 students must submit their project abstracts by the upcoming Thursday.', 'institution', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000002' and institution_id = '${instId}' limit 1))
       on conflict do nothing;
 
       -- Admissions Seed
@@ -509,7 +522,8 @@ export async function initializeDatabase(reset?: boolean) {
          'Scholastica Senior Campus', 'under_review', 500, 'paid', 'Seeking admission into Science group with Higher Math.'),
         ('${instId}', 'APP-2026-003', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002',
          'Tanvir Hassan', '2011-06-20', 'Male', 'Hassan Mahmud', '+880 1711-556677', 'hassan.m@gmail.com',
-         'Viqarunnisa Noon School', 'shortlisted', 500, 'paid', 'Interview scheduled for upcoming Monday.');
+         'Viqarunnisa Noon School', 'shortlisted', 500, 'paid', 'Interview scheduled for upcoming Monday.')
+      on conflict (institution_id, application_no) do nothing;
     `);
 
     // Ensure RLS permissions for app_user
