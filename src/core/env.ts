@@ -19,6 +19,9 @@ const envSchema = z.object({
   DOCS_ENABLED: z.string().transform((val) => val === 'true' || val === '1').default('true'),
   DOCS_USER: z.string().default('admin'),
   DOCS_PASSWORD: z.string().default('sohopathi_docs_secret_2024'),
+  SENTRY_DSN: z.string().optional(),
+  SENTRY_ENVIRONMENT: z.string().default(process.env.NODE_ENV || 'development'),
+  SENTRY_TRACES_SAMPLE_RATE: z.string().transform((v) => parseFloat(v)).default('1.0'),
 });
 
 export const env = envSchema.parse(process.env);

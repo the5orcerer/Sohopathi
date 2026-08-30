@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import * as Sentry from '@sentry/node';
 import { logger } from './logger';
 
 export class AppError extends Error {
@@ -50,6 +51,15 @@ export function errorHandler(
       code: err.code,
     });
   }
+
+  Sentry.captureException(err, {
+    extra: {
+      url: req.originalUrl,
+      method: req.method,
+      institutionId: req.ctx?.institutionId,
+      userId: req.userId,
+    },
+  });
 
   logger.error(err, 'Unhandled error encountered');
   return res.status(500).json({

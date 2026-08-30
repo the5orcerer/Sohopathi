@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as Sentry from '@sentry/react';
 import { SessionProvider, useSession } from './context/SessionContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { DashboardGrid } from './components/dashboard/DashboardGrid';
@@ -139,9 +140,26 @@ const MainAppContent: React.FC = () => {
 
 export function App() {
   return (
-    <SessionProvider>
-      <MainAppContent />
-    </SessionProvider>
+    <Sentry.ErrorBoundary
+      fallback={({ error, resetError }) => (
+        <div style={{ padding: '2.5rem', textAlign: 'center', maxWidth: '500px', margin: '4rem auto', backgroundColor: 'var(--card-bg, #fff)', borderRadius: '12px', border: '1px solid var(--border, #e2e8f0)', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary, #1e293b)', marginBottom: '0.5rem' }}>Something went wrong</h2>
+          <p style={{ color: 'var(--text-secondary, #64748b)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+            {error instanceof Error ? error.message : 'An unexpected error occurred.'}
+          </p>
+          <button
+            onClick={resetError}
+            style={{ padding: '0.6rem 1.25rem', borderRadius: '8px', backgroundColor: 'var(--primary, #3b82f6)', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 500 }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+    >
+      <SessionProvider>
+        <MainAppContent />
+      </SessionProvider>
+    </Sentry.ErrorBoundary>
   );
 }
 

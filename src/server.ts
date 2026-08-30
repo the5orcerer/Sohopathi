@@ -1,3 +1,4 @@
+import './instrument';
 import { bootApp } from './app';
 import { env } from './core/env';
 import { logger } from './core/logger';

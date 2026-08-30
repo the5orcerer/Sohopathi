@@ -1,3 +1,5 @@
+import './instrument';
+import * as Sentry from '@sentry/node';
 import express, { Request, Response, Router } from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -81,7 +83,12 @@ export function createApp(): express.Application {
     res.status(200).json({ status: 'ok' });
   });
 
+  app.get('/debug-sentry', (req: Request, res: Response) => {
+    throw new Error('My first Sentry error from backend!');
+  });
+
   app.use(router);
+  Sentry.setupExpressErrorHandler(app);
   app.use(errorHandler);
 
   return app;
@@ -101,6 +108,10 @@ export function bootApp(): express.Application {
   // Public unauthenticated health check
   app.get('/health', (req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
+  });
+
+  app.get('/debug-sentry', (req: Request, res: Response) => {
+    throw new Error('My first Sentry error from backend!');
   });
 
   // Public unauthenticated auth routes
@@ -126,7 +137,8 @@ export function bootApp(): express.Application {
         req.path.startsWith('/api') ||
         req.path.startsWith('/health') ||
         req.path.startsWith('/storage-uploads') ||
-        req.path.startsWith('/docs')
+        req.path.startsWith('/docs') ||
+        req.path.startsWith('/debug-sentry')
       ) {
         return next();
       }
@@ -134,6 +146,7 @@ export function bootApp(): express.Application {
     });
   }
 
+  Sentry.setupExpressErrorHandler(app);
   app.use(errorHandler);
 
   return app;

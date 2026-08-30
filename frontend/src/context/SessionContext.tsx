@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import * as Sentry from '@sentry/react';
 import type { Session, NavItem, DashboardWidget, User, ActiveMembership } from '../types';
 import { setApiAuth, fetchNav, fetchDashboard, buildApiUrl } from '../services/api';
 interface SessionContextValue {
@@ -87,6 +88,19 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const data = await res.json();
         setUser(data.user);
         setActiveMembership(data.membership);
+
+        if (data.user) {
+          Sentry.setUser({
+            id: data.user.id,
+            email: data.user.email,
+            username: data.user.name || data.user.email,
+          });
+        }
+        if (data.membership?.institutionId) {
+          Sentry.setTag('institution_id', data.membership.institutionId);
+          Sentry.setTag('role_name', data.membership.roleName);
+        }
+
         if (data.institution?.name) {
           setInstitutionName(data.institution.name);
         }
@@ -235,6 +249,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNavItems([]);
     setDashboardWidgets([]);
     setMustChangePassword(false);
+    Sentry.setUser(null);
   };
 
   const switchInstitution = (newInstId: string) => {

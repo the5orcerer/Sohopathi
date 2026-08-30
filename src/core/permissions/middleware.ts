@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { PoolClient } from 'pg';
+import * as Sentry from '@sentry/node';
 import { pool, withTenantContext } from '../db';
 import { supabaseAuthProvider } from '../auth/supabase-auth-provider';
 import { resolveContext, ResolvedContext } from './resolve-permissions';
@@ -27,6 +28,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   }
 
   req.userId = result.userId;
+  Sentry.setUser({ id: result.userId });
   next();
 }
 
@@ -44,6 +46,8 @@ export async function loadContext(req: Request, res: Response, next: NextFunctio
       return res.status(403).json({ error: 'no active membership in this institution', code: 'NO_MEMBERSHIP' });
     }
     req.ctx = ctx;
+    Sentry.setTag('institution_id', ctx.institutionId);
+    Sentry.setTag('role_id', ctx.roleId);
     next();
   } catch (err) {
     next(err);
