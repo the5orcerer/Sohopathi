@@ -12,6 +12,10 @@
       "dest": "/api/index.ts"
     },
     {
+      "src": "/debug-sentry",
+      "dest": "/api/index.ts"
+    },
+    {
       "src": "/docs(.*)",
       "dest": "/api/index.ts"
     },

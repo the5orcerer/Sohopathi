@@ -83,7 +83,7 @@ export function createApp(): express.Application {
     res.status(200).json({ status: 'ok' });
   });
 
-  app.get('/debug-sentry', (req: Request, res: Response) => {
+  app.get(['/debug-sentry', '/api/debug-sentry'], (req: Request, res: Response) => {
     throw new Error('My first Sentry error from backend!');
   });
 
@@ -110,7 +110,7 @@ export function bootApp(): express.Application {
     res.status(200).json({ status: 'ok' });
   });
 
-  app.get('/debug-sentry', (req: Request, res: Response) => {
+  app.get(['/debug-sentry', '/api/debug-sentry'], (req: Request, res: Response) => {
     throw new Error('My first Sentry error from backend!');
   });
 

@@ -8,6 +8,11 @@
   status = 200
 
 [[redirects]]
+  from = "/debug-sentry"
+  to = "/.netlify/functions/index"
+  status = 200
+
+[[redirects]]
   from = "/docs/*"
   to = "/.netlify/functions/index"
   status = 200
