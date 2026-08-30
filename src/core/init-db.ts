@@ -76,6 +76,7 @@ export async function initializeDatabase(reset?: boolean) {
     logger.info('Registering platform modules...');
     await client.query(`
       insert into public.module (key, name, version) values
+        ('onboarding', 'Institution Onboarding', '1.0.0'),
         ('system', 'System / Dashboard', '1.0.0'),
         ('core', 'Core / Academic & Administration', '1.0.0'),
         ('attendance', 'Attendance & Marks', '1.0.0'),

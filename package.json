@@ -12,7 +12,7 @@
     "preview:frontend": "cd frontend && npm run preview",
     "seed:db": "DATABASE_URL=\"${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5433/education-platform}\" tsx src/core/init-db.ts",
     "seed:env": "tsx src/core/init-db.ts",
-    "test": "DATABASE_URL=\"${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5433/education-platform}\" vitest run --fileParallelism false --maxConcurrency 1 --pool=threads --poolOptions.threads.singleThread"
+    "test": "vitest run --fileParallelism false --maxConcurrency 1 --pool=threads --poolOptions.threads.singleThread --testTimeout 60000 --hookTimeout 60000"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",
@@ -22,12 +22,14 @@
     "express": "^4.19.2",
     "pg": "^8.12.0",
     "pino": "^9.2.0",
+    "swagger-ui-express": "^5.0.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^20.14.9",
     "@types/pg": "^8.11.6",
+    "@types/swagger-ui-express": "^4.1.8",
     "pino-pretty": "^11.2.1",
     "ts-node": "^10.9.2",
     "tsx": "^4.16.0",

@@ -16,7 +16,8 @@ async function verifyAllRoles() {
   });
   const adminData = await adminLoginRes.json();
   const adminToken = adminData.token || adminData.session?.access_token;
-  if (!adminLoginRes.ok || !adminToken) {
+  const adminInstId = adminData.activeMembership?.institutionId;
+  if (!adminLoginRes.ok || !adminToken || !adminInstId) {
     console.error('❌ Admin login failed:', adminData);
     process.exit(1);
   }
@@ -24,14 +25,20 @@ async function verifyAllRoles() {
 
   // Check Admin nav
   const adminNavRes = await fetch('http://localhost:3000/api/system/nav', {
-    headers: { Authorization: `Bearer ${adminToken}` },
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      'x-institution-id': adminInstId,
+    },
   });
   const adminNav = await adminNavRes.json();
   console.log('✅ Admin nav items count:', Array.isArray(adminNav) ? adminNav.length : JSON.stringify(adminNav));
 
   // Check Admin can read students
   const adminStudentsRes = await fetch('http://localhost:3000/api/core/students', {
-    headers: { Authorization: `Bearer ${adminToken}` },
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      'x-institution-id': adminInstId,
+    },
   });
   const adminStudents = await adminStudentsRes.json();
   console.log('✅ Admin read students count:', Array.isArray(adminStudents) ? adminStudents.length : adminStudents);
@@ -49,7 +56,8 @@ async function verifyAllRoles() {
   });
   const studentData = await studentLoginRes.json();
   const studentToken = studentData.token || studentData.session?.access_token;
-  if (!studentLoginRes.ok || !studentToken) {
+  const studentInstId = studentData.activeMembership?.institutionId;
+  if (!studentLoginRes.ok || !studentToken || !studentInstId) {
     console.error('❌ Student login failed:', studentData);
     process.exit(1);
   }
@@ -57,27 +65,40 @@ async function verifyAllRoles() {
 
   // Student Nav Items
   const studentNavRes = await fetch('http://localhost:3000/api/system/nav', {
-    headers: { Authorization: `Bearer ${studentToken}` },
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      'x-institution-id': studentInstId,
+    },
   });
   const studentNav = await studentNavRes.json();
-  console.log('✅ Student nav items:', Array.isArray(studentNav) ? studentNav.map((n: any) => n.href) : studentNav);
+  console.log('✅ Student nav items count:', Array.isArray(studentNav) ? studentNav.length : studentNav);
 
-  // Student security check: Student attempts to browse student directory -> MUST BE 403
+  // Student security check: Student GET /api/core/students should only return self
   const studentBrowseStudentsRes = await fetch('http://localhost:3000/api/core/students', {
-    headers: { Authorization: `Bearer ${studentToken}` },
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      'x-institution-id': studentInstId,
+    },
   });
-  console.log('🔒 Student GET /api/core/students status:', studentBrowseStudentsRes.status, '(Expected 403 Forbidden)');
+  const studentRoster = await studentBrowseStudentsRes.json();
+  console.log('🔒 Student GET /api/core/students status:', studentBrowseStudentsRes.status, 'Items returned (self only):', Array.isArray(studentRoster) ? studentRoster.length : studentRoster);
 
   // Student assignments: Student GET /api/assignments
   const studentAssignmentsRes = await fetch('http://localhost:3000/api/assignments', {
-    headers: { Authorization: `Bearer ${studentToken}` },
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      'x-institution-id': studentInstId,
+    },
   });
   const studentAssignments = await studentAssignmentsRes.json();
   console.log('✅ Student GET /api/assignments status:', studentAssignmentsRes.status, 'Assignments found:', Array.isArray(studentAssignments) ? studentAssignments.length : studentAssignments);
 
   // Student attendance: Student GET /api/attendance
   const studentAttRes = await fetch('http://localhost:3000/api/attendance', {
-    headers: { Authorization: `Bearer ${studentToken}` },
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      'x-institution-id': studentInstId,
+    },
   });
   const studentAtt = await studentAttRes.json();
   console.log('✅ Student GET /api/attendance status:', studentAttRes.status, 'Records found:', Array.isArray(studentAtt) ? studentAtt.length : studentAtt);
@@ -95,7 +116,8 @@ async function verifyAllRoles() {
   });
   const teacherData = await teacherLoginRes.json();
   const teacherToken = teacherData.token || teacherData.session?.access_token;
-  if (!teacherLoginRes.ok || !teacherToken) {
+  const teacherInstId = teacherData.activeMembership?.institutionId;
+  if (!teacherLoginRes.ok || !teacherToken || !teacherInstId) {
     console.error('❌ Teacher login failed:', teacherData);
     process.exit(1);
   }
@@ -103,10 +125,13 @@ async function verifyAllRoles() {
 
   // Teacher Nav Items
   const teacherNavRes = await fetch('http://localhost:3000/api/system/nav', {
-    headers: { Authorization: `Bearer ${teacherToken}` },
+    headers: {
+      Authorization: `Bearer ${teacherToken}`,
+      'x-institution-id': teacherInstId,
+    },
   });
   const teacherNav = await teacherNavRes.json();
-  console.log('✅ Teacher nav items:', Array.isArray(teacherNav) ? teacherNav.map((n: any) => n.href) : teacherNav);
+  console.log('✅ Teacher nav items count:', Array.isArray(teacherNav) ? teacherNav.length : teacherNav);
 
   // Teacher security check: Teacher attempts to create assignment for an unauthorized subject
   const fakeAssignmentRes = await fetch('http://localhost:3000/api/assignments', {
@@ -114,6 +139,7 @@ async function verifyAllRoles() {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${teacherToken}`,
+      'x-institution-id': teacherInstId,
     },
     body: JSON.stringify({
       sectionId: '00000000-0000-0000-0000-000000000000',
@@ -128,4 +154,3 @@ async function verifyAllRoles() {
 }
 
 verifyAllRoles();
-

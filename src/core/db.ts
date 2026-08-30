@@ -3,7 +3,10 @@ import { env } from './env';
 
 export const pool = new Pool({
   connectionString: env.DATABASE_URL,
-  max: 10,
+  max: parseInt(process.env.PG_MAX_POOL || (process.env.NODE_ENV === 'test' ? '10' : '2'), 10),
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 5000,
+  allowExitOnIdle: true,
 });
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -243,6 +246,7 @@ export async function ensureTenantRLS(client: PoolClient, force = false): Promis
   ];
 
   for (const t of allTenantTables) {
+    await client.query(`alter table public.${t} enable row level security;`);
     await client.query(`alter table public.${t} force row level security;`);
   }
 
@@ -251,11 +255,12 @@ export async function ensureTenantRLS(client: PoolClient, force = false): Promis
     await client.query(`
       do $$
       begin
-        if not exists (
-          select 1 from pg_policies where schemaname = 'public' and tablename = '${t}' and policyname = 'tenant_isolation'
-        ) then
-          create policy tenant_isolation on public.${t} using (institution_id = public.current_institution_id());
-        end if;
+        drop policy if exists tenant_isolation on public.${t};
+        drop policy if exists "Enable all for users based on institution_id" on public.${t};
+        drop policy if exists "tenant_isolation_policy" on public.${t};
+        create policy tenant_isolation on public.${t}
+          using (institution_id = public.current_institution_id() or (public.current_institution_id() is null and '${t}' in ('institution', 'role', 'role_permission')))
+          with check (institution_id = public.current_institution_id() or (public.current_institution_id() is null and '${t}' in ('institution', 'role', 'role_permission')));
       exception
         when others then null;
       end $$;

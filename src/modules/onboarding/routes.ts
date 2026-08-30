@@ -127,8 +127,8 @@ export async function onboardInstitution(req: Request, res: Response, client: Po
        values ($1, $2, $3, $4, 'active', 'active')
        on conflict (user_id, institution_id) do update 
        set role_id = excluded.role_id,
-           login_username = excluded.login_username,
-           status = 'active'
+       login_username = excluded.login_username,
+       status = 'active'
        returning id`,
       [userId, institutionId, adminRoleId, loginUsername]
     );
@@ -146,8 +146,8 @@ export async function onboardInstitution(req: Request, res: Response, client: Po
 
     res.status(201).json({
       institutionId,
-      subdomain: cleanSubdomain,
       institutionUuid: institutionId,
+      subdomain: cleanSubdomain,
       institutionName: name,
       username: loginUsername,
       adminEmail,

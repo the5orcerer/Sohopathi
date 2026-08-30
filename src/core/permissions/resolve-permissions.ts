@@ -80,7 +80,6 @@ export async function resolveContext(
     for (const row of permRows) {
       permissions.set(row.permission_key, row.scope || 'institution');
     }
-
     await client.query('COMMIT');
 
     return {

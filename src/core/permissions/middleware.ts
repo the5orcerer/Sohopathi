@@ -32,24 +32,13 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
 
 export async function loadContext(req: Request, res: Response, next: NextFunction) {
   const userId = req.userId;
-  let institutionId = req.headers['x-institution-id'] as string;
+  const institutionId = req.headers['x-institution-id'] as string;
+  if (!institutionId) {
+    return res.status(400).json({ error: 'missing institution context', code: 'MISSING_INSTITUTION' });
+  }
 
   const client = await pool.connect();
   try {
-    if (!institutionId && userId) {
-      const { rows } = await client.query(
-        `select institution_id from membership where user_id = $1 and status = 'active' order by created_at desc limit 1`,
-        [userId]
-      );
-      if (rows.length > 0) {
-        institutionId = rows[0].institution_id;
-      }
-    }
-
-    if (!institutionId) {
-      return res.status(400).json({ error: 'missing institution context', code: 'MISSING_INSTITUTION' });
-    }
-
     const ctx = await resolveContext(client, userId!, institutionId);
     if (!ctx) {
       return res.status(403).json({ error: 'no active membership in this institution', code: 'NO_MEMBERSHIP' });
