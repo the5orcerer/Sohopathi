@@ -11,6 +11,7 @@ import { noticesManifest } from './modules/notices/manifest';
 import { assignmentsManifest } from './modules/assignments/manifest';
 import { admissionManifest } from './modules/admission/manifest';
 import { authRouter } from './core/auth/auth-routes';
+import { mountDocs } from './docs';
 
 function enableCors(app: express.Application) {
   app.use((req: Request, res: Response, next) => {
@@ -71,6 +72,9 @@ export function createApp(): express.Application {
   mountStorage(app);
   app.use(express.json());
 
+  // Mount private Swagger API Documentation (Basic Auth protected)
+  mountDocs(app);
+
   const router = Router();
 
   app.get('/health', (req: Request, res: Response) => {
@@ -88,6 +92,9 @@ export function bootApp(): express.Application {
   enableCors(app);
   mountStorage(app);
   app.use(express.json());
+
+  // Mount private Swagger API Documentation (Basic Auth protected)
+  mountDocs(app);
 
   const router = Router();
 
@@ -115,7 +122,12 @@ export function bootApp(): express.Application {
   if (fs.existsSync(frontendDistPath)) {
     app.use(express.static(frontendDistPath));
     app.get('*', (req: Request, res: Response, next) => {
-      if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/storage-uploads')) {
+      if (
+        req.path.startsWith('/api') ||
+        req.path.startsWith('/health') ||
+        req.path.startsWith('/storage-uploads') ||
+        req.path.startsWith('/docs')
+      ) {
         return next();
       }
       res.sendFile(path.join(frontendDistPath, 'index.html'));

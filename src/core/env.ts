@@ -16,6 +16,9 @@ const envSchema = z.object({
   STORAGE_SECRET_ACCESS_KEY: z.string().optional().default('test-secret-key'),
   STORAGE_BUCKET: z.string().optional().default('test-bucket'),
   PORT: z.string().transform((val) => parseInt(val, 10)).default('3000'),
+  DOCS_ENABLED: z.string().transform((val) => val === 'true' || val === '1').default('true'),
+  DOCS_USER: z.string().default('admin'),
+  DOCS_PASSWORD: z.string().default('sohopathi_docs_secret_2024'),
 });
 
 export const env = envSchema.parse(process.env);
