@@ -78,11 +78,11 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       case 'task_assigned':
         return <ClipboardList size={16} style={{ color: 'var(--primary)' }} />;
       case 'role_update':
-        return <UserCheck size={16} style={{ color: 'var(--status-info, #0284c7)' }} />;
+        return <UserCheck size={16} style={{ color: 'var(--status-info, var(--status-info))' }} />;
       case 'attendance_alert':
-        return <AlertCircle size={16} style={{ color: 'var(--status-warning, #eab308)' }} />;
+        return <AlertCircle size={16} style={{ color: 'var(--status-warning, var(--status-warning))' }} />;
       case 'notice_published':
-        return <Megaphone size={16} style={{ color: 'var(--accent, #f97316)' }} />;
+        return <Megaphone size={16} style={{ color: 'var(--accent, var(--accent))' }} />;
       default:
         return <Bell size={16} style={{ color: 'var(--text-muted)' }} />;
     }
@@ -95,7 +95,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         onClick={onClose}
         style={{
           position: 'fixed',
-          inset: 0,
+          top: 0, left: 0, right: 0, bottom: 0,
           backgroundColor: 'rgba(0, 0, 0, 0.35)',
           backdropFilter: 'blur(2px)',
           zIndex: 998,

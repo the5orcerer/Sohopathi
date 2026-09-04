@@ -21,6 +21,7 @@ import type {
   SectionItem,
   SubjectItem,
   StudentItem,
+  MarkItem,
 } from '../types';
 import { Button, Badge, Modal, EmptyState } from '../components/common';
 import {
@@ -31,11 +32,21 @@ import {
   Save,
   CheckCircle2,
   FileText,
+  GraduationCap,
+  Loader2,
 } from 'lucide-react';
 
 export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
-  const { hasPermission } = useSession();
-  const canManage = hasPermission('exams.manage') || hasPermission('marks.create');
+  const { activeMembership, user } = useSession();
+  
+  // Role detection
+  const role = activeMembership?.roleName?.toLowerCase() || '';
+  const isStudent = role.includes('student');
+  const isTeacher = role.includes('teacher') || role.includes('faculty');
+  const isAdmin = role.includes('admin') || role.includes('coordinator') || role.includes('principal');
+  
+  // Permissions
+  const canManage = isAdmin || isTeacher;
 
   const [activeTab, setActiveTab] = useState<'sessions' | 'scoring' | 'report'>('sessions');
 
@@ -57,6 +68,11 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
   const [savingMarks, setSavingMarks] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
 
+  // ✅ Student Result State
+  const [ownStudentId, setOwnStudentId] = useState<string | null>(null);
+  const [ownMarks, setOwnMarks] = useState<MarkItem[]>([]);
+  const [loadingResult, setLoadingResult] = useState<boolean>(false);
+
   // Modals
   const [showCreateExamModal, setShowCreateExamModal] = useState<boolean>(false);
   const [showAddPaperModal, setShowAddPaperModal] = useState<boolean>(false);
@@ -74,30 +90,20 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
     vivaWeight: 0,
   });
 
-  const [studentMarks, setStudentMarks] = useState<any[]>([]);
-  const [loadingStudentMarks, setLoadingStudentMarks] = useState<boolean>(false);
-
   const loadDependencies = async () => {
     try {
-      if (canManage) {
-        const [ay, sec, sub, ex] = await Promise.all([
-          fetchAcademicYears().catch(() => []),
-          fetchSections().catch(() => []),
-          fetchSubjects().catch(() => []),
-          fetchExams().catch(() => []),
-        ]);
-        setAcademicYears(ay);
-        setSections(sec);
-        setSubjects(sub);
-        setExams(ex);
-        if (ay.length > 0) setExamForm((prev) => ({ ...prev, academicYearId: ay[0].id }));
-        if (ex.length > 0 && !selectedExamId) setSelectedExamId(ex[0].id);
-      } else {
-        setLoadingStudentMarks(true);
-        const marks = await fetchMarks().catch(() => []);
-        setStudentMarks(marks);
-        setLoadingStudentMarks(false);
-      }
+      const [ay, sec, sub, ex] = await Promise.all([
+        fetchAcademicYears(),
+        fetchSections(),
+        fetchSubjects(),
+        fetchExams(),
+      ]);
+      setAcademicYears(ay);
+      setSections(sec);
+      setSubjects(sub);
+      setExams(ex);
+      if (ay.length > 0) setExamForm((prev) => ({ ...prev, academicYearId: ay[0].id }));
+      if (ex.length > 0 && !selectedExamId) setSelectedExamId(ex[0].id);
     } catch (err) {
       console.error('Failed to load exam data:', err);
     }
@@ -105,7 +111,7 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
 
   useEffect(() => {
     loadDependencies();
-  }, [canManage]);
+  }, []);
 
   useEffect(() => {
     if (selectedExamId) {
@@ -115,12 +121,39 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
     }
   }, [selectedExamId]);
 
+  // ✅ Student-এর নিজের ID বের করা
+  useEffect(() => {
+    if (isStudent) {
+      fetchStudents()
+        .then((allStudents) => {
+          const ownStudent = allStudents.find(s => s.userId === user?.id);
+          if (ownStudent) {
+            setOwnStudentId(ownStudent.id);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [isStudent, user]);
+
+  // ✅ Student-এর নিজের Marks load করা
+  useEffect(() => {
+    if (isStudent && ownStudentId && selectedExamId) {
+      setLoadingResult(true);
+      fetchMarks({ examId: selectedExamId, studentId: ownStudentId })
+        .then((marksData) => {
+          setOwnMarks(marksData);
+        })
+        .catch(console.error)
+        .finally(() => setLoadingResult(false));
+    }
+  }, [isStudent, ownStudentId, selectedExamId]);
+
   // Load Scoring Sheet when Exam + Section + Subject selected
   useEffect(() => {
     if (activeTab === 'scoring' && selectedSectionId && selectedSubjectId && selectedExamId) {
       Promise.all([
-        fetchStudents({ sectionId: selectedSectionId }).catch(() => []),
-        fetchMarks({ examId: selectedExamId, subjectId: selectedSubjectId }).catch(() => []),
+        fetchStudents({ sectionId: selectedSectionId }),
+        fetchMarks({ examId: selectedExamId, subjectId: selectedSubjectId }),
       ]).then(([stList, marksList]) => {
         setStudents(stList);
         const sheetMap: Record<string, { marksObtained: number | string; maxMarks: number; grade: string }> = {};
@@ -207,96 +240,189 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
     }
   };
 
-  // Student report calculations
-  const totalSubjects = studentMarks.length;
-  const passedSubjects = studentMarks.filter((m) => (m.marksObtained / m.maxMarks) >= 0.33).length;
-  const avgScore = totalSubjects > 0
-    ? Math.round(studentMarks.reduce((acc, m) => acc + ((m.marksObtained / m.maxMarks) * 100), 0) / totalSubjects)
-    : 0;
+  // ✅ Student View - Exam Sessions + Result & Report Card
+  if (isStudent) {
+    const selectedExam = exams.find(e => e.id === selectedExamId);
 
-  return (
-    <ProtectedRoute requiredPermission="marks.read" onNavigateHome={onNavigateHome}>
-      <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <div>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Award size={24} style={{ color: 'var(--brand-primary)' }} /> {canManage ? 'Examination & Assessment Control' : 'My Examination Results & Report Card'}
-            </h1>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              {canManage ? 'Configure examination schedules, paper mark distributions, and grade tabulation sheets.' : 'View your official examination scores, subject evaluations, letter grades, and academic reports.'}
-            </p>
+    return (
+      <ProtectedRoute requiredPermission="marks.read" onNavigateHome={onNavigateHome}>
+        <div className="animate-fade-in" style={{ padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <GraduationCap size={26} style={{ color: 'var(--brand-primary)' }} />
+                My Examinations & Results
+              </h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                View exam schedules, your results and academic performance.
+              </p>
+            </div>
+            <Badge tone="primary">Student View</Badge>
           </div>
 
-          {canManage && (
-            <Button variant="primary" icon={<Plus size={15} />} onClick={() => setShowCreateExamModal(true)}>
-              Create Exam Session
-            </Button>
-          )}
-        </div>
-
-        {!canManage ? (
-          /* Student Report Card View */
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            {/* KPI Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-              <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Subjects Evaluated</div>
-                <div style={{ fontSize: '1.35rem', fontWeight: 700 }}>{totalSubjects}</div>
-              </div>
-              <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Passed Subjects</div>
-                <div style={{ fontSize: '1.35rem', fontWeight: 700, color: '#16a34a' }}>{passedSubjects} / {totalSubjects}</div>
-              </div>
-              <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Average Score</div>
-                <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--primary)' }}>{avgScore}%</div>
-              </div>
+          {/* Exam Sessions List - Student View */}
+          <div className="glass-panel" style={{ padding: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Calendar size={18} style={{ color: 'var(--brand-primary)' }} />
+                Exam Sessions ({exams.length})
+              </h3>
+              <Badge tone="info">View Only</Badge>
             </div>
 
-            {/* Results Table */}
-            <div className="table-container glass-panel" style={{ padding: '1rem' }}>
-              <div style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.75rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <FileText size={18} style={{ color: 'var(--primary)' }} /> Grade Sheet & Official Tabulation
+            {exams.length === 0 ? (
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>
+                No exam sessions available.
+              </p>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+                {exams.map((ex) => {
+                  const isSelected = selectedExamId === ex.id;
+                  const papers = examPapers.filter(p => p.examId === ex.id);
+                  
+                  return (
+                    <div
+                      key={ex.id}
+                      onClick={() => setSelectedExamId(ex.id)}
+                      style={{
+                        padding: '0.75rem 1rem',
+                        borderRadius: 'var(--radius-md)',
+                        background: isSelected ? 'var(--brand-primary)' : 'var(--surface-sunken)',
+                        color: isSelected ? '#fff' : 'var(--text-primary)',
+                        cursor: 'pointer',
+                        border: isSelected ? '2px solid var(--brand-primary)' : '1px solid var(--border-subtle)',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{ex.name}</div>
+                          <div style={{ fontSize: '0.75rem', opacity: isSelected ? 0.9 : 0.7, marginTop: '0.15rem' }}>
+                            {ex.term || 'General Assessment'} 
+                          </div>
+                        </div>
+                        <Badge tone={isSelected ? 'success' : 'neutral'} style={{ fontSize: '0.6rem' }}>
+                          {papers.length} Papers
+                        </Badge>
+                      </div>
+                      <div style={{ fontSize: '0.7rem', marginTop: '0.3rem', opacity: isSelected ? 0.85 : 0.6 }}>
+                        {ex.academicYearLabel || 'Current Year'}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              {loadingStudentMarks ? (
-                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading examination results...</div>
-              ) : studentMarks.length === 0 ? (
-                <EmptyState
-                  title="No examination results published yet"
-                  description="Your marks and grades will be published here once evaluated by your course teachers."
-                />
+            )}
+          </div>
+
+          {/* Exam Papers / Schedule - Student View */}
+          {selectedExam && (
+            <div className="glass-panel" style={{ padding: '1rem', marginBottom: '1.5rem', borderColor: 'var(--brand-primary)' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <FileText size={18} style={{ color: 'var(--brand-primary)' }} />
+                {selectedExam.name} - Paper Schedule
+              </h3>
+
+              {examPapers.length === 0 ? (
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>
+                  No papers scheduled for this exam yet.
+                </p>
               ) : (
-                <table style={{ width: '100%', fontSize: '0.88rem', borderCollapse: 'collapse' }}>
+                <div className="table-responsive">
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                        <th style={{ padding: '0.5rem', textAlign: 'left' }}>Subject</th>
+                        <th style={{ padding: '0.5rem', textAlign: 'left' }}>Date</th>
+                        <th style={{ padding: '0.5rem', textAlign: 'left' }}>Time</th>
+                        <th style={{ padding: '0.5rem', textAlign: 'left' }}>Room</th>
+                        <th style={{ padding: '0.5rem', textAlign: 'center' }}>Max Marks</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {examPapers.map((paper) => (
+                        <tr key={paper.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '0.5rem', fontWeight: 500 }}>{paper.subjectName}</td>
+                          <td style={{ padding: '0.5rem' }}>
+                            {paper.examDate ? new Date(paper.examDate).toLocaleDateString() : 'TBD'}
+                          </td>
+                          <td style={{ padding: '0.5rem', fontSize: '0.8rem' }}>
+                            {paper.startTime || '09:00'} - {paper.endTime || '12:00'}
+                          </td>
+                          <td style={{ padding: '0.5rem' }}>{paper.roomNo || 'Hall'}</td>
+                          <td style={{ padding: '0.5rem', textAlign: 'center', fontWeight: 600 }}>
+                            {paper.maxMarks}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Result Summary Card */}
+          {loadingResult ? (
+            <div style={{ padding: '3rem', textAlign: 'center' }}>
+              <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto 0.5rem', color: 'var(--text-muted)' }} />
+              <p style={{ color: 'var(--text-muted)' }}>Loading your results...</p>
+            </div>
+          ) : selectedExam && ownMarks.length > 0 ? (
+            <div className="glass-panel" style={{ padding: '1.5rem', borderColor: '#10b981' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Award size={20} style={{ color: '#10b981' }} />
+                {selectedExam.name} - Your Result Summary
+              </h3>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Subjects</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{ownMarks.length}</div>
+                </div>
+                <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', textAlign: 'center', borderColor: '#10b981' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#10b981' }}>Total Marks</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#10b981' }}>
+                    {ownMarks.reduce((sum, m) => sum + (m.marksObtained || 0), 0)}
+                  </div>
+                </div>
+                <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', textAlign: 'center', borderColor: 'var(--brand-primary)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--brand-primary)' }}>Average</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                    {Math.round(ownMarks.reduce((sum, m) => sum + (m.marksObtained || 0), 0) / ownMarks.length)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Report Card Table */}
+              <div className="table-responsive">
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                   <thead>
-                    <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                      <th style={{ padding: '0.65rem 0.75rem' }}>Subject</th>
-                      <th style={{ padding: '0.65rem 0.75rem' }}>Marks Obtained</th>
-                      <th style={{ padding: '0.65rem 0.75rem' }}>Total Marks</th>
-                      <th style={{ padding: '0.65rem 0.75rem' }}>Percentage</th>
-                      <th style={{ padding: '0.65rem 0.75rem', textAlign: 'center' }}>Letter Grade</th>
+                    <tr style={{ borderBottom: '2px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                      <th style={{ padding: '0.5rem', textAlign: 'left' }}>Subject</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>Marks Obtained</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>Max Marks</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>Grade</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {studentMarks.map((m, idx) => {
-                      const pct = m.maxMarks > 0 ? Math.round((m.marksObtained / m.maxMarks) * 100) : 0;
+                    {ownMarks.map((mark, index) => {
+                      const isPassed = (mark.marksObtained || 0) >= (mark.maxMarks * 0.4);
                       return (
-                        <tr key={m.id || idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                          <td style={{ padding: '0.65rem 0.75rem', fontWeight: 600 }}>
-                            {m.subjectName || 'Coursework'}
+                        <tr key={index} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '0.5rem', fontWeight: 500 }}>{mark.subjectName || 'Subject'}</td>
+                          <td style={{ padding: '0.5rem', textAlign: 'center', fontWeight: 600 }}>
+                            {mark.marksObtained ?? '-'}
                           </td>
-                          <td style={{ padding: '0.65rem 0.75rem', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                            {m.marksObtained}
+                          <td style={{ padding: '0.5rem', textAlign: 'center' }}>{mark.maxMarks}</td>
+                          <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                            <Badge tone="neutral">{mark.grade || 'N/A'}</Badge>
                           </td>
-                          <td style={{ padding: '0.65rem 0.75rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                            {m.maxMarks}
-                          </td>
-                          <td style={{ padding: '0.65rem 0.75rem', fontWeight: 600 }}>
-                            {pct}%
-                          </td>
-                          <td style={{ padding: '0.65rem 0.75rem', textAlign: 'center' }}>
-                            <Badge tone={pct >= 80 ? 'success' : pct >= 50 ? 'info' : pct >= 33 ? 'warning' : 'danger'}>
-                              {m.grade || (pct >= 80 ? 'A+' : pct >= 70 ? 'A' : pct >= 60 ? 'B' : pct >= 50 ? 'C' : pct >= 33 ? 'D' : 'F')}
+                          <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                            <Badge tone={isPassed ? 'success' : 'danger'}>
+                              {isPassed ? 'PASS' : 'FAIL'}
                             </Badge>
                           </td>
                         </tr>
@@ -304,51 +430,85 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
                     })}
                   </tbody>
                 </table>
-              )}
+              </div>
             </div>
-          </div>
-        ) : (
-          <>
-            {/* Tab Controls for Teachers / Admins */}
-            <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
-              <button
-                onClick={() => setActiveTab('sessions')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  padding: '0.5rem 0.9rem',
-                  borderRadius: 'var(--radius-sm)',
-                  border: 'none',
-                  background: activeTab === 'sessions' ? 'var(--brand-primary)' : 'transparent',
-                  color: activeTab === 'sessions' ? '#fff' : 'var(--text-secondary)',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                <Calendar size={15} /> Exam Sessions & Papers
-              </button>
+          ) : selectedExam && ownMarks.length === 0 ? (
+            <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <FileText size={40} style={{ margin: '0 auto 0.5rem', opacity: 0.3 }} />
+              <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-secondary)' }}>No Results Available</h4>
+              <p style={{ fontSize: '0.85rem' }}>Your results for {selectedExam.name} have not been published yet.</p>
+            </div>
+          ) : null}
+        </div>
+      </ProtectedRoute>
+    );
+  }
 
-              <button
-                onClick={() => setActiveTab('scoring')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  padding: '0.5rem 0.9rem',
-                  borderRadius: 'var(--radius-sm)',
-                  border: 'none',
-                  background: activeTab === 'scoring' ? 'var(--brand-primary)' : 'transparent',
-                  color: activeTab === 'scoring' ? '#fff' : 'var(--text-secondary)',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                <FileText size={15} /> Marks Entry Sheet
-              </button>
-            </div>
+  // ✅ Admin/Teacher Full View
+  return (
+    <ProtectedRoute requiredPermission="marks.read" onNavigateHome={onNavigateHome}>
+      <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Award size={24} style={{ color: 'var(--brand-primary)' }} /> Examination & Assessment Control
+            </h1>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Configure examination schedules, paper mark distributions, and grade tabulation sheets.
+            </p>
+          </div>
+
+          {canManage && (
+            <Button variant="primary" onClick={() => setShowCreateExamModal(true)}>
+              <Plus size={15} style={{ marginRight: '0.3rem' }} />
+              Create Exam Session
+            </Button>
+          )}
+        </div>
+
+        {/* Tab Controls */}
+        <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
+          <button
+            onClick={() => setActiveTab('sessions')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.5rem 0.9rem',
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              background: activeTab === 'sessions' ? 'var(--brand-primary)' : 'transparent',
+              color: activeTab === 'sessions' ? '#fff' : 'var(--text-secondary)',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            <Calendar size={15} /> Exam Sessions & Papers
+          </button>
+
+          {canManage && (
+            <button
+              onClick={() => setActiveTab('scoring')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.5rem 0.9rem',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                background: activeTab === 'scoring' ? 'var(--brand-primary)' : 'transparent',
+                color: activeTab === 'scoring' ? '#fff' : 'var(--text-secondary)',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <FileText size={15} /> Marks Entry Sheet
+            </button>
+          )}
+        </div>
 
         {/* TAB 1: SESSIONS & PAPERS */}
         {activeTab === 'sessions' && (
@@ -399,7 +559,8 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
                 </div>
 
                 {selectedExamId && canManage && (
-                  <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setShowAddPaperModal(true)}>
+                  <Button variant="primary" size="sm" onClick={() => setShowAddPaperModal(true)}>
+                    <Plus size={14} style={{ marginRight: '0.2rem' }} />
                     Add Subject Paper
                   </Button>
                 )}
@@ -446,8 +607,9 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleDeletePaper(paper.id)}
-                                icon={<Trash2 size={13} style={{ color: 'var(--status-danger)' }} />}
-                              />
+                              >
+                                <Trash2 size={13} style={{ color: 'var(--status-danger)' }} />
+                              </Button>
                             </td>
                           )}
                         </tr>
@@ -460,8 +622,8 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
           </div>
         )}
 
-        {/* TAB 2: MARKS ENTRY SHEET */}
-        {activeTab === 'scoring' && (
+        {/* TAB 2: MARKS ENTRY SHEET - Admin/Teacher only */}
+        {activeTab === 'scoring' && canManage && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {/* Filter Bar */}
             <div className="glass-panel" style={{ padding: '1rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -514,7 +676,8 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
                       <CheckCircle2 size={15} /> Marks Saved!
                     </span>
                   )}
-                  <Button variant="primary" icon={<Save size={14} />} onClick={handleSaveMarks} loading={savingMarks}>
+                  <Button variant="primary" onClick={handleSaveMarks} loading={savingMarks}>
+                    <Save size={14} style={{ marginRight: '0.3rem' }} />
                     Save Marks Sheet
                   </Button>
                 </div>
@@ -615,8 +778,6 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
             )}
           </div>
         )}
-      </>
-    )}
 
         {/* Modal: Create Exam */}
         <Modal isOpen={showCreateExamModal} onClose={() => setShowCreateExamModal(false)} title="Create New Examination Session">
@@ -813,3 +974,5 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
     </ProtectedRoute>
   );
 };
+
+export default ExaminationsPage;

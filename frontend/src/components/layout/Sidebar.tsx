@@ -1,5 +1,7 @@
 import React from 'react';
 import { useSession } from '../../context/SessionContext';
+import BiddyapithDarkLogo from '../../assets/biddyapith-dark.png';
+import BiddyapithLightLogo from '../../assets/biddyapith-light.png';
 import {
   LayoutDashboard,
   CalendarCheck,
@@ -9,7 +11,6 @@ import {
   Layers,
   ChevronRight,
   X,
-  Sparkles,
   Sliders,
   UserPlus,
   Award,
@@ -24,38 +25,26 @@ interface SidebarProps {
   onNavigate: (path: string) => void;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 const getNavIcon = (path: string) => {
   switch (path) {
-    case '/':
-      return <LayoutDashboard size={18} />;
-    case '/attendance':
-      return <CalendarCheck size={18} />;
-    case '/admissions':
-      return <UserPlus size={18} />;
-    case '/examinations':
-      return <Award size={18} />;
-    case '/assignments':
-      return <BookOpen size={18} />;
-    case '/notices':
-      return <Bell size={18} />;
-    case '/students':
-      return <GraduationCap size={18} />;
-    case '/academic':
-      return <Layers size={18} />;
-    case '/tasks':
-      return <ClipboardList size={18} />;
-    case '/members':
-      return <UserPlus size={18} />;
-    case '/permission-matrix':
-      return <Sliders size={18} />;
-    case '/activity-log':
-      return <History size={18} />;
-    case '/settings':
-      return <Settings size={18} />;
-    default:
-      return <Users size={18} />;
+    case '/': return <LayoutDashboard size={20} />;
+    case '/attendance': return <CalendarCheck size={20} />;
+    case '/admissions': return <UserPlus size={20} />;
+    case '/examinations': return <Award size={20} />;
+    case '/assignments': return <BookOpen size={20} />;
+    case '/notices': return <Bell size={20} />;
+    case '/students': return <GraduationCap size={20} />;
+    case '/academic': return <Layers size={20} />;
+    case '/tasks': return <ClipboardList size={20} />;
+    case '/members': return <Users size={20} />;
+    case '/permission-matrix': return <Sliders size={20} />;
+    case '/activity-log': return <History size={20} />;
+    case '/settings': return <Settings size={20} />;
+    default: return <Users size={20} />;
   }
 };
 
@@ -64,13 +53,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNavigate,
   isOpenMobile = false,
   onCloseMobile,
+  isCollapsed = false,
 }) => {
   const { navItems, user, activeMembership } = useSession();
+  
+  // থিম স্টেট যুক্ত করা হলো (ডিফল্ট Light Mode)
+  const isDarkMode = false;
 
   const handleItemClick = (path: string) => {
     onNavigate(path);
     if (onCloseMobile) onCloseMobile();
   };
+
+  const sidebarWidth = isCollapsed ? 64 : 240;
 
   return (
     <>
@@ -80,87 +75,139 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={onCloseMobile}
           style={{
             position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.45)',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
             backdropFilter: 'blur(4px)',
-            zIndex: 40,
-            display: 'block',
+            zIndex: 999,
+            animation: 'fadeIn 0.3s ease',
           }}
         />
       )}
 
       <aside
         style={{
-          width: '230px',
-          backgroundColor: 'var(--surface)',
-          borderRight: '1px solid var(--border)',
+          width: `${sidebarWidth}px`,
+          backgroundColor: 'var(--bg-secondary)',
+          borderRight: '1px solid var(--border-subtle)',
           display: 'flex',
           flexDirection: 'column',
           flexShrink: 0,
           height: '100vh',
-          position: 'sticky',
+          position: 'fixed',
           top: 0,
-          zIndex: 50,
-          transition: 'transform var(--transition-normal)',
-          ...(isOpenMobile
-            ? {
-                position: 'fixed',
-                left: 0,
-                top: 0,
-                bottom: 0,
-                transform: 'translateX(0)',
-                boxShadow: 'var(--shadow-modal)',
-              }
-            : {}),
+          left: 0,
+          zIndex: 1000,
+          transform: isOpenMobile ? 'translateX(0)' : 'translateX(0)',
+          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          boxShadow: isOpenMobile ? 'var(--shadow-xl)' : 'none',
+          overflow: 'hidden',
         }}
       >
         {/* Brand Header */}
         <div
           style={{
             height: '56px',
-            padding: '0 1.25rem',
-            borderBottom: '1px solid var(--border)',
+            padding: isCollapsed ? '0 0.75rem' : '0 1.25rem',
+            borderBottom: '1px solid var(--border-subtle)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
+            justifyContent: isCollapsed ? 'center' : 'space-between',
+            flexShrink: 0,
+            transition: 'padding 0.3s ease',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isCollapsed ? 0 : '0.65rem' }}>
+            {/* লোগো ইমেজের বক্স - থিম অনুযায়ী ব্যাকগ্রাউন্ড বদলাবে */}
             <div
               style={{
-                width: '30px',
-                height: '30px',
+                width: '38px',
+                height: '38px',
                 borderRadius: 'var(--radius-sm)',
-                background: 'var(--primary)',
-                color: 'var(--primary-fg)',
+                background: 'transparent',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                flexShrink: 0,
+                overflow: 'hidden',
+                border: '1px solid var(--border-subtle)',
+                boxShadow: isDarkMode ? '0 0 10px rgba(139, 92, 246, 0.2)' : 'none',
               }}
             >
-              <Sparkles size={16} />
+              {/* থিম অনুযায়ী লোগো বদলাবে */}
+              <img 
+                src={isDarkMode ? BiddyapithDarkLogo : BiddyapithLightLogo} 
+                alt="Logo"
+                style={{ 
+                  width: '100%', 
+                  height: '100%',
+                  objectFit: 'contain' 
+                }} 
+              />
             </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: '0.98rem', letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-                Sohopathi
+
+            {!isCollapsed && (
+              <div style={{ overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                <div
+                  style={{
+                    fontWeight: 800,
+                    fontFamily: 'bold',
+                    fontSize: '1.25rem',
+            
+                    textTransform: 'uppercase',
+                    // টেক্সটের রং থিম অনুযায়ী বদলাবে
+                    background: isDarkMode 
+                      ? 'linear-gradient(135deg, #a78bfa, #60a5fa)' // ডার্ক মোডে উজ্জ্বল বেগুনি
+                      : 'linear-gradient(135deg, var(--brand-primary), #60a5fa)', // লাইট মোডে আগের রং
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                  }}
+                >
+                  Biddyapith
+                </div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
+                  {activeMembership?.institutionName || 'Education Platform'}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Close button for mobile */}
           {isOpenMobile && onCloseMobile && (
             <button
               onClick={onCloseMobile}
-              className="btn btn-ghost btn-sm"
-              style={{ padding: '0.3rem', color: 'var(--text-muted)' }}
+              style={{
+                padding: '0.3rem',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              aria-label="Close sidebar"
             >
-              <X size={18} />
+              <X size={20} />
             </button>
           )}
         </div>
 
         {/* Dynamic Navigation Menu */}
-        <div style={{ flex: 1, padding: '0.75rem 0.65rem', overflowY: 'auto' }}>
+        <div
+          style={{
+            flex: 1,
+            padding: isCollapsed ? '0.5rem 0.25rem' : '0.75rem 0.75rem',
+            overflow: 'hidden',
+            transition: 'padding 0.3s ease',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
           {/* Home / Dashboard Link */}
           <button
             onClick={() => handleItemClick('/')}
@@ -168,113 +215,419 @@ export const Sidebar: React.FC<SidebarProps> = ({
               width: '100%',
               display: 'flex',
               alignItems: 'center',
-              gap: '0.7rem',
-              padding: '0.55rem 0.75rem',
+              justifyContent: isCollapsed ? 'center' : 'flex-start',
+              gap: isCollapsed ? 0 : '0.65rem',
+              padding: isCollapsed ? '0.6rem' : '0.6rem 0.85rem',
               borderRadius: 'var(--radius-sm)',
-              marginBottom: '0.25rem',
-              background: currentPath === '/' ? 'var(--primary)' : 'transparent',
-              color: currentPath === '/' ? 'var(--primary-fg)' : 'var(--text-secondary)',
+              marginBottom: '0',
+              background:
+                currentPath === '/'
+                  ? 'var(--brand-primary)'
+                  : 'transparent',
+              color:
+                currentPath === '/'
+                  ? '#ffffff'
+                  : 'var(--text-secondary)',
               fontWeight: currentPath === '/' ? 600 : 400,
-              fontSize: '0.85rem',
+              fontSize: '0.80rem',
               border: 'none',
               transition: 'all var(--transition-fast)',
               textAlign: 'left',
               cursor: 'pointer',
               fontFamily: 'inherit',
+              position: 'relative',
             }}
             onMouseEnter={(e) => {
-              if (currentPath !== '/') e.currentTarget.style.background = 'var(--surface-hover)';
+              if (currentPath !== '/') {
+                e.currentTarget.style.background =
+                  'var(--surface-hover)';
+
+                e.currentTarget.style.color =
+                  'var(--text-primary)';
+
+                const icon = e.currentTarget.querySelector(
+                  '.nav-icon'
+                ) as HTMLElement;
+
+                if (icon) {
+                  icon.style.color =
+                    'var(--text-primary)';
+                }
+              }
             }}
             onMouseLeave={(e) => {
-              if (currentPath !== '/') e.currentTarget.style.background = 'transparent';
+              if (currentPath !== '/') {
+                e.currentTarget.style.background =
+                  'transparent';
+
+                e.currentTarget.style.color =
+                  'var(--text-secondary)';
+
+                const icon = e.currentTarget.querySelector(
+                  '.nav-icon'
+                ) as HTMLElement;
+
+                if (icon) {
+                  icon.style.color =
+                    'var(--text-secondary)';
+                }
+              }
             }}
+            title={isCollapsed ? 'Dashboard' : ''}
           >
-            <span style={{ color: currentPath === '/' ? 'var(--primary-fg)' : 'var(--text-muted)' }}>
-              <LayoutDashboard size={17} />
+            {/* Dashboard Icon */}
+            <span
+              className="nav-icon"
+              style={{
+                color:
+                  currentPath === '/'
+                    ? '#ffffff'
+                    : 'var(--text-secondary)',
+                opacity:
+                  currentPath === '/'
+                    ? 1
+                    : 0.6,
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'color 0.2s ease',
+              }}
+            >
+              <LayoutDashboard size={20} />
             </span>
-            <span style={{ flex: 1 }}>Dashboard</span>
-            {currentPath === '/' && <ChevronRight size={14} />}
+
+            {!isCollapsed && (
+              <>
+                {/* Dashboard Text */}
+                <span
+                  style={{
+                    flex: 1,
+                    overflow: 'hidden',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Dashboard
+                </span>
+
+                {/* Active Arrow */}
+                {currentPath === '/' && (
+                  <ChevronRight
+                    size={14}
+                    style={{
+                      opacity: 0.7,
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
+              </>
+            )}
+
+            {/* Active Indicator */}
+            {isCollapsed && currentPath === '/' && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  width: '3px',
+                  height: '20px',
+                  background: 'var(--brand-primary)',
+                  borderRadius: '0 2px 2px 0',
+                }}
+              />
+            )}
           </button>
 
-          {/* Dynamic Nav Items resolved from backend permissions */}
-          {navItems.map((item) => {
-            const itemPath = item.path || (item as any).href;
-            const isActive = currentPath === itemPath;
-            return (
-              <button
-                key={itemPath}
-                onClick={() => handleItemClick(itemPath)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.7rem',
-                  padding: '0.55rem 0.75rem',
-                  borderRadius: 'var(--radius-sm)',
-                  marginBottom: '0.25rem',
-                  background: isActive ? 'var(--primary)' : 'transparent',
-                  color: isActive ? 'var(--primary-fg)' : 'var(--text-secondary)',
-                  fontWeight: isActive ? 600 : 400,
-                  fontSize: '0.85rem',
-                  border: 'none',
-                  transition: 'all var(--transition-fast)',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.background = 'var(--surface-hover)';
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.background = 'transparent';
-                }}
-              >
-                <span style={{ color: isActive ? 'var(--primary-fg)' : 'var(--text-muted)' }}>
-                  {getNavIcon(itemPath)}
-                </span>
-                <span style={{ flex: 1 }}>{item.label}</span>
-                {isActive && <ChevronRight size={14} />}
-              </button>
-            );
-          })}
+          {/* Dynamic Nav Items */}
+          {navItems && navItems.length > 0 && (
+            <div
+              style={{
+                marginTop: '0',
+                overflow: 'hidden',
+                flex: 1,
+              }}
+            >
+              {!isCollapsed && (
+                <div
+                  style={{
+                    fontSize: '0.50rem',
+                    fontWeight: 500,
+                    color: 'var(--text-muted)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    padding: '0',
+                    flexShrink: 0,
+                  }}
+                />
+              )}
+
+              {navItems.map((item) => {
+                const isActive =
+                  currentPath === item.path;
+
+                return (
+                  <button
+                    key={item.path}
+                    onClick={() =>
+                      handleItemClick(item.path)
+                    }
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isCollapsed
+                        ? 'center'
+                        : 'flex-start',
+
+                      gap: isCollapsed
+                        ? 0
+                        : '0.75rem',
+
+                      padding: isCollapsed
+                        ? '0.6rem'
+                        : '0.6rem 0.75rem',
+
+                      borderRadius:
+                        'var(--radius-sm)',
+
+                      margin: '0',
+
+                      background: isActive
+                        ? 'var(--brand-primary)'
+                        : 'transparent',
+
+                      color: isActive
+                        ? '#ffffff'
+                        : 'var(--text-secondary)',
+
+                      fontWeight: isActive
+                        ? 600
+                        : 400,
+
+                      fontSize: '0.80rem',
+
+                      border: 'none',
+
+                      transition:
+                        'all var(--transition-fast)',
+
+                      textAlign: 'left',
+
+                      cursor: 'pointer',
+
+                      fontFamily: 'inherit',
+
+                      position: 'relative',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background =
+                          'var(--surface-hover)';
+
+                        e.currentTarget.style.color =
+                          'var(--text-primary)';
+
+                        const icon =
+                          e.currentTarget.querySelector(
+                            '.nav-icon'
+                          ) as HTMLElement;
+
+                        if (icon) {
+                          icon.style.color =
+                            'var(--brand-primary)';
+                        }
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background =
+                          'transparent';
+
+                        e.currentTarget.style.color =
+                          'var(--text-secondary)';
+
+                        const icon =
+                          e.currentTarget.querySelector(
+                            '.nav-icon'
+                          ) as HTMLElement;
+
+                        if (icon) {
+                          icon.style.color =
+                            'var(--text-secondary)';
+                        }
+                      }
+                    }}
+                    title={
+                      isCollapsed
+                        ? item.label
+                        : ''
+                    }
+                  >
+                    {/* Navigation Icon */}
+                    <span
+                      className="nav-icon"
+                      style={{
+                        color: isActive
+                          ? '#ffffff'
+                          : 'var(--text-muted)',
+
+                        opacity: isActive
+                          ? 1
+                          : 0.6,
+
+                        flexShrink: 0,
+
+                        display: 'flex',
+
+                        alignItems: 'center',
+
+                        justifyContent: 'center',
+
+                        transition:
+                          'color 0.2s ease',
+                      }}
+                    >
+                      {getNavIcon(item.path)}
+                    </span>
+
+                    {!isCollapsed && (
+                      <>
+                        {/* Navigation Label */}
+                        <span
+                          style={{
+                            flex: 1,
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {item.label}
+                        </span>
+
+                        {/* Active Arrow */}
+                        {isActive && (
+                          <ChevronRight
+                            size={14}
+                            style={{
+                              opacity: 0.7,
+                              flexShrink: 0,
+                            }}
+                          />
+                        )}
+                      </>
+                    )}
+
+                    {/* Active Indicator */}
+                    {isCollapsed && isActive && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          top: '50%',
+                          transform:
+                            'translateY(-50%)',
+                          width: '3px',
+                          height: '24px',
+                          background:
+                            'var(--brand-primary)',
+                          borderRadius:
+                            '0 2px 2px 0',
+                        }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* User Role Footer */}
         <div
           style={{
-            padding: '0.85rem 1rem',
+            padding: isCollapsed ? '0.75rem' : '0.85rem 1.25rem',
             borderTop: '1px solid var(--border)',
             background: 'var(--bg)',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: isCollapsed ? 'center' : 'flex-start',
+            transition: 'padding 0.3s ease',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isCollapsed ? 0 : '0.6rem', width: '100%' }}>
             <div
               style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: 'var(--radius-full)',
-                background: 'var(--primary-light)',
-                color: 'var(--primary)',
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: 'var(--brand-primary)',
+                color: '#fff',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontWeight: 600,
-                fontSize: '0.78rem',
+                fontSize: '0.8rem',
+                flexShrink: 0,
               }}
             >
               {user?.name?.charAt(0) || 'U'}
             </div>
-            <div style={{ overflow: 'hidden' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {user?.name}
+            {!isCollapsed && (
+              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                <div style={{ 
+                  fontSize: '0.8rem', 
+                  fontWeight: 500, 
+                  color: 'var(--text-primary)', 
+                  whiteSpace: 'nowrap', 
+                  overflow: 'hidden', 
+                  textOverflow: 'ellipsis' 
+                }}>
+                  {user?.name || 'User'}
+                </div>
+                <div style={{ 
+                  fontSize: '0.65rem', 
+                  color: 'var(--text-muted)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {activeMembership?.roleName || 'Member'}
+                </div>
               </div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                {activeMembership?.roleName}
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </aside>
+
+      {/* Animation Styles */}
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .sidebar-tooltip {
+          position: fixed;
+          background: var(--bg-secondary);
+          color: var(--text-primary);
+          padding: 0.4rem 0.8rem;
+          border-radius: var(--radius-sm);
+          border: 1px solid var(--border-subtle);
+          box-shadow: var(--shadow-md);
+          font-size: 0.8rem;
+          white-space: nowrap;
+          z-index: 2000;
+          pointer-events: none;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+        }
+        .sidebar-tooltip.visible {
+          opacity: 1;
+        }
+      `}</style>
     </>
   );
 };
+
+export default Sidebar;

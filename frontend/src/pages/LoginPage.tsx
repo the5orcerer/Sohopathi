@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSession } from '../context/SessionContext';
-import { GraduationCap, ArrowRight, AlertCircle, Sun, Moon, PlusCircle, CheckCircle2, ShieldCheck, KeyRound, Building2, Globe } from 'lucide-react';
+import { ArrowRight, AlertCircle, Sun, Moon, PlusCircle, CheckCircle2, ShieldCheck, KeyRound, Building2, Globe } from 'lucide-react';
 import { provisionInstitution, resolveInstitutionBySubdomain } from '../services/api';
-import { getTenantSubdomain, buildTenantUrl } from '../utils/tenant';
+import { getTenantSubdomain } from '../utils/tenant';
+// লোগো ইমপোর্ট করুন (পাথ ঠিক রাখতে হবে)
+import BiddyapithDarkLogo from '../assets/biddyapith-dark.png';
+import BiddyapithLightLogo from '../assets/biddyapith-light.png';
 
 export const LoginPage: React.FC = () => {
   const { login, changePassword, mustChangePassword, theme, toggleTheme } = useSession();
@@ -193,25 +196,36 @@ export const LoginPage: React.FC = () => {
           gap: '1.25rem',
         }}
       >
-        {/* Brand Header */}
+        {/* Brand Header (লোগো এখানে বসানো হয়েছে) */}
         <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
           <div
             style={{
-              width: '48px',
-              height: '48px',
+              width: '56px', // সাইজ একটু বড় করা হয়েছে
+              height: '56px',
               borderRadius: 'var(--radius-sm)',
-              background: 'var(--primary)',
-              color: 'var(--primary-fg)',
+              background: theme === 'dark' ? 'transparent' : 'transparent', // থিম অনুযায়ী ব্যাকগ্রাউনড
+              border: '1px solid var(--border-subtle)',
+              boxShadow: 'var(--shadow-sm)',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              marginBottom: '0.75rem',
+              marginBottom: '0.85rem',
+              overflow: 'hidden',
             }}
           >
-            <GraduationCap size={26} />
+            {/* থিম অনুযায়ী লোগো বদলাবে */}
+            <img
+              src={theme === 'dark' ? BiddyapithDarkLogo : BiddyapithLightLogo}
+              alt="Biddyapith Logo"
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+              }}
+            />
           </div>
           <h1 style={{ fontSize: '1.35rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
-            Sohopathi Institutional Portal
+            Biddyapith Institutional Portal
           </h1>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
             Educational Operating System
@@ -302,9 +316,9 @@ export const LoginPage: React.FC = () => {
                 marginBottom: '1rem',
               }}
             >
-              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <AlertCircle size={16} />
               <span>
-                Institution &ldquo;<strong>{detectedSubdomain}</strong>&rdquo; was not found on Biddyapith. Please verify the URL or contact support.
+                Institution <strong>{detectedSubdomain}</strong> was not found. Please verify your domain.
               </span>
             </div>
           )}
@@ -385,7 +399,7 @@ export const LoginPage: React.FC = () => {
 
         {/* Footer */}
         <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-          Sohopathi Core Platform • Multi-Tenant RBAC & Field Delegation Active
+          Biddyapith Core Platform • Multi-Tenant RBAC & Field Delegation Active
         </div>
       </div>
 
@@ -394,7 +408,7 @@ export const LoginPage: React.FC = () => {
         <div
           style={{
             position: 'fixed',
-            inset: 0,
+            top: 0, left: 0, right: 0, bottom: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.65)',
             display: 'flex',
             alignItems: 'center',
@@ -485,7 +499,7 @@ export const LoginPage: React.FC = () => {
         <div
           style={{
             position: 'fixed',
-            inset: 0,
+            top: 0, left: 0, right: 0, bottom: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.6)',
             display: 'flex',
             alignItems: 'center',
@@ -542,22 +556,10 @@ export const LoginPage: React.FC = () => {
                   </p>
                   <div style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                     <div><strong>Institution ID:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{provisionSuccessData.institutionId}</span></div>
-                    <div><strong>Subdomain:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{provisionSubdomain}</span></div>
                     <div><strong>Admin Username:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{provisionSuccessData.username}</span></div>
                     {provisionSuccessData.temporaryPassword && (
                       <div><strong>Temporary Password:</strong> <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{provisionSuccessData.temporaryPassword}</span></div>
                     )}
-                    <div>
-                      <strong>Live Domain:</strong>{' '}
-                      <a
-                        href={buildTenantUrl(provisionSubdomain)}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ color: 'var(--primary)', textDecoration: 'underline', fontFamily: 'var(--font-mono)' }}
-                      >
-                        {provisionSubdomain}.biddyapith.tech
-                      </a>
-                    </div>
                   </div>
                 </div>
 
@@ -682,4 +684,3 @@ export const LoginPage: React.FC = () => {
     </div>
   );
 };
-

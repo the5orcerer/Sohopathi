@@ -5,35 +5,51 @@
    ========================================================================== */
 
 :root {
-  /* Color — Light Mode (Default) */
-  --bg: #F3F5F4;
+  /* Color — Light Mode (Default) — Indigo/Violet "Biddyapith" theme */
+  --bg: #F4F5FA;
   --surface: #FFFFFF;
-  --surface-hover: #F8FAF9;
-  --border: #E1E5E3;
-  --border-focus: #1E5F5B;
-  
-  --text-primary: #1B2523;
-  --text-secondary: #5B6764;
-  --text-muted: #8B968F;
-  
-  --primary: #1E5F5B;
-  --primary-fg: #FFFFFF;
-  --primary-hover: #164845;
-  --primary-light: rgba(30, 95, 91, 0.1);
-  
-  --accent: #E3A008;
-  --accent-fg: #3D2A00;
-  --accent-hover: #C88C07;
-  --accent-light: rgba(227, 160, 8, 0.12);
+  --surface-hover: #f7f7fcee;
+  --surface-sunken: #F3F3FA;
+  --surface-bg-subtle: rgba(20, 22, 50, 0.03);
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #F3F3FA;
+  --border: #E7E8F1;
+  --border-subtle: #EBEBF4;
+  --border-accent: #6154E9;
+  --border-focus: #6154E9;
 
-  --success: #2F9E63;
-  --success-bg: #E1F5EE;
-  --warning: #E3A008;
-  --warning-bg: #FBEED9;
-  --danger: #D64545;
-  --danger-bg: #FBEAEA;
-  --info: #3B82C4;
-  --info-bg: #E9F3FA;
+  --text-primary: #14162B;
+  --text-secondary: #676C86;
+  --text-muted: #9A9EB5;
+
+  --primary: #6154E9;
+  --brand-primary: #6154E9;
+  --brand-accent: #F5A623;
+  --primary-fg: #FFFFFF;
+  --primary-hover: #4E42D2;
+  --primary-light: #F1EFFD;
+  --primary-subtle: #F1EFFD;
+  --primary-glow: rgba(97, 84, 233, 0.25);
+
+  --accent: #F5A623;
+  --accent-fg: #3D2A00;
+  --accent-hover: #DB9315;
+  --accent-light: #FEF4EA;
+  --accent-cyan: #3B82F6;
+
+  --success: #22A786;
+  --success-bg: #E4F7F1;
+  --warning: #F5A623;
+  --warning-bg: #FEF4EA;
+  --danger: #EF4444;
+  --danger-bg: #FDEEEF;
+  --info: #3B82F6;
+  --info-bg: #ECF2FD;
+
+  --status-success: #22A786;
+  --status-warning: #F5A623;
+  --status-danger: #EF4444;
+  --status-info: #3B82F6;
 
   /* Typography */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -42,48 +58,68 @@
   /* Layout Primitives */
   --radius-sm: 8px;
   --radius-md: 12px;
+  --radius-lg: 16px;
   --radius-full: 999px;
 
-  --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.08);
-  --shadow-modal: 0 12px 36px rgba(0, 0, 0, 0.14);
+  --shadow-sm: 0 1px 3px rgba(20, 22, 50, 0.08);
+  --shadow-dropdown: 0 4px 16px rgba(20, 22, 50, 0.08);
+  --shadow-modal: 0 12px 36px rgba(20, 22, 50, 0.14);
+  --shadow-xl: 0 20px 50px rgba(20, 22, 50, 0.18);
 
   --transition-fast: 0.12s ease-in-out;
   --transition-normal: 0.2s ease-in-out;
 }
 
 [data-theme='dark'] {
-  /* Color — Dark Mode */
-  --bg: #10171A;
-  --surface: #182124;
-  --surface-hover: #202B2F;
-  --border: #2A3437;
-  --border-focus: #4FBDB3;
-  
-  --text-primary: #EDEFF0;
-  --text-secondary: #A7B0AE;
-  --text-muted: #6E7A77;
-  
-  --primary: #4FBDB3;
-  --primary-fg: #08201E;
-  --primary-hover: #63CCC3;
-  --primary-light: rgba(79, 189, 179, 0.15);
-  
-  --accent: #E3B15C;
+  /* Color — Dark Mode — Indigo/Violet "Biddyapith" theme */
+  --bg: #0D0E1F;
+  --surface: #171833;
+  --surface-hover: #1E2044;
+  --surface-sunken: #14152C;
+  --surface-bg-subtle: rgba(255, 255, 255, 0.04);
+  --bg-secondary: #171833;
+  --bg-tertiary: #14152C;
+  --border: #2A2C4E;
+  --border-subtle: #262845;
+  --border-accent: #8B7FFF;
+  --border-focus: #8B7FFF;
+  --text-primary: #F1F1FA;
+  --text-secondary: #AEB2CC;
+  --text-muted: #767AA0;
+
+  --primary: #8B7FFF;
+  --brand-primary: #8B7FFF;
+  --brand-accent: #F5B94D;
+  --primary-fg: #14152C;
+  --primary-hover: #A69AFF;
+  --primary-light: rgba(139, 127, 255, 0.16);
+  --primary-subtle: rgba(139, 127, 255, 0.16);
+  --primary-glow: rgba(139, 127, 255, 0.3);
+
+  --accent: #F5B94D;
   --accent-fg: #2E2005;
-  --accent-hover: #E8BF75;
-  --accent-light: rgba(227, 177, 92, 0.15);
+  --accent-hover: #F7C670;
+  --accent-light: rgba(245, 185, 77, 0.16);
+  --accent-cyan: #6EA8FE;
 
-  --success: #4CC98A;
-  --success-bg: #173430;
-  --warning: #E3B15C;
-  --warning-bg: #332707;
-  --danger: #F07171;
-  --danger-bg: #3A1414;
-  --info: #5EA5DD;
-  --info-bg: #122A3A;
+  --success: #3DD9AE;
+  --success-bg: rgba(61, 217, 174, 0.14);
+  --warning: #F5B94D;
+  --warning-bg: rgba(245, 185, 77, 0.14);
+  --danger: #FF6B6B;
+  --danger-bg: rgba(255, 107, 107, 0.14);
+  --info: #6EA8FE;
+  --info-bg: rgba(110, 168, 254, 0.14);
 
+  --status-success: #3DD9AE;
+  --status-warning: #F5B94D;
+  --status-danger: #FF6B6B;
+  --status-info: #6EA8FE;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-dropdown: 0 4px 20px rgba(0, 0, 0, 0.4);
   --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 20px 55px rgba(0, 0, 0, 0.65);
 }
 
 /* ==========================================================================
@@ -289,6 +325,11 @@ body {
   font-size: 0.75rem;
   font-weight: 500;
   border-radius: var(--radius-full);
+}
+
+.badge-primary {
+  background: var(--primary-light);
+  color: var(--primary);
 }
 
 .badge-success {
@@ -536,32 +577,27 @@ tbody tr:hover {
   background: var(--text-muted);
 }
 
-/* ==========================================================================
-   MOBILE & RESPONSIVE DESIGN (Handheld & Tablet Optimizations)
-   ========================================================================== */
-
-@media (max-width: 768px) {
-  .desktop-only {
-    display: none !important;
+/* Responsive Sidebar — hidden off-screen on narrow viewports until toggled */
+@media (max-width: 900px) {
+  .app-sidebar {
+    position: fixed !important;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    height: 100vh;
+    transform: translateX(-100%);
+    z-index: 50;
+    box-shadow: none;
   }
-
-  main {
-    padding: 0.85rem !important;
+  .app-sidebar.mobile-open {
+    transform: translateX(0);
+    box-shadow: var(--shadow-modal);
   }
-
-  .btn {
-    min-height: 36px;
+  .mobile-menu-btn {
+    display: inline-flex !important;
   }
+}
 
-  .table-responsive {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    width: 100%;
-  }
-
-  .modal-content, .modal-container {
-    width: 95vw !important;
-    max-height: 90vh !important;
-    padding: 1rem !important;
-  }
+.mobile-menu-btn {
+  display: none;
 }

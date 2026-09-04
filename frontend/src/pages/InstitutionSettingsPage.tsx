@@ -178,8 +178,16 @@ export const InstitutionSettingsPage: React.FC = () => {
                   <a
                     href={`https://${data.institution.subdomain}.biddyapith.tech`}
                     target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: '0.75rem', color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', textDecoration: 'none' }}
+                    rel="noopener noreferrer"
+                    style={{
+                      fontSize: '0.78rem',
+                      color: 'var(--primary)',
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      fontWeight: 500,
+                    }}
                   >
                     <span>{data.institution.subdomain}.biddyapith.tech</span>
                     <ExternalLink size={12} />

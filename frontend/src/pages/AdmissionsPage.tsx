@@ -31,6 +31,7 @@ import {
   Sparkles,
   DollarSign,
   GraduationCap,
+  Loader2,
 } from 'lucide-react';
 import { Button, Badge, Modal, SearchBar, EmptyState } from '../components/common';
 import { useSession } from '../context/SessionContext';
@@ -61,14 +62,14 @@ export const AdmissionsPage: React.FC = () => {
   const [addPreviousSchool, setAddPreviousSchool] = useState('');
   const [addAddress, setAddAddress] = useState('');
   const [addFee, setAddFee] = useState('500');
-  const [addFeeStatus, setAddFeeStatus] = useState('paid');
+  const [addFeeStatus, setAddFeeStatus] = useState<'paid' | 'unpaid' | 'waived' | 'pending'>('paid');
   const [addNotes, setAddNotes] = useState('');
   const [savingApp, setSavingApp] = useState(false);
 
   // Review / Edit Modal
   const [reviewApp, setReviewApp] = useState<AdmissionApplicationItem | null>(null);
   const [reviewStatus, setReviewStatus] = useState<'submitted' | 'under_review' | 'shortlisted' | 'admitted' | 'rejected'>('submitted');
-  const [reviewFeeStatus, setReviewFeeStatus] = useState<'unpaid' | 'paid' | 'waived'>('unpaid');
+  const [reviewFeeStatus, setReviewFeeStatus] = useState<'paid' | 'unpaid' | 'waived' | 'pending'>('unpaid');
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewClassId, setReviewClassId] = useState('');
   const [updatingApp, setUpdatingApp] = useState(false);
@@ -80,7 +81,7 @@ export const AdmissionsPage: React.FC = () => {
   const [admitAdmNo, setAdmitAdmNo] = useState('');
   const [enrolling, setEnrolling] = useState(false);
 
-  // Admitted Success Modal (Shows provisioned student username & default password)
+  // Admitted Success Modal
   const [admittedResult, setAdmittedResult] = useState<{
     studentName: string;
     username: string;
@@ -97,22 +98,38 @@ export const AdmissionsPage: React.FC = () => {
   const canWrite = hasPermission('admissions.write');
   const canApprove = hasPermission('admissions.approve');
 
+  const resetCreateForm = () => {
+    setAddName('');
+    setAddGuardianName('');
+    setAddGuardianPhone('');
+    setAddGuardianEmail('');
+    setAddGuardianRelation('Parent');
+    setAddPreviousSchool('');
+    setAddAddress('');
+    setAddNotes('');
+    setAddFee('500');
+    setAddFeeStatus('paid');
+    setAddGender('Male');
+    setAddDob('2011-01-01');
+    setAddClassId('');
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
       const [appsRes, statsRes, classesRes] = await Promise.all([
         fetchAdmissions({
-          status: selectedStatus,
+          status: selectedStatus !== 'all' ? selectedStatus : undefined,
           classId: selectedClassId || undefined,
           search: searchTerm || undefined,
         }),
         fetchAdmissionStats(),
         fetchClasses(),
       ]);
-      setApplications(appsRes.applications);
+      setApplications(appsRes.applications || []);
       setStats(statsRes);
-      setClasses(classesRes);
+      setClasses(classesRes || []);
     } catch (err: any) {
       setError(err.message || 'Failed to load admissions');
     } finally {
@@ -128,8 +145,8 @@ export const AdmissionsPage: React.FC = () => {
     if (admitTargetApp?.classId) {
       fetchSections(admitTargetApp.classId)
         .then((secs) => {
-          setSections(secs);
-          if (secs.length > 0) setAdmitSectionId(secs[0].id);
+          setSections(secs || []);
+          if (secs && secs.length > 0) setAdmitSectionId(secs[0].id);
         })
         .catch(() => setSections([]));
     }
@@ -146,6 +163,7 @@ export const AdmissionsPage: React.FC = () => {
       setSavingApp(true);
       setError(null);
       await createAdmission({
+        studentName: addName.trim(),
         applicantName: addName.trim(),
         classId: addClassId || undefined,
         dateOfBirth: addDob || undefined,
@@ -162,13 +180,7 @@ export const AdmissionsPage: React.FC = () => {
       });
 
       setShowAddModal(false);
-      setAddName('');
-      setAddGuardianName('');
-      setAddGuardianPhone('');
-      setAddGuardianEmail('');
-      setAddPreviousSchool('');
-      setAddAddress('');
-      setAddNotes('');
+      resetCreateForm();
       await loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to create admission application');
@@ -180,7 +192,7 @@ export const AdmissionsPage: React.FC = () => {
   const handleOpenReview = (app: AdmissionApplicationItem) => {
     setReviewApp(app);
     setReviewStatus(app.status);
-    setReviewFeeStatus(app.feeStatus);
+    setReviewFeeStatus((app.feeStatus as 'paid' | 'unpaid' | 'waived' | 'pending') || 'unpaid');
     setReviewNotes(app.notes || '');
     setReviewClassId(app.classId || '');
   };
@@ -225,9 +237,11 @@ export const AdmissionsPage: React.FC = () => {
       setEnrolling(true);
       setError(null);
       const res = await admitStudent(admitTargetApp.id, {
+        classId: admitTargetApp.classId || '',
         sectionId: admitSectionId,
         rollNo: admitRollNo.trim() || undefined,
         admissionNo: admitAdmNo.trim() || undefined,
+        generateCredentials: true,
       });
 
       setAdmitTargetApp(null);
@@ -271,7 +285,7 @@ export const AdmissionsPage: React.FC = () => {
   const handleExportCsv = () => {
     const exportRows = applications.map((a) => ({
       'Application No': a.applicationNo,
-      'Applicant Name': a.applicantName,
+      'Applicant Name': a.applicantName || a.studentName || '',
       'Grade/Class': a.className || 'Unassigned',
       'Gender': a.gender || '',
       'Guardian Name': a.guardianName,
@@ -280,7 +294,7 @@ export const AdmissionsPage: React.FC = () => {
       'Status': a.status,
       'Application Fee': a.applicationFee,
       'Fee Status': a.feeStatus,
-      'Applied Date': new Date(a.createdAt).toLocaleDateString(),
+      'Applied Date': a.createdAt ? new Date(a.createdAt).toLocaleDateString() : '',
     }));
     exportToCsv('admissions-pipeline.csv', exportRows);
   };
@@ -300,6 +314,18 @@ export const AdmissionsPage: React.FC = () => {
     }
   };
 
+  const getFeeStatusBadge = (status?: string) => {
+    if (!status) return <Badge tone="neutral">N/A</Badge>;
+    const configs: Record<string, { tone: string; label: string }> = {
+      paid: { tone: 'success', label: 'Paid' },
+      unpaid: { tone: 'danger', label: 'Unpaid' },
+      waived: { tone: 'neutral', label: 'Waived' },
+      pending: { tone: 'warning', label: 'Pending' },
+    };
+    const config = configs[status] || configs.pending;
+    return <Badge tone={config.tone as any}>{config.label}</Badge>;
+  };
+
   const summary = stats?.summary || {
     total: 0,
     submitted: 0,
@@ -309,6 +335,15 @@ export const AdmissionsPage: React.FC = () => {
     rejected: 0,
     total_fees_collected: 0,
   };
+
+  if (loading && applications.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+        <Loader2 size={32} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+        <span style={{ marginLeft: '1rem', color: 'var(--text-muted)' }}>Loading admissions...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -447,10 +482,11 @@ export const AdmissionsPage: React.FC = () => {
         </form>
       </div>
 
-      {/* Applications Roster Table / Card View */}
+      {/* Applications Roster Table */}
       <div className="glass-panel" style={{ padding: '0', overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem' }} />
             Loading admission applications...
           </div>
         ) : applications.length === 0 ? (
@@ -488,7 +524,7 @@ export const AdmissionsPage: React.FC = () => {
                     </td>
 
                     <td style={{ padding: '0.85rem 1rem' }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{app.applicantName}</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{app.applicantName || app.studentName}</div>
                       <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
                         {app.gender || 'Unknown'} &bull; DOB: {app.dateOfBirth ? new Date(app.dateOfBirth).toLocaleDateString() : 'N/A'}
                       </div>
@@ -506,9 +542,7 @@ export const AdmissionsPage: React.FC = () => {
                     <td style={{ padding: '0.85rem 1rem', fontSize: '0.82rem' }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
                         <span style={{ fontWeight: 600 }}>৳{app.applicationFee}</span>
-                        <Badge tone={app.feeStatus === 'paid' ? 'success' : app.feeStatus === 'waived' ? 'neutral' : 'warning'}>
-                          {app.feeStatus}
-                        </Badge>
+                        {getFeeStatusBadge(app.feeStatus)}
                       </span>
                     </td>
 
@@ -518,14 +552,12 @@ export const AdmissionsPage: React.FC = () => {
 
                     <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }}>
-                        {/* Review & Status */}
                         {canWrite && (
                           <Button variant="ghost" size="sm" onClick={() => handleOpenReview(app)} title="Review Application">
                             <Edit2 size={14} />
                           </Button>
                         )}
 
-                        {/* Admit & Auto-Provision Student */}
                         {canApprove && app.status !== 'admitted' && (
                           <Button
                             variant="primary"
@@ -554,7 +586,7 @@ export const AdmissionsPage: React.FC = () => {
       </div>
 
       {/* 1. New Application Modal */}
-      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="New Admission Application">
+      <Modal isOpen={showAddModal} onClose={() => { setShowAddModal(false); resetCreateForm(); }} title="New Admission Application">
         <form onSubmit={handleCreateSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
             <div>
@@ -710,10 +742,11 @@ export const AdmissionsPage: React.FC = () => {
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>
                 Fee Payment Status
               </label>
-              <select className="input" value={addFeeStatus} onChange={(e) => setAddFeeStatus(e.target.value)}>
+              <select className="input" value={addFeeStatus} onChange={(e) => setAddFeeStatus(e.target.value as any)}>
                 <option value="paid">Paid</option>
                 <option value="unpaid">Unpaid</option>
                 <option value="waived">Waived</option>
+                <option value="pending">Pending</option>
               </select>
             </div>
           </div>
@@ -732,7 +765,7 @@ export const AdmissionsPage: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
-            <Button variant="ghost" onClick={() => setShowAddModal(false)}>
+            <Button variant="ghost" onClick={() => { setShowAddModal(false); resetCreateForm(); }}>
               Cancel
             </Button>
             <Button variant="primary" type="submit" disabled={savingApp}>
@@ -747,7 +780,7 @@ export const AdmissionsPage: React.FC = () => {
         {reviewApp && (
           <form onSubmit={handleReviewSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.96rem' }}>{reviewApp.applicantName}</div>
+              <div style={{ fontWeight: 600, fontSize: '0.96rem' }}>{reviewApp.applicantName || reviewApp.studentName}</div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                 Applied Grade: {reviewApp.className || 'General'} &bull; Guardian: {reviewApp.guardianName} ({reviewApp.guardianPhone})
               </div>
@@ -788,6 +821,7 @@ export const AdmissionsPage: React.FC = () => {
                   <option value="paid">Paid</option>
                   <option value="unpaid">Unpaid</option>
                   <option value="waived">Waived</option>
+                  <option value="pending">Pending</option>
                 </select>
               </div>
             </div>
@@ -835,7 +869,7 @@ export const AdmissionsPage: React.FC = () => {
       <Modal
         isOpen={!!admitTargetApp}
         onClose={() => setAdmitTargetApp(null)}
-        title={`Admit & Auto-Enroll: ${admitTargetApp?.applicantName}`}
+        title={`Admit & Auto-Enroll: ${admitTargetApp?.applicantName || admitTargetApp?.studentName}`}
       >
         {admitTargetApp && (
           <form onSubmit={handleAdmitSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -963,7 +997,7 @@ export const AdmissionsPage: React.FC = () => {
       <Modal isOpen={!!deleteTargetApp} onClose={() => setDeleteTargetApp(null)} title="Delete Admission Application">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', margin: 0 }}>
-            Are you sure you want to permanently delete application <strong>{deleteTargetApp?.applicationNo}</strong> for applicant <strong>{deleteTargetApp?.applicantName}</strong>?
+            Are you sure you want to permanently delete application <strong>{deleteTargetApp?.applicationNo}</strong> for applicant <strong>{deleteTargetApp?.applicantName || deleteTargetApp?.studentName}</strong>?
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
             <Button variant="ghost" onClick={() => setDeleteTargetApp(null)}>
@@ -978,3 +1012,5 @@ export const AdmissionsPage: React.FC = () => {
     </div>
   );
 };
+
+export default AdmissionsPage;

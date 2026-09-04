@@ -1,25 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { useSession } from '../../context/SessionContext';
-import { Sun, Moon, LogOut, Menu, Search, Building2, UserCheck, Bell } from 'lucide-react';
+import { Sun, Moon, LogOut, Menu, Search, Building2, UserCheck, Bell, PanelLeftClose } from 'lucide-react';
 import { UserProfileModal } from '../common/UserProfileModal';
 import { NotificationDrawer } from '../common/NotificationDrawer';
 import { fetchNotifications } from '../../services/api';
 
 interface HeaderProps {
-  onOpenMobileNav?: () => void;
-  onOpenCommandPalette?: () => void;
+  onOpenMobileNav: () => void;
+  onOpenCommandPalette: () => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onOpenMobileNav,
   onOpenCommandPalette,
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }) => {
   const { user, activeMembership, institutionName, theme, toggleTheme, logout } = useSession();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showNotificationDrawer, setShowNotificationDrawer] = useState(false);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
-  // Poll notifications count periodically
   useEffect(() => {
     let mounted = true;
     const checkUnread = async () => {
@@ -43,102 +46,177 @@ export const Header: React.FC<HeaderProps> = ({
     <>
       <header
         style={{
-          height: '56px',
-          borderBottom: '1px solid var(--border)',
-          backgroundColor: 'var(--surface)',
+          height: '64px',
+          borderBottom: '1px solid var(--border-subtle)',
+          backgroundColor: 'var(--bg-secondary)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 1.5rem',
           position: 'sticky',
           top: 0,
-          zIndex: 30,
+          zIndex: 100,
+          backdropFilter: 'blur(8px)',
         }}
       >
-        {/* Left side: Mobile Toggle & School Name */}
+        {/* Left section */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {onOpenMobileNav && (
+          {/* Collapse Toggle Button */}
+          {onToggleSidebar && (
             <button
-              onClick={onOpenMobileNav}
-              className="btn btn-ghost btn-sm"
-              style={{ padding: '0.35rem' }}
-              title="Open Menu"
+              onClick={onToggleSidebar}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0.4rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-subtle)',
+                background: 'transparent',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-hover)';
+                e.currentTarget.style.color = 'var(--text-primary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--text-primary)';
+              }}
+              aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              <Menu size={18} />
+             {isSidebarCollapsed ? (
+  <Menu size={20} />
+) : (
+  <PanelLeftClose size={20} />
+)}
             </button>
           )}
 
+          <button
+            onClick={onOpenMobileNav}
+            style={{
+              display: 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '0.4rem',
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              transition: 'background 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+            aria-label="Open menu"
+            className="mobile-menu-btn"
+          >
+            <Menu size={22} />
+          </button>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Building2 size={18} style={{ color: 'var(--primary)' }} />
-            <span style={{ fontWeight: 600, fontSize: '0.92rem', color: 'var(--text-primary)' }}>
-              {institutionName}
+            <Building2 size={18} style={{ color: 'var(--brand-primary)' }} />
+            <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+              {institutionName || 'Biddyapith'}
             </span>
           </div>
         </div>
 
-        {/* Right side: Search Quick-Key, Notifications, Theme Switcher, User Details, Logout */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          {onOpenCommandPalette && (
-            <button
-              onClick={onOpenCommandPalette}
-              className="btn btn-secondary btn-sm"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                color: 'var(--text-muted)',
-                fontSize: '0.78rem',
-                padding: '0.3rem 0.65rem',
-                borderRadius: 'var(--radius-sm)',
-              }}
-            >
-              <Search size={14} />
-              <span>Search...</span>
-              <kbd
-                style={{
-                  fontSize: '0.68rem',
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '3px',
-                  padding: '0.1rem 0.35rem',
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                Ctrl+K
-              </kbd>
-            </button>
-          )}
-
-          {/* Notifications Bell */}
-          <button
-            onClick={() => setShowNotificationDrawer(true)}
-            className="btn btn-ghost btn-sm"
-            title="Notifications"
+        {/* Center: Search */}
+        <button
+          onClick={onOpenCommandPalette}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.6rem 1.1rem',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--border-subtle)',
+            background: 'var(--bg-primary)',
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            flex: '1',
+            maxWidth: '420px',
+            margin: '0 1rem',
+            transition: 'all 0.2s ease',
+            fontSize: '0.85rem',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'var(--brand-primary)';
+            e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99, 102, 241, 0.1)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'var(--border-subtle)';
+            e.currentTarget.style.boxShadow = 'none';
+          }}
+        >
+          <Search size={16} />
+          <span style={{ flex: 1, textAlign: 'left' }}>Search or type a command...</span>
+          <kbd
             style={{
-              padding: '0.4rem',
-              color: unreadNotificationCount > 0 ? 'var(--primary)' : 'var(--text-secondary)',
-              position: 'relative',
+              fontSize: '0.65rem',
+              padding: '0.1rem 0.4rem',
+              borderRadius: 'var(--radius-xs)',
+              background: 'var(--border-subtle)',
+              color: 'var(--text-muted)',
+              fontFamily: 'monospace',
             }}
           >
-            <Bell size={17} />
+             Ctrl+K
+          </kbd>
+        </button>
+
+        {/* Right section */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button
+            onClick={() => setShowNotificationDrawer(true)}
+            style={{
+              padding: '0.4rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-subtle)',
+              background: 'transparent',
+              color: unreadNotificationCount > 0 ? 'var(--brand-primary)' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+            aria-label="Notifications"
+          >
+            <Bell size={18} />
             {unreadNotificationCount > 0 && (
               <span
                 style={{
                   position: 'absolute',
-                  top: '4px',
-                  right: '4px',
-                  background: 'var(--danger, #ef4444)',
+                  top: '-2px',
+                  right: '-2px',
+                  background: '#ef4444',
                   color: '#ffffff',
-                  fontSize: '0.65rem',
+                  fontSize: '0.6rem',
                   fontWeight: 700,
                   minWidth: '16px',
                   height: '16px',
-                  borderRadius: 'var(--radius-full)',
+                  borderRadius: '50%',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   padding: '0 3px',
-                  boxShadow: '0 0 0 2px var(--surface)',
+                  boxShadow: '0 0 0 2px var(--bg-secondary)',
                 }}
               >
                 {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
@@ -148,22 +226,38 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={toggleTheme}
-            className="btn btn-ghost btn-sm"
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            style={{ padding: '0.4rem', color: 'var(--text-secondary)' }}
+            style={{
+              padding: '0.4rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-subtle)',
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+            aria-label="Toggle theme"
           >
-            {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
           <div
             style={{
-              height: '24px',
+              height: '28px',
               width: '1px',
-              backgroundColor: 'var(--border)',
+              backgroundColor: 'var(--border-subtle)',
             }}
           />
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <button
               onClick={() => setShowProfileModal(true)}
               style={{
@@ -173,27 +267,33 @@ export const Header: React.FC<HeaderProps> = ({
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
-                textAlign: 'right',
                 padding: '0.2rem 0.4rem',
                 borderRadius: 'var(--radius-sm)',
+                transition: 'background 0.2s ease',
               }}
-              title="Edit Profile"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-hover)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+              aria-label="User profile"
             >
-              <div>
+              <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.2 }}>
                   {user?.name || 'User'}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                   {activeMembership?.roleName || 'Member'}
                 </div>
               </div>
               <div
                 style={{
-                  width: '30px',
-                  height: '30px',
+                  width: '32px',
+                  height: '32px',
                   borderRadius: '50%',
-                  background: 'rgba(30, 95, 91, 0.15)',
-                  color: 'var(--primary)',
+                  background: 'var(--brand-primary)',
+                  color: '#fff',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -207,15 +307,40 @@ export const Header: React.FC<HeaderProps> = ({
 
             <button
               onClick={logout}
-              className="btn btn-ghost btn-sm"
-              title="Sign Out"
-              style={{ padding: '0.4rem', color: 'var(--danger)' }}
+              style={{
+                padding: '0.4rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-subtle)',
+                background: 'transparent',
+                color: '#ef4444',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+              aria-label="Logout"
             >
-              <LogOut size={16} />
+              <LogOut size={18} />
             </button>
           </div>
         </div>
       </header>
+
+      {/* Responsive Styles for mobile menu button */}
+      <style>{`
+        @media (max-width: 768px) {
+          .mobile-menu-btn {
+            display: flex !important;
+          }
+        }
+      `}</style>
 
       <UserProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
       <NotificationDrawer
@@ -226,3 +351,5 @@ export const Header: React.FC<HeaderProps> = ({
     </>
   );
 };
+
+export default Header;

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import * as Sentry from '@sentry/react';
 import { SessionProvider, useSession } from './context/SessionContext';
-import { AppLayout } from './components/layout/AppLayout';
+import AppLayout from './components/layout/AppLayout';
 import { DashboardGrid } from './components/dashboard/DashboardGrid';
 import { AttendancePage } from './pages/AttendancePage';
 import { NoticesPage } from './pages/NoticesPage';
@@ -18,6 +17,7 @@ import { InstitutionSettingsPage } from './pages/InstitutionSettingsPage';
 import { LoginPage } from './pages/LoginPage';
 import { ScopeChip } from './components/common/ScopeChip';
 
+// Universal Dashboard
 const DashboardView: React.FC<{ onNavigate: (path: string) => void }> = () => {
   const { user, activeMembership, institutionName, dashboardWidgets } = useSession();
 
@@ -57,7 +57,7 @@ const DashboardView: React.FC<{ onNavigate: (path: string) => void }> = () => {
         </div>
       </div>
 
-      {/* Dynamic Dashboard Grid */}
+      {/* Universal Dashboard Grid - Permission-based filtering */}
       <DashboardGrid widgets={dashboardWidgets} />
     </div>
   );
@@ -99,35 +99,21 @@ const MainAppContent: React.FC = () => {
 
   const renderPage = () => {
     switch (currentPath) {
-      case '/':
-        return <DashboardView onNavigate={handleNavigate} />;
-      case '/attendance':
-        return <AttendancePage />;
-      case '/admissions':
-        return <AdmissionsPage />;
-      case '/examinations':
-        return <ExaminationsPage onNavigateHome={() => handleNavigate('/')} />;
-      case '/assignments':
-        return <AssignmentsPage onNavigateHome={() => handleNavigate('/')} />;
-      case '/notices':
-        return <NoticesPage />;
-      case '/students':
-        return <StudentsPage />;
-      case '/academic':
-        return <AcademicPage />;
-      case '/tasks':
-        return <TasksPage />;
-      case '/members':
-        return <MembersPage />;
-      case '/permission-matrix':
-        return <PermissionMatrixPage />;
+      case '/': return <DashboardView onNavigate={handleNavigate} />;
+      case '/attendance': return <AttendancePage />;
+      case '/admissions': return <AdmissionsPage />;
+      case '/examinations': return <ExaminationsPage onNavigateHome={() => handleNavigate('/')} />;
+      case '/assignments': return <AssignmentsPage onNavigateHome={() => handleNavigate('/')} />;
+      case '/notices': return <NoticesPage />;
+      case '/students': return <StudentsPage />;
+      case '/academic': return <AcademicPage />;
+      case '/tasks': return <TasksPage />;
+      case '/members': return <MembersPage />;
+      case '/permission-matrix': return <PermissionMatrixPage />;
       case '/activity-log':
-      case '/activity-logs':
-        return <ActivityLogPage onNavigateHome={() => handleNavigate('/')} />;
-      case '/settings':
-        return <InstitutionSettingsPage />;
-      default:
-        return <DashboardView onNavigate={handleNavigate} />;
+      case '/activity-logs': return <ActivityLogPage onNavigateHome={() => handleNavigate('/')} />;
+      case '/settings': return <InstitutionSettingsPage />;
+      default: return <DashboardView onNavigate={handleNavigate} />;
     }
   };
 
@@ -140,26 +126,9 @@ const MainAppContent: React.FC = () => {
 
 export function App() {
   return (
-    <Sentry.ErrorBoundary
-      fallback={({ error, resetError }) => (
-        <div style={{ padding: '2.5rem', textAlign: 'center', maxWidth: '500px', margin: '4rem auto', backgroundColor: 'var(--card-bg, #fff)', borderRadius: '12px', border: '1px solid var(--border, #e2e8f0)', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary, #1e293b)', marginBottom: '0.5rem' }}>Something went wrong</h2>
-          <p style={{ color: 'var(--text-secondary, #64748b)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-            {error instanceof Error ? error.message : 'An unexpected error occurred.'}
-          </p>
-          <button
-            onClick={resetError}
-            style={{ padding: '0.6rem 1.25rem', borderRadius: '8px', backgroundColor: 'var(--primary, #3b82f6)', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 500 }}
-          >
-            Try again
-          </button>
-        </div>
-      )}
-    >
-      <SessionProvider>
-        <MainAppContent />
-      </SessionProvider>
-    </Sentry.ErrorBoundary>
+    <SessionProvider>
+      <MainAppContent />
+    </SessionProvider>
   );
 }
 

@@ -47,26 +47,19 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
   const [submittingWork, setSubmittingWork] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
-  const isStudent = !canCreate;
-
   const loadData = async () => {
     setLoading(true);
     try {
-      if (canCreate) {
-        const [asgn, sec, sub] = await Promise.all([
-          fetchAssignments(),
-          fetchSections().catch(() => []),
-          fetchSubjects().catch(() => []),
-        ]);
-        setAssignments(asgn);
-        setSections(sec);
-        setSubjects(sub);
-        if (sec.length > 0 && !createSectionId) setCreateSectionId(sec[0].id);
-        if (sub.length > 0 && !createSubjectId) setCreateSubjectId(sub[0].id);
-      } else {
-        const asgn = await fetchAssignments();
-        setAssignments(asgn);
-      }
+      const [asgn, sec, sub] = await Promise.all([
+        fetchAssignments(),
+        fetchSections(),
+        fetchSubjects(),
+      ]);
+      setAssignments(asgn);
+      setSections(sec);
+      setSubjects(sub);
+      if (sec.length > 0 && !createSectionId) setCreateSectionId(sec[0].id);
+      if (sub.length > 0 && !createSubjectId) setCreateSubjectId(sub[0].id);
     } catch (err) {
       console.error('Failed to load assignments:', err);
     } finally {
@@ -76,7 +69,7 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
 
   useEffect(() => {
     loadData();
-  }, [canCreate]);
+  }, []);
 
   const handleCreateAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,10 +137,10 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
             <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <BookOpen size={26} style={{ color: 'var(--brand-primary)' }} /> {isStudent ? 'My Coursework & Assignments' : 'Curriculum Assignments & Submissions'}
+              <BookOpen size={26} style={{ color: 'var(--brand-primary)' }} /> Curriculum Assignments & Submissions
             </h1>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              {isStudent ? 'Track assigned coursework, upload homework deliverables, and review grading feedback.' : 'Manage homework deliverables, laboratory exercises, student submission queues, and grading rubrics.'}
+              Manage homework deliverables, laboratory exercises, student submission queues, and grading rubrics.
             </p>
           </div>
 
@@ -177,8 +170,8 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
           </div>
         ) : filteredAssignments.length === 0 ? (
           <EmptyState
-            title={isStudent ? 'No assignments due' : 'No assignments posted yet'}
-            description={isStudent ? 'No coursework has been assigned to your class section yet. Check back soon!' : 'Create an assignment for a class section to assign homework, quizzes, and laboratory exercises.'}
+            title="No assignments posted yet"
+            description="Create an assignment for a class section to assign homework, quizzes, and laboratory exercises."
           />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
@@ -202,27 +195,6 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
                   </p>
                 </div>
 
-                {/* Student Grading & Submission Details */}
-                {isStudent && (
-                  <div style={{ padding: '0.65rem 0.75rem', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Status:</span>
-                      {item.grade ? (
-                        <Badge tone="success">Graded: {item.grade}</Badge>
-                      ) : item.submissionStatus === 'submitted' ? (
-                        <Badge tone="info">Submitted ✓</Badge>
-                      ) : (
-                        <Badge tone="warning">Pending Submission</Badge>
-                      )}
-                    </div>
-                    {item.feedback && (
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontStyle: 'italic', borderTop: '1px dashed var(--border-subtle)', paddingTop: '0.35rem' }}>
-                        💬 Teacher Feedback: "{item.feedback}"
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 <div
                   style={{
                     marginTop: 'auto',
@@ -234,18 +206,18 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
                   }}
                 >
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {isStudent ? (item.submissionStatus === 'submitted' ? 'Turned in' : 'Action required') : (item.totalSubmissions !== undefined ? `${item.totalSubmissions} Submissions` : 'Active')}
+                    {item.totalSubmissions !== undefined ? `${item.totalSubmissions} Submissions` : 'Active'}
                   </div>
 
                   <div style={{ display: 'flex', gap: '0.4rem' }}>
                     {canSubmit && (
                       <Button
-                        variant={item.submissionStatus === 'submitted' || item.grade ? 'secondary' : 'primary'}
+                        variant="primary"
                         size="sm"
                         icon={<Upload size={12} />}
                         onClick={() => setSubmitTargetAssignment(item)}
                       >
-                        {item.submissionStatus === 'submitted' ? 'Resubmit Work' : 'Submit Work'}
+                        Submit Work
                       </Button>
                     )}
 

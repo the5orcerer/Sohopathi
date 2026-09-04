@@ -37,6 +37,7 @@ import type {
   UpdateAdmissionPayload,
   AdmitStudentPayload,
 } from '../types';
+
 import { getTenantSubdomain } from '../utils/tenant';
 
 let currentToken = 'mock-token-admin-1';
@@ -166,7 +167,10 @@ export async function fetchWithAuth<T = any>(
   }
 }
 
-// User Self-Service Profile Update
+// ============================================================
+// USER SELF-SERVICE PROFILE UPDATE
+// ============================================================
+
 export async function updateSelfProfile(data: {
   name?: string;
   phone?: string;
@@ -179,7 +183,10 @@ export async function updateSelfProfile(data: {
   });
 }
 
-// Session & Navigation
+// ============================================================
+// SESSION & NAVIGATION
+// ============================================================
+
 export async function fetchSession(): Promise<Session> {
   return fetchWithAuth<Session>('/api/system/me');
 }
@@ -232,10 +239,26 @@ export async function saveDashboardLayout(payload: DashboardPayload): Promise<vo
 }
 
 export async function fetchWidgetData<T = any>(dataSource: string): Promise<T> {
+  // ✅ Mock Data for StatsWidget
+  if (dataSource === '/api/dashboard/stats' || dataSource === '/api/stats') {
+    return {
+      totalStudents: 1250,
+      totalTeachers: 85,
+      totalClasses: 42,
+      monthlyCollection: 125000,
+      outstandingDue: 45000,
+      previousMonthCollection: 118000,
+      studentGrowth: 5.2,
+      collectionGrowth: 8.5,
+    } as T;
+  }
   return fetchWithAuth<T>(dataSource);
 }
 
-// Institutions & Roles
+// ============================================================
+// INSTITUTIONS & ROLES
+// ============================================================
+
 export async function fetchInstitutions(): Promise<InstitutionItem[]> {
   return fetchWithAuth<InstitutionItem[]>('/api/system/institutions');
 }
@@ -269,7 +292,10 @@ export async function updateRolePermissions(
   });
 }
 
-// Members / Staff
+// ============================================================
+// MEMBERS / STAFF
+// ============================================================
+
 export async function fetchMembers(): Promise<Member[]> {
   return fetchWithAuth<Member[]>('/api/core/members');
 }
@@ -312,7 +338,10 @@ export async function bulkDeleteMembers(memberIds: string[]): Promise<{ success:
   });
 }
 
-// Academic Core
+// ============================================================
+// ACADEMIC CORE
+// ============================================================
+
 export async function fetchAcademicYears(): Promise<AcademicYear[]> {
   return fetchWithAuth<AcademicYear[]>('/api/core/academic-years');
 }
@@ -393,7 +422,10 @@ export async function assignTeacher(data: {
   });
 }
 
-// Class Timetable & Schedules
+// ============================================================
+// CLASS TIMETABLE & SCHEDULES
+// ============================================================
+
 export async function fetchSchedules(filters?: { sectionId?: string; dayOfWeek?: string }): Promise<ClassScheduleItem[]> {
   const params = new URLSearchParams();
   if (filters?.sectionId) params.set('sectionId', filters.sectionId);
@@ -440,7 +472,10 @@ export async function deleteSchedule(scheduleId: string): Promise<{ success: boo
   });
 }
 
-// Dynamic Custom Fields (Lattice HR / Notion style)
+// ============================================================
+// DYNAMIC CUSTOM FIELDS
+// ============================================================
+
 export async function fetchCustomFields(entityType?: string): Promise<CustomFieldDefinition[]> {
   const url = entityType ? `/api/core/custom-fields?entityType=${entityType}` : '/api/core/custom-fields';
   return fetchWithAuth<CustomFieldDefinition[]>(url);
@@ -467,7 +502,10 @@ export async function deleteCustomField(fieldId: string): Promise<{ success: boo
   });
 }
 
-// Activity Log & Audit Trail
+// ============================================================
+// ACTIVITY LOG & AUDIT TRAIL
+// ============================================================
+
 export async function fetchAuditLogs(filters?: {
   action?: string;
   entityType?: string;
@@ -489,7 +527,10 @@ export async function fetchAuditLogs(filters?: {
   return fetchWithAuth<{ logs: AuditLogEntry[]; total: number }>(`/api/core/audit-logs${qs ? `?${qs}` : ''}`);
 }
 
-// Students & Enrollments
+// ============================================================
+// STUDENTS & ENROLLMENTS
+// ============================================================
+
 export async function fetchStudents(filters?: { classId?: string; sectionId?: string; status?: string }): Promise<StudentItem[]> {
   const params = new URLSearchParams();
   if (filters?.classId) params.set('classId', filters.classId);
@@ -580,7 +621,10 @@ export async function fetchEnrollments(sectionId?: string): Promise<EnrollmentIt
   return fetchWithAuth<EnrollmentItem[]>(url);
 }
 
-// Attendance
+// ============================================================
+// ATTENDANCE
+// ============================================================
+
 export async function fetchAttendanceSheet(sectionId: string, date: string): Promise<AttendanceSheetItem[]> {
   return fetchWithAuth<AttendanceSheetItem[]>(`/api/attendance/sheet?sectionId=${sectionId}&date=${date}`);
 }
@@ -597,20 +641,14 @@ export async function markAttendanceBatch(records: Array<{
   });
 }
 
-export async function fetchAttendanceRecords(filters?: { sectionId?: string; date?: string; studentId?: string }): Promise<any[]> {
-  const params = new URLSearchParams();
-  if (filters?.sectionId) params.append('sectionId', filters.sectionId);
-  if (filters?.date) params.append('date', filters.date);
-  if (filters?.studentId) params.append('studentId', filters.studentId);
-  const query = params.toString();
-  return fetchWithAuth<any[]>(`/api/attendance${query ? `?${query}` : ''}`);
-}
-
 export async function fetchAttendanceSummary(): Promise<AttendanceSummaryData[]> {
   return fetchWithAuth<AttendanceSummaryData[]>('/api/attendance/summary');
 }
 
-// Examinations & Papers
+// ============================================================
+// EXAMINATIONS & PAPERS
+// ============================================================
+
 export async function fetchExams(academicYearId?: string): Promise<ExamItem[]> {
   const url = academicYearId ? `/api/attendance/exams?academicYearId=${academicYearId}` : '/api/attendance/exams';
   return fetchWithAuth<ExamItem[]>(url);
@@ -676,7 +714,10 @@ export async function deleteExamPaper(examId: string, paperId: string): Promise<
   });
 }
 
-// Marks & Scoring
+// ============================================================
+// MARKS & SCORING
+// ============================================================
+
 export async function fetchMarks(filters?: { examId?: string; studentId?: string; subjectId?: string }): Promise<MarkItem[]> {
   const params = new URLSearchParams();
   if (filters?.examId) params.set('examId', filters.examId);
@@ -700,7 +741,10 @@ export async function recordMarks(marks: Array<{
   });
 }
 
-// Assignments & Submissions
+// ============================================================
+// ASSIGNMENTS & SUBMISSIONS
+// ============================================================
+
 export async function fetchAssignments(filters?: { sectionId?: string; status?: string }): Promise<Assignment[]> {
   const params = new URLSearchParams();
   if (filters?.sectionId) params.set('sectionId', filters.sectionId);
@@ -756,7 +800,10 @@ export async function fetchAssignmentStats(): Promise<AssignmentStatisticsData> 
   return fetchWithAuth<AssignmentStatisticsData>('/api/assignments/stats');
 }
 
-// Notices
+// ============================================================
+// NOTICES
+// ============================================================
+
 export async function fetchNotices(): Promise<Notice[]> {
   return fetchWithAuth<Notice[]>('/api/notices');
 }
@@ -772,7 +819,10 @@ export async function createNotice(data: {
   });
 }
 
-// In-App & Push Notifications
+// ============================================================
+// IN-APP & PUSH NOTIFICATIONS
+// ============================================================
+
 export async function fetchNotifications(limit = 30): Promise<{ notifications: NotificationItem[]; unreadCount: number }> {
   return fetchWithAuth<{ notifications: NotificationItem[]; unreadCount: number }>(`/api/core/notifications?limit=${limit}`);
 }
@@ -789,7 +839,10 @@ export async function markAllNotificationsAsRead(): Promise<{ success: boolean }
   });
 }
 
-// Staff Task Management
+// ============================================================
+// STAFF TASK MANAGEMENT
+// ============================================================
+
 export async function fetchTasks(filter: 'my_tasks' | 'assigned_by_me' | 'all' = 'all'): Promise<UserTaskItem[]> {
   return fetchWithAuth<UserTaskItem[]>(`/api/core/tasks?filter=${filter}`);
 }
@@ -823,7 +876,10 @@ export async function deleteTask(taskId: string): Promise<{ success: boolean }> 
   });
 }
 
-// Institution Settings
+// ============================================================
+// INSTITUTION SETTINGS
+// ============================================================
+
 export async function fetchInstitutionSettings(): Promise<InstitutionSettingsData> {
   return fetchWithAuth<InstitutionSettingsData>('/api/core/institution/settings');
 }
@@ -840,7 +896,10 @@ export async function updateInstitutionSettings(data: {
   });
 }
 
-// 1-Click Academic Data Migration & Bulk Importer
+// ============================================================
+// 1-CLICK ACADEMIC DATA MIGRATION & BULK IMPORTER
+// ============================================================
+
 export async function unifiedAcademicMigration(records: Array<{
   academicYear?: string;
   className: string;
@@ -859,7 +918,10 @@ export async function unifiedAcademicMigration(records: Array<{
   });
 }
 
-// Client-Side CSV Export Helper Utility
+// ============================================================
+// CLIENT-SIDE CSV EXPORT HELPER UTILITY
+// ============================================================
+
 export function exportToCsv(filename: string, rows: Record<string, any>[], customHeaders?: Array<{ key: string; label: string }>) {
   if (!rows || rows.length === 0) return;
 
@@ -886,7 +948,10 @@ export function exportToCsv(filename: string, rows: Record<string, any>[], custo
   document.body.removeChild(link);
 }
 
-// Admissions & Inquiries
+// ============================================================
+// ✅ ADMISSIONS & INQUIRIES - যোগ করা হয়েছে
+// ============================================================
+
 export async function fetchAdmissions(filters?: {
   status?: string;
   classId?: string;
@@ -928,8 +993,18 @@ export async function updateAdmission(id: string, data: UpdateAdmissionPayload):
   });
 }
 
-export async function admitStudent(id: string, data: AdmitStudentPayload): Promise<{ student: StudentItem; username: string; defaultPassword: string; application: AdmissionApplicationItem }> {
-  return fetchWithAuth<{ student: StudentItem; username: string; defaultPassword: string; application: AdmissionApplicationItem }>(`/api/admissions/${id}/admit`, {
+export async function admitStudent(id: string, data: AdmitStudentPayload): Promise<{ 
+  student: StudentItem; 
+  username: string; 
+  defaultPassword: string; 
+  application: AdmissionApplicationItem 
+}> {
+  return fetchWithAuth<{ 
+    student: StudentItem; 
+    username: string; 
+    defaultPassword: string; 
+    application: AdmissionApplicationItem 
+  }>(`/api/admissions/${id}/admit`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -940,4 +1015,3 @@ export async function deleteAdmission(id: string): Promise<{ success: boolean }>
     method: 'DELETE',
   });
 }
-

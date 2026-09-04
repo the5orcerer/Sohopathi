@@ -39,7 +39,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#f43f5e',
+            color: 'var(--status-danger)',
           }}
         >
           <ShieldAlert size={32} />

@@ -172,29 +172,29 @@ export const AdmissionStatsWidget: React.FC<WidgetProps> = ({ dataSource }) => {
 
       <div className="widget-body">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.6rem' }}>
-          <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'rgba(30, 95, 91, 0.08)', border: '1px solid rgba(30, 95, 91, 0.2)' }}>
+          <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--primary-light)', border: '1px solid var(--primary-light)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--brand-primary)', fontSize: '0.75rem', fontWeight: 600 }}>
               <UserPlus size={14} /> Total Applied
             </div>
             <div style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '0.2rem' }}>{summary.total}</div>
           </div>
 
-          <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'rgba(227, 160, 8, 0.08)', border: '1px solid rgba(227, 160, 8, 0.2)' }}>
+          <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--accent-light)', border: '1px solid var(--accent-light)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--brand-accent)', fontSize: '0.75rem', fontWeight: 600 }}>
               <Clock size={14} /> In Review
             </div>
             <div style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '0.2rem' }}>{summary.under_review + summary.submitted}</div>
           </div>
 
-          <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#10b981', fontSize: '0.75rem', fontWeight: 600 }}>
+          <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--success-bg)', border: '1px solid var(--success-bg)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--status-success)', fontSize: '0.75rem', fontWeight: 600 }}>
               <CheckCircle size={14} /> Admitted
             </div>
             <div style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '0.2rem' }}>{summary.admitted}</div>
           </div>
 
-          <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#ef4444', fontSize: '0.75rem', fontWeight: 600 }}>
+          <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--danger-bg)', border: '1px solid var(--danger-bg)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--status-danger)', fontSize: '0.75rem', fontWeight: 600 }}>
               <AlertCircle size={14} /> Rejected
             </div>
             <div style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '0.2rem' }}>{summary.rejected}</div>

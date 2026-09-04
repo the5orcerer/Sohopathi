@@ -16,7 +16,7 @@ export interface StatCardProps {
 /**
  * Reusable Metric/KPI card.
  * Usage:
- *   <StatCard label="Present Rate" value="94%" sublabel="423 students present" accentColor="#10b981" />
+ *   <StatCard label="Present Rate" value="94%" sublabel="423 students present" accentColor="var(--status-success)" />
  */
 export const StatCard: React.FC<StatCardProps> = ({
   label,
@@ -79,7 +79,7 @@ export const StatCard: React.FC<StatCardProps> = ({
             style={{
               fontSize: '0.75rem',
               fontWeight: 600,
-              color: trend.isPositive ? '#10b981' : '#f43f5e',
+              color: trend.isPositive ? 'var(--status-success)' : 'var(--status-danger)',
             }}
           >
             {trend.value}

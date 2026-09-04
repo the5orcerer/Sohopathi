@@ -170,7 +170,7 @@ export const NoticeBoard: React.FC<WidgetProps> = ({ dataSource }) => {
           </form>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '280px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', overflowY: 'auto' }}>
           {notices.length === 0 ? (
             <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
               No notices published yet.
@@ -194,7 +194,7 @@ export const NoticeBoard: React.FC<WidgetProps> = ({ dataSource }) => {
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: 600, fontSize: '0.85rem' }}>
                       {isUrgent ? (
-                        <AlertTriangle size={14} color="#f43f5e" />
+                        <AlertTriangle size={14} color="var(--status-danger)" />
                       ) : (
                         <Info size={14} color="var(--primary-light)" />
                       )}
@@ -207,7 +207,7 @@ export const NoticeBoard: React.FC<WidgetProps> = ({ dataSource }) => {
                       style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
                       title={isRead ? 'Mark as Unread' : 'Mark as Read'}
                     >
-                      {isRead ? <Check size={12} color="#10b981" /> : 'Read'}
+                      {isRead ? <Check size={12} color="var(--status-success)" /> : 'Read'}
                     </button>
                   </div>
 

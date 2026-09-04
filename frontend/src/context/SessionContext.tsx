@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import * as Sentry from '@sentry/react';
 import type { Session, NavItem, DashboardWidget, User, ActiveMembership } from '../types';
 import { setApiAuth, fetchNav, fetchDashboard, buildApiUrl } from '../services/api';
 import { getTenantSubdomain } from '../utils/tenant';
@@ -36,15 +35,15 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
-const STORAGE_KEY_TOKEN = 'sohopathi_auth_token';
-const STORAGE_KEY_INST_ID = 'sohopathi_inst_id';
-const STORAGE_KEY_THEME = 'sohopathi_theme';
+const STORAGE_KEY_TOKEN = 'Biddyapith_auth_token';
+const STORAGE_KEY_INST_ID = 'Biddyapith_inst_id';
+const STORAGE_KEY_THEME = 'Biddyapith_theme';
 
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const hostTenant = getTenantSubdomain();
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY_TOKEN));
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY_TOKEN) || localStorage.getItem('sohopathi_auth_token'));
   const [institutionId, setInstitutionId] = useState<string | null>(
-    () => localStorage.getItem(STORAGE_KEY_INST_ID) || 'f2c10000-0000-0000-0000-000000000001'
+    () => localStorage.getItem(STORAGE_KEY_INST_ID) || localStorage.getItem('sohopathi_inst_id') || 'f2c10000-0000-0000-0000-000000000001'
   );
   const [user, setUser] = useState<User | null>(null);
   const [activeMembership, setActiveMembership] = useState<ActiveMembership | null>(null);
@@ -93,19 +92,6 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const data = await res.json();
         setUser(data.user);
         setActiveMembership(data.membership);
-
-        if (data.user) {
-          Sentry.setUser({
-            id: data.user.id,
-            email: data.user.email,
-            username: data.user.name || data.user.email,
-          });
-        }
-        if (data.membership?.institutionId) {
-          Sentry.setTag('institution_id', data.membership.institutionId);
-          Sentry.setTag('role_name', data.membership.roleName);
-        }
-
         if (data.institution?.name) {
           setInstitutionName(data.institution.name);
         }
@@ -136,11 +122,11 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   useEffect(() => {
     if (token && institutionId) {
-      loadUserData(token, institutionId, hostTenant || undefined);
+      loadUserData(token, institutionId);
     } else {
       setLoading(false);
     }
-  }, [token, institutionId, hostTenant, loadUserData]);
+  }, [token, institutionId, loadUserData]);
 
   const login = async (params: {
     institutionCode?: string;
@@ -151,19 +137,15 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     institutionId?: string;
   }) => {
     setLoading(true);
-    const effectiveSubdomain = hostTenant || params.subdomain || params.institutionCode;
+    const effectiveSubdomain = params.subdomain || params.institutionCode || hostTenant;
     const payload = {
       ...params,
-      subdomain: effectiveSubdomain,
       institutionCode: params.institutionCode || effectiveSubdomain,
+      subdomain: effectiveSubdomain,
     };
-
     const res = await fetch(buildApiUrl('/api/auth/login'), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-institution-subdomain': effectiveSubdomain || '',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
 
@@ -187,15 +169,14 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setMemberships(data.memberships || []);
     setMustChangePassword(!!data.mustChangePassword);
 
-    const resolvedSub = data.activeMembership.institutionSubdomain || effectiveSubdomain;
     if (data.activeMembership.institutionName) {
       setInstitutionName(data.activeMembership.institutionName);
     }
-    if (resolvedSub) {
-      setInstitutionSubdomain(resolvedSub);
+    if (data.activeMembership.institutionSubdomain) {
+      setInstitutionSubdomain(data.activeMembership.institutionSubdomain);
     }
 
-    await loadUserData(newToken, newInstId, resolvedSub);
+    await loadUserData(newToken, newInstId, data.activeMembership.institutionSubdomain || effectiveSubdomain);
   };
 
   const changePassword = async (newPassword: string) => {
@@ -232,6 +213,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(formData),
     });
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Signup failed' }));
       setLoading(false);
@@ -266,7 +248,6 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNavItems([]);
     setDashboardWidgets([]);
     setMustChangePassword(false);
-    Sentry.setUser(null);
   };
 
   const switchInstitution = (newInstId: string) => {

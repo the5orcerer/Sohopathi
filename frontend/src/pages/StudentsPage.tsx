@@ -19,11 +19,28 @@ import {
   Edit2,
   Eye,
   Sparkles,
+  Loader2,
+  User,
 } from 'lucide-react';
 import { Button, Badge, Modal, SearchBar, EmptyState, Student360Modal } from '../components/common';
 import { AcademicMigrationModal } from '../components/academic/AcademicMigrationModal';
 
 export const StudentsPage: React.FC = () => {
+  const { activeMembership, user } = useSession();
+  
+  // Role detection
+  const role = activeMembership?.roleName?.toLowerCase() || '';
+  const isStudent = role.includes('student');
+  const isTeacher = role.includes('teacher') || role.includes('faculty');
+  const isAdmin = role.includes('admin') || role.includes('coordinator') || role.includes('principal');
+  
+  // Permissions based on role
+  const canWrite = isAdmin || isTeacher;
+  const canDelete = isAdmin;
+  const canBulkDelete = isAdmin;
+  const canMigrate = isAdmin || isTeacher;
+  const canEdit = isAdmin || isTeacher || isStudent; // ✅ Student-ও Edit করতে পারবে (শুধু নিজের প্রোফাইল)
+
   const [students, setStudents] = useState<StudentItem[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
@@ -75,9 +92,6 @@ export const StudentsPage: React.FC = () => {
   const [deleteTargetStudent, setDeleteTargetStudent] = useState<StudentItem | null>(null);
   const [deletingStudent, setDeletingStudent] = useState(false);
 
-  const { hasPermission } = useSession();
-  const canWrite = hasPermission('students.write') || hasPermission('classes.manage') || hasPermission('roles.manage');
-
   const loadData = async () => {
     try {
       setLoading(true);
@@ -104,7 +118,22 @@ export const StudentsPage: React.FC = () => {
     loadData();
   }, [selectedClassId, selectedSectionId]);
 
+  // ✅ Student-এর নিজের Student ID বের করা
+  const getOwnStudentId = () => {
+    // user-এর ID দিয়ে Student খুঁজে বের করা
+    const ownStudent = students.find(s => s.userId === user?.id);
+    return ownStudent?.id || null;
+  };
+
+  const ownStudentId = getOwnStudentId();
+
   const handleOpenEdit = (student: StudentItem) => {
+    // ✅ Student শুধু নিজের প্রোফাইল Edit করতে পারবে
+    if (isStudent && student.id !== ownStudentId) {
+      alert('You can only edit your own profile.');
+      return;
+    }
+    
     setEditStudent(student);
     setEditAdmissionNo(student.admissionNo);
     setEditName(student.name);
@@ -253,6 +282,16 @@ export const StudentsPage: React.FC = () => {
     );
   });
 
+  // Loading State
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+        <Loader2 size={32} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+        <span style={{ marginLeft: '1rem', color: 'var(--text-muted)' }}>Loading students...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* Page Title & Main Actions */}
@@ -267,18 +306,26 @@ export const StudentsPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Button variant="secondary" icon={<Download size={14} />} onClick={handleExportCsv}>
+          {/* ✅ Export CSV - সবাই দেখতে পারে */}
+          <Button variant="secondary" onClick={handleExportCsv}>
+            <Download size={14} style={{ marginRight: '0.3rem' }} />
             Export CSV
           </Button>
-          {canWrite && (
-            <>
-              <Button variant="secondary" icon={<Sparkles size={14} />} onClick={() => setShowMigrationModal(true)}>
-                Setup & Migration Wizard
-              </Button>
-              <Button variant="primary" icon={<Plus size={15} />} onClick={() => setShowAddModal(true)}>
-                Enroll Student
-              </Button>
-            </>
+
+          {/* ✅ Setup & Migration Wizard - Admin ও Teacher দেখতে পারে */}
+          {canMigrate && (
+            <Button variant="secondary" onClick={() => setShowMigrationModal(true)}>
+              <Sparkles size={14} style={{ marginRight: '0.3rem' }} />
+              Setup & Migration Wizard
+            </Button>
+          )}
+
+          {/* ✅ Enroll Student - Admin ও Teacher দেখতে পারে (Student না) */}
+          {canWrite && !isStudent && (
+            <Button variant="primary" onClick={() => setShowAddModal(true)}>
+              <Plus size={15} style={{ marginRight: '0.3rem' }} />
+              Enroll Student
+            </Button>
           )}
         </div>
       </div>
@@ -289,8 +336,8 @@ export const StudentsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Floating Bulk Action Bar */}
-      {selectedIds.length > 0 && (
+      {/* Floating Bulk Action Bar - শুধু Admin দেখতে পারে */}
+      {selectedIds.length > 0 && canBulkDelete && !isStudent && (
         <div
           className="glass-panel"
           style={{
@@ -318,10 +365,10 @@ export const StudentsPage: React.FC = () => {
             <Button
               variant="danger"
               size="sm"
-              icon={<Trash2 size={14} />}
               onClick={handleBulkDelete}
               loading={bulkDeleting}
             >
+              <Trash2 size={14} style={{ marginRight: '0.3rem' }} />
               Bulk Delete
             </Button>
           </div>
@@ -399,11 +446,7 @@ export const StudentsPage: React.FC = () => {
       </div>
 
       {/* Students Data Table */}
-      {loading ? (
-        <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-          Loading student roster...
-        </div>
-      ) : filteredStudents.length === 0 ? (
+      {filteredStudents.length === 0 ? (
         <EmptyState
           title="No students found"
           description="Enroll students individually or use the Setup & Migration Wizard."
@@ -413,14 +456,17 @@ export const StudentsPage: React.FC = () => {
           <table style={{ width: '100%', fontSize: '0.88rem', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                <th style={{ padding: '0.65rem 0.5rem', width: '38px', textAlign: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.length > 0 && selectedIds.length === filteredStudents.length}
-                    onChange={toggleSelectAll}
-                    style={{ cursor: 'pointer' }}
-                  />
-                </th>
+                {/* ✅ Select checkbox - শুধু Admin দেখতে পারে */}
+                {canBulkDelete && !isStudent && (
+                  <th style={{ padding: '0.65rem 0.5rem', width: '38px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.length > 0 && selectedIds.length === filteredStudents.length}
+                      onChange={toggleSelectAll}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
+                )}
                 <th style={{ padding: '0.65rem 0.5rem' }}>Admission No</th>
                 <th style={{ padding: '0.65rem 0.5rem' }}>Student Name</th>
                 <th style={{ padding: '0.65rem 0.5rem' }}>Class & Section</th>
@@ -433,24 +479,35 @@ export const StudentsPage: React.FC = () => {
             <tbody>
               {filteredStudents.map((st) => {
                 const isSelected = selectedIds.includes(st.id);
+                const isOwnProfile = isStudent && st.id === ownStudentId; // ✅ নিজের প্রোফাইল চিহ্নিত করা
+                
                 return (
                   <tr
                     key={st.id}
                     style={{
                       borderBottom: '1px solid var(--border-subtle)',
-                      background: isSelected ? 'rgba(30, 95, 91, 0.08)' : 'transparent',
+                      background: isSelected ? 'rgba(30, 95, 91, 0.08)' : 
+                                 isOwnProfile ? 'rgba(99, 102, 241, 0.05)' : 'transparent',
                     }}
                   >
-                    <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleSelectOne(st.id)}
-                        style={{ cursor: 'pointer' }}
-                      />
-                    </td>
+                    {/* ✅ Select checkbox - শুধু Admin দেখতে পারে */}
+                    {canBulkDelete && !isStudent && (
+                      <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectOne(st.id)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </td>
+                    )}
                     <td style={{ padding: '0.65rem 0.5rem', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '0.82rem' }}>
                       {st.admissionNo}
+                      {isOwnProfile && (
+                        <Badge tone="primary" style={{ marginLeft: '0.5rem', fontSize: '0.6rem' }}>
+                          You
+                        </Badge>
+                      )}
                     </td>
                     <td style={{ padding: '0.65rem 0.5rem' }}>
                       <button
@@ -472,11 +529,6 @@ export const StudentsPage: React.FC = () => {
                         <span>{st.name}</span>
                         <Eye size={13} style={{ opacity: 0.7 }} />
                       </button>
-                      {st.username && (
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '0.1rem' }}>
-                          login: @{st.username} &bull; default pwd: changeme
-                        </div>
-                      )}
                     </td>
                     <td style={{ padding: '0.65rem 0.5rem' }}>
                       {st.className ? `${st.className} — ${st.sectionName}` : <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>}
@@ -492,20 +544,28 @@ export const StudentsPage: React.FC = () => {
                     </td>
                     <td style={{ padding: '0.65rem 0.5rem', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'flex-end' }}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleOpenEdit(st)}
-                          icon={<Edit2 size={13} />}
-                          title="Edit Student"
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteTargetStudent(st)}
-                          icon={<Trash2 size={13} style={{ color: 'var(--status-danger)' }} />}
-                          title="Delete Student"
-                        />
+                        {/* ✅ Edit - Admin, Teacher এবং Student (শুধু নিজের প্রোফাইল) দেখতে পারে */}
+                        {(canEdit && !isStudent) || (isStudent && st.id === ownStudentId) ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenEdit(st)}
+                            title={isStudent ? 'Edit Your Profile' : 'Edit Student'}
+                          >
+                            <Edit2 size={13} />
+                          </Button>
+                        ) : null}
+                        {/* ✅ Delete - শুধু Admin দেখতে পারে */}
+                        {canDelete && !isStudent && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleteTargetStudent(st)}
+                            title="Delete Student"
+                          >
+                            <Trash2 size={13} style={{ color: 'var(--status-danger)' }} />
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -516,310 +576,346 @@ export const StudentsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Student 360 History Modal */}
+      {/* Student 360 History Modal - সবাই দেখতে পারে */}
       <Student360Modal studentId={active360StudentId} onClose={() => setActive360StudentId(null)} />
 
-      {/* Academic Migration Wizard Modal */}
-      <AcademicMigrationModal
-        isOpen={showMigrationModal}
-        onClose={() => setShowMigrationModal(false)}
-        onSuccess={loadData}
-      />
+      {/* Academic Migration Wizard Modal - Admin ও Teacher দেখতে পারে */}
+      {canMigrate && (
+        <AcademicMigrationModal
+          isOpen={showMigrationModal}
+          onClose={() => setShowMigrationModal(false)}
+          onSuccess={loadData}
+        />
+      )}
 
-      {/* Modal: Enroll Single Student */}
-      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Enroll New Student">
-        <form onSubmit={handleAddStudentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {modalError && (
-            <div style={{ padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--status-danger)', fontSize: '0.85rem' }}>
-              {modalError}
-            </div>
-          )}
+      {/* Modal: Enroll Single Student - Admin ও Teacher দেখতে পারে */}
+      {canWrite && !isStudent && (
+        <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Enroll New Student">
+          <form onSubmit={handleAddStudentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {modalError && (
+              <div style={{ padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--status-danger)', fontSize: '0.85rem' }}>
+                {modalError}
+              </div>
+            )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0.75rem' }}>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Admission Number *</label>
-              <input
-                type="text"
-                required
-                placeholder="ADM-2026-001"
-                value={addAdmissionNo}
-                onChange={(e) => setAddAdmissionNo(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Full Name *</label>
-              <input
-                type="text"
-                required
-                placeholder="Student Full Name"
-                value={addName}
-                onChange={(e) => setAddName(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Gender</label>
-              <select
-                value={addGender}
-                onChange={(e) => setAddGender(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              >
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Date of Birth</label>
-              <input
-                type="date"
-                value={addDob}
-                onChange={(e) => setAddDob(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Class</label>
-              <select
-                value={addClassId}
-                onChange={(e) => {
-                  setAddClassId(e.target.value);
-                  setAddSectionId('');
-                }}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              >
-                <option value="">Select Class</option>
-                {classes.map((cls) => (
-                  <option key={cls.id} value={cls.id}>{cls.name}</option>
-                ))}
-              </select>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Admission Number *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="ADM-2026-001"
+                  value={addAdmissionNo}
+                  onChange={(e) => setAddAdmissionNo(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Student Full Name"
+                  value={addName}
+                  onChange={(e) => setAddName(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
             </div>
 
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Section</label>
-              <select
-                value={addSectionId}
-                onChange={(e) => setAddSectionId(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              >
-                <option value="">Select Section</option>
-                {sections
-                  .filter((sec) => !addClassId || sec.classId === addClassId)
-                  .map((sec) => (
-                    <option key={sec.id} value={sec.id}>{sec.name}</option>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Gender</label>
+                <select
+                  value={addGender}
+                  onChange={(e) => setAddGender(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                >
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Date of Birth</label>
+                <input
+                  type="date"
+                  value={addDob}
+                  onChange={(e) => setAddDob(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Class</label>
+                <select
+                  value={addClassId}
+                  onChange={(e) => {
+                    setAddClassId(e.target.value);
+                    setAddSectionId('');
+                  }}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                >
+                  <option value="">Select Class</option>
+                  {classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>{cls.name}</option>
                   ))}
-              </select>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Section</label>
+                <select
+                  value={addSectionId}
+                  onChange={(e) => setAddSectionId(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                >
+                  <option value="">Select Section</option>
+                  {sections
+                    .filter((sec) => !addClassId || sec.classId === addClassId)
+                    .map((sec) => (
+                      <option key={sec.id} value={sec.id}>{sec.name}</option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Roll #</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 01"
+                  value={addRollNo}
+                  onChange={(e) => setAddRollNo(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
             </div>
 
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Roll #</label>
-              <input
-                type="text"
-                placeholder="e.g. 01"
-                value={addRollNo}
-                onChange={(e) => setAddRollNo(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Guardian Name</label>
-              <input
-                type="text"
-                placeholder="Parent or Guardian"
-                value={addGuardianName}
-                onChange={(e) => setAddGuardianName(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Guardian Contact Phone</label>
-              <input
-                type="tel"
-                placeholder="+880 1700-000000"
-                value={addGuardianPhone}
-                onChange={(e) => setAddGuardianPhone(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
-            <Button variant="secondary" onClick={() => setShowAddModal(false)} disabled={savingStudent}>
-              Cancel
-            </Button>
-            <Button variant="primary" type="submit" loading={savingStudent}>
-              Enroll Student
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Modal: Edit Student */}
-      <Modal isOpen={!!editStudent} onClose={() => setEditStudent(null)} title={`Edit Student Profile — ${editStudent?.name}`}>
-        <form onSubmit={handleUpdateStudentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0.75rem' }}>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Admission Number</label>
-              <input
-                type="text"
-                required
-                value={editAdmissionNo}
-                onChange={(e) => setEditAdmissionNo(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Full Name</label>
-              <input
-                type="text"
-                required
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Gender</label>
-              <select
-                value={editGender}
-                onChange={(e) => setEditGender(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              >
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Date of Birth</label>
-              <input
-                type="date"
-                value={editDob}
-                onChange={(e) => setEditDob(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Status</label>
-              <select
-                value={editStatus}
-                onChange={(e) => setEditStatus(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="graduated">Graduated</option>
-                <option value="transferred">Transferred</option>
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Class</label>
-              <select
-                value={editClassId}
-                onChange={(e) => {
-                  setEditClassId(e.target.value);
-                  setEditSectionId('');
-                }}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              >
-                <option value="">Select Class</option>
-                {classes.map((cls) => (
-                  <option key={cls.id} value={cls.id}>{cls.name}</option>
-                ))}
-              </select>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Guardian Name</label>
+                <input
+                  type="text"
+                  placeholder="Parent or Guardian"
+                  value={addGuardianName}
+                  onChange={(e) => setAddGuardianName(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Guardian Contact Phone</label>
+                <input
+                  type="tel"
+                  placeholder="+880 1700-000000"
+                  value={addGuardianPhone}
+                  onChange={(e) => setAddGuardianPhone(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
             </div>
 
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Section</label>
-              <select
-                value={editSectionId}
-                onChange={(e) => setEditSectionId(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              >
-                <option value="">Select Section</option>
-                {sections
-                  .filter((sec) => !editClassId || sec.classId === editClassId)
-                  .map((sec) => (
-                    <option key={sec.id} value={sec.id}>{sec.name}</option>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <Button variant="secondary" onClick={() => setShowAddModal(false)} disabled={savingStudent}>
+                Cancel
+              </Button>
+              <Button variant="primary" type="submit" loading={savingStudent}>
+                Enroll Student
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ✅ Modal: Edit Student - সবাই দেখতে পারে (Student শুধু নিজের প্রোফাইল) */}
+      {(canEdit && !isStudent) || (isStudent && editStudent?.id === ownStudentId) ? (
+        <Modal isOpen={!!editStudent} onClose={() => setEditStudent(null)} title={isStudent ? 'Edit Your Profile' : `Edit Student Profile — ${editStudent?.name}`}>
+          <form onSubmit={handleUpdateStudentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Admission Number</label>
+                <input
+                  type="text"
+                  required
+                  value={editAdmissionNo}
+                  onChange={(e) => setEditAdmissionNo(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                  disabled={isStudent} // ✅ Student Admission Number পরিবর্তন করতে পারবে না
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Gender</label>
+                <select
+                  value={editGender}
+                  onChange={(e) => setEditGender(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                >
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Date of Birth</label>
+                <input
+                  type="date"
+                  value={editDob}
+                  onChange={(e) => setEditDob(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
+              {/* ✅ Student Status দেখতে পারে কিন্তু পরিবর্তন করতে পারবে না */}
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Status</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                  disabled={isStudent} // ✅ Student Status পরিবর্তন করতে পারবে না
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="graduated">Graduated</option>
+                  <option value="transferred">Transferred</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Class</label>
+                <select
+                  value={editClassId}
+                  onChange={(e) => {
+                    setEditClassId(e.target.value);
+                    setEditSectionId('');
+                  }}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                  disabled={isStudent} // ✅ Student Class পরিবর্তন করতে পারবে না
+                >
+                  <option value="">Select Class</option>
+                  {classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>{cls.name}</option>
                   ))}
-              </select>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Section</label>
+                <select
+                  value={editSectionId}
+                  onChange={(e) => setEditSectionId(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                  disabled={isStudent} // ✅ Student Section পরিবর্তন করতে পারবে না
+                >
+                  <option value="">Select Section</option>
+                  {sections
+                    .filter((sec) => !editClassId || sec.classId === editClassId)
+                    .map((sec) => (
+                      <option key={sec.id} value={sec.id}>{sec.name}</option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Roll #</label>
+                <input
+                  type="text"
+                  value={editRollNo}
+                  onChange={(e) => setEditRollNo(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                  disabled={isStudent} // ✅ Student Roll Number পরিবর্তন করতে পারবে না
+                />
+              </div>
             </div>
 
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Roll #</label>
-              <input
-                type="text"
-                value={editRollNo}
-                onChange={(e) => setEditRollNo(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Guardian Name</label>
+                <input
+                  type="text"
+                  value={editGuardianName}
+                  onChange={(e) => setEditGuardianName(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                  disabled={isStudent} // ✅ Student Guardian পরিবর্তন করতে পারবে না
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Guardian Phone</label>
+                <input
+                  type="tel"
+                  value={editGuardianPhone}
+                  onChange={(e) => setEditGuardianPhone(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                  disabled={isStudent} // ✅ Student Guardian Phone পরিবর্তন করতে পারবে না
+                />
+              </div>
+            </div>
+
+            <div style={{ 
+              padding: '0.75rem', 
+              background: isStudent ? 'rgba(99, 102, 241, 0.08)' : 'transparent',
+              borderRadius: 'var(--radius-sm)',
+              border: isStudent ? '1px solid rgba(99, 102, 241, 0.2)' : 'none',
+            }}>
+              {isStudent ? (
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                  <User size={14} style={{ display: 'inline', marginRight: '0.3rem' }} />
+                  You can only edit your <strong>Name</strong> and <strong>Gender</strong>. Other fields are managed by administrators.
+                </p>
+              ) : (
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                  Editing full student profile as {isAdmin ? 'Admin' : 'Teacher'}.
+                </p>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <Button variant="secondary" onClick={() => setEditStudent(null)} disabled={updatingStudent}>
+                Cancel
+              </Button>
+              <Button variant="primary" type="submit" loading={updatingStudent}>
+                {isStudent ? 'Update My Profile' : 'Save Changes'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {/* Modal: Delete Student Confirmation - শুধু Admin দেখতে পারে */}
+      {canDelete && !isStudent && (
+        <Modal isOpen={!!deleteTargetStudent} onClose={() => setDeleteTargetStudent(null)} title="Confirm Student Deletion">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+              Are you sure you want to permanently delete student <strong>{deleteTargetStudent?.name}</strong> (Admission: {deleteTargetStudent?.admissionNo})? This will also remove their enrollment and attendance history.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <Button variant="secondary" onClick={() => setDeleteTargetStudent(null)} disabled={deletingStudent}>
+                Cancel
+              </Button>
+              <Button variant="danger" onClick={handleDeleteConfirm} loading={deletingStudent}>
+                Yes, Delete Record
+              </Button>
             </div>
           </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Guardian Name</label>
-              <input
-                type="text"
-                value={editGuardianName}
-                onChange={(e) => setEditGuardianName(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Guardian Phone</label>
-              <input
-                type="tel"
-                value={editGuardianPhone}
-                onChange={(e) => setEditGuardianPhone(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
-            <Button variant="secondary" onClick={() => setEditStudent(null)} disabled={updatingStudent}>
-              Cancel
-            </Button>
-            <Button variant="primary" type="submit" loading={updatingStudent}>
-              Save Changes
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Modal: Delete Student Confirmation */}
-      <Modal isOpen={!!deleteTargetStudent} onClose={() => setDeleteTargetStudent(null)} title="Confirm Student Deletion">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            Are you sure you want to permanently delete student <strong>{deleteTargetStudent?.name}</strong> (Admission: {deleteTargetStudent?.admissionNo})? This will also remove their enrollment and attendance history.
-          </p>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-            <Button variant="secondary" onClick={() => setDeleteTargetStudent(null)} disabled={deletingStudent}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={handleDeleteConfirm} loading={deletingStudent}>
-              Yes, Delete Record
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        </Modal>
+      )}
     </div>
   );
 };
+
+export default StudentsPage;

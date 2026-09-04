@@ -1,37 +1,32 @@
-# Sohopathi - Frontend (React + TypeScript + Vite)
+# React + TypeScript + Vite
 
-Multi-tenant school management web application designed for high performance, zero latency, and separate edge deployment on Vercel.
+This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
-## 🚀 Standalone Vercel Deployment
+Currently, two official plugins are available:
 
-You can host this frontend repository completely separately on Vercel (or Cloudflare Pages / Netlify):
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
-1. **Push to GitHub**:
-   - Push this `frontend` directory as its own GitHub repository.
-2. **Deploy on Vercel**:
-   - Import the repository in Vercel.
-   - Framework Preset: **Vite**
-   - Root Directory: `./` (or leave default if standalone repository)
-   - Build Command: `npm run build`
-   - Output Directory: `dist`
-3. **Environment Variables**:
-   - Add environment variable in Vercel Project Settings:
-     ```env
-     VITE_API_URL=https://your-backend-api.vercel.app
-     ```
-   - (For local development, leave `VITE_API_URL` empty; it automatically uses the Vite proxy to `http://localhost:3000`).
+## React Compiler
 
-## 🛠️ Local Development
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-```bash
-npm install
-npm run dev
+## Expanding the Oxlint configuration
+
+If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+
+```json
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "oxc"],
+  "options": {
+    "typeAware": true
+  },
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+  }
+}
 ```
 
-## 📦 Production Build
-
-```bash
-npm run build
-npm run preview
-```
-
+See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.

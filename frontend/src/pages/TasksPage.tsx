@@ -190,7 +190,7 @@ export const TasksPage: React.FC = () => {
       {/* Summary KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
         <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(234, 179, 8, 0.15)', color: '#ca8a04', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(234, 179, 8, 0.15)', color: 'var(--status-warning)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Clock size={20} />
           </div>
           <div>
@@ -200,7 +200,7 @@ export const TasksPage: React.FC = () => {
         </div>
 
         <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(34, 197, 94, 0.15)', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(34, 197, 94, 0.15)', color: 'var(--status-success)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <CheckCircle2 size={20} />
           </div>
           <div>
@@ -385,7 +385,7 @@ export const TasksPage: React.FC = () => {
                     </div>
 
                     {task.dueDate && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#eab308' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--status-warning)' }}>
                         <Calendar size={13} />
                         <span>Due: <strong>{task.dueDate}</strong></span>
                       </div>
@@ -431,8 +431,8 @@ export const TasksPage: React.FC = () => {
                         gap: '0.35rem',
                         padding: '0.45rem 0.85rem',
                         borderRadius: 'var(--radius-sm)',
-                        border: '1px solid #16a34a',
-                        background: '#16a34a',
+                        border: '1px solid var(--status-success)',
+                        background: 'var(--status-success)',
                         color: '#ffffff',
                         fontSize: '0.8rem',
                         fontWeight: 600,

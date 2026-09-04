@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSession } from '../context/SessionContext';
 import {
   fetchAcademicYears,
   createAcademicYear,
@@ -28,6 +29,12 @@ import { Button, Badge, Modal } from '../components/common';
 import { AcademicMigrationModal } from '../components/academic/AcademicMigrationModal';
 
 export const AcademicPage: React.FC = () => {
+  const { activeMembership } = useSession();
+  
+  // Role detection
+  const role = activeMembership?.roleName?.toLowerCase() || '';
+  const isStudent = role.includes('student');
+
   const [activeTab, setActiveTab] = useState<'classes' | 'years' | 'subjects' | 'assignments' | 'timetable'>('classes');
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
@@ -267,6 +274,181 @@ export const AcademicPage: React.FC = () => {
 
   const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+  // ✅ Student View - Read Only
+  if (isStudent) {
+    return (
+      <div className="animate-fade-in" style={{ padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
+          <div>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Layers size={26} style={{ color: 'var(--brand-primary)' }} /> Academic Structure & Timetable
+            </h1>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              View academic sessions, class tiers, section divisions, curriculum subjects, and weekly timetable schedules.
+            </p>
+          </div>
+          <Badge tone="primary">Student View (Read Only)</Badge>
+        </div>
+
+        {error && (
+          <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--status-danger)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+            <AlertCircle size={16} /> {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+            Loading academic structures...
+          </div>
+        ) : (
+          <>
+            {/* Classes & Sections - Student View */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Layers size={18} style={{ color: 'var(--brand-primary)' }} /> Classes & Sections
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+                {classes.map((cls) => {
+                  const clsSections = sections.filter((s) => s.classId === cls.id);
+                  return (
+                    <div key={cls.id} className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>{cls.name}</h3>
+                        <Badge tone="primary">{clsSections.length} Sections</Badge>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        {clsSections.map((sec) => (
+                          <div key={sec.id} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                            <span>Section {sec.name}</span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Cap: {sec.capacity || 40}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Subjects - Student View */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <BookOpen size={18} style={{ color: 'var(--brand-primary)' }} /> Curriculum Subjects
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                {subjects.map((sub) => (
+                  <div key={sub.id} className="glass-panel" style={{ padding: '0.75rem 1rem' }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{sub.name}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Code: {sub.code || 'N/A'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Teacher Allocations - Student View */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <UserCheck size={18} style={{ color: 'var(--brand-primary)' }} /> Teacher Allocations
+              </h3>
+              <div className="table-container glass-panel" style={{ padding: '0.5rem' }}>
+                <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                      <th style={{ padding: '0.5rem' }}>Class & Section</th>
+                      <th style={{ padding: '0.5rem' }}>Subject</th>
+                      <th style={{ padding: '0.5rem' }}>Teacher</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assignments.map((a) => (
+                      <tr key={a.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '0.5rem', fontWeight: 500 }}>{a.className} — {a.sectionName}</td>
+                        <td style={{ padding: '0.5rem' }}>{a.subjectName}</td>
+                        <td style={{ padding: '0.5rem', color: 'var(--brand-primary)' }}>{a.teacherName || 'Faculty'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Timetable - Student View */}
+            <div>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Clock size={18} style={{ color: 'var(--brand-primary)' }} /> Class Timetable
+              </h3>
+              
+              {/* Section Selector */}
+              <div className="glass-panel" style={{ padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Select Section:</label>
+                  <select
+                    value={selectedTimetableSectionId}
+                    onChange={(e) => setSelectedTimetableSectionId(e.target.value)}
+                    style={{ padding: '0.4rem 0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                  >
+                    {sections.map((sec) => (
+                      <option key={sec.id} value={sec.id}>{sec.className} — {sec.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Timetable Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem' }}>
+                {daysOfWeek.map((day) => {
+                  const daySlots = schedules.filter((s) => s.dayOfWeek.toLowerCase() === day.toLowerCase());
+                  return (
+                    <div key={day} className="glass-panel" style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.3rem' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{day}</span>
+                        <Badge tone={daySlots.length > 0 ? 'primary' : 'neutral'}>{daySlots.length} Periods</Badge>
+                      </div>
+
+                      {daySlots.length === 0 ? (
+                        <div style={{ padding: '0.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                          No periods scheduled
+                        </div>
+                      ) : (
+                        daySlots.map((slot) => (
+                          <div
+                            key={slot.id}
+                            style={{
+                              padding: '0.4rem 0.6rem',
+                              borderRadius: 'var(--radius-sm)',
+                              background: 'var(--surface-sunken)',
+                              border: '1px solid var(--border-subtle)',
+                              fontSize: '0.8rem',
+                            }}
+                          >
+                            <div style={{ fontWeight: 600 }}>{slot.subjectName}</div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                              <Clock size={10} /> {slot.startTime} - {slot.endTime}
+                              {slot.roomNo && <span> • {slot.roomNo}</span>}
+                            </div>
+                            {slot.teacherName && (
+                              <div style={{ fontSize: '0.7rem', color: 'var(--brand-primary)' }}>
+                                Teacher: {slot.teacherName}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ✅ Admin/Teacher Full Management View
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* Header */}
@@ -301,7 +483,7 @@ export const AcademicPage: React.FC = () => {
         </div>
       )}
 
-      {/* Navigation Tabs */}
+      {/* Navigation Tabs - Admin/Teacher only */}
       <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem', flexWrap: 'wrap' }}>
         {[
           { id: 'classes', label: 'Classes & Sections', icon: <Layers size={14} /> },
@@ -338,204 +520,208 @@ export const AcademicPage: React.FC = () => {
         </div>
       ) : (
         <>
+          {/* TAB 1: CLASSES & SECTIONS */}
+          {activeTab === 'classes' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <Button variant="secondary" onClick={() => setShowSectionModal(true)}>
+                  <Plus size={14} style={{ marginRight: '0.3rem' }} />
+                  Add Section
+                </Button>
+                <Button variant="primary" onClick={() => setShowClassModal(true)}>
+                  <Plus size={14} style={{ marginRight: '0.3rem' }} />
+                  Add Class
+                </Button>
+              </div>
 
-      {/* TAB 1: CLASSES & SECTIONS */}
-      {activeTab === 'classes' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-            <Button variant="secondary" icon={<Plus size={14} />} onClick={() => setShowSectionModal(true)}>
-              Add Section
-            </Button>
-            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setShowClassModal(true)}>
-              Add Class
-            </Button>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-            {classes.map((cls) => {
-              const clsSections = sections.filter((s) => s.classId === cls.id);
-              return (
-                <div key={cls.id} className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>{cls.name}</h3>
-                    <Badge tone="primary">{clsSections.length} Sections</Badge>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                    {clsSections.map((sec) => (
-                      <div key={sec.id} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-                        <span>Section {sec.name}</span>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Cap: {sec.capacity || 40}</span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
+                {classes.map((cls) => {
+                  const clsSections = sections.filter((s) => s.classId === cls.id);
+                  return (
+                    <div key={cls.id} className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>{cls.name}</h3>
+                        <Badge tone="primary">{clsSections.length} Sections</Badge>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: TIMETABLE & PERIODS */}
-      {activeTab === 'timetable' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {/* Section Selector */}
-          <div className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Select Class Section:</label>
-              <select
-                value={selectedTimetableSectionId}
-                onChange={(e) => setSelectedTimetableSectionId(e.target.value)}
-                style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
-              >
-                {sections.map((sec) => (
-                  <option key={sec.id} value={sec.id}>{sec.className} — {sec.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {selectedTimetableSectionId && (
-              <Button variant="primary" icon={<Plus size={14} />} onClick={() => setShowScheduleModal(true)}>
-                Add Period Slot
-              </Button>
-            )}
-          </div>
-
-          {/* Timetable Grid by Day */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-            {daysOfWeek.map((day) => {
-              const daySlots = schedules.filter((s) => s.dayOfWeek.toLowerCase() === day.toLowerCase());
-              return (
-                <div key={day} className="glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.4rem' }}>
-                    <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{day}</span>
-                    <Badge tone={daySlots.length > 0 ? 'primary' : 'neutral'}>{daySlots.length} Periods</Badge>
-                  </div>
-
-                  {daySlots.length === 0 ? (
-                    <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                      No periods scheduled
-                    </div>
-                  ) : (
-                    daySlots.map((slot) => (
-                      <div
-                        key={slot.id}
-                        style={{
-                          padding: '0.6rem 0.75rem',
-                          borderRadius: 'var(--radius-sm)',
-                          background: 'var(--surface-sunken)',
-                          border: '1px solid var(--border-subtle)',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{slot.subjectName}</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
-                            <Clock size={11} /> {slot.startTime} - {slot.endTime}
-                            {slot.roomNo && <><span>•</span> <MapPin size={11} /> {slot.roomNo}</>}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        {clsSections.map((sec) => (
+                          <div key={sec.id} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                            <span>Section {sec.name}</span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Cap: {sec.capacity || 40}</span>
                           </div>
-                          {slot.teacherName && (
-                            <div style={{ fontSize: '0.72rem', color: 'var(--brand-primary)', marginTop: '0.1rem' }}>
-                              Teacher: {slot.teacherName}
-                            </div>
-                          )}
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteSchedule(slot.id)}
-                          icon={<Trash2 size={12} style={{ color: 'var(--status-danger)' }} />}
-                        />
+                        ))}
                       </div>
-                    ))
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: SUBJECTS */}
-      {activeTab === 'subjects' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setShowSubjectModal(true)}>
-              Add Subject
-            </Button>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
-            {subjects.map((sub) => (
-              <div key={sub.id} className="glass-panel" style={{ padding: '1rem' }}>
-                <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{sub.name}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '0.2rem' }}>
-                  Code: {sub.code || 'N/A'}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            </div>
+          )}
 
-      {/* TAB 4: TEACHER ALLOCATIONS */}
-      {activeTab === 'assignments' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setShowAssignModal(true)}>
-              Assign Teacher to Subject
-            </Button>
-          </div>
+          {/* TAB 2: TIMETABLE & PERIODS */}
+          {activeTab === 'timetable' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Select Class Section:</label>
+                  <select
+                    value={selectedTimetableSectionId}
+                    onChange={(e) => setSelectedTimetableSectionId(e.target.value)}
+                    style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                  >
+                    {sections.map((sec) => (
+                      <option key={sec.id} value={sec.id}>{sec.className} — {sec.name}</option>
+                    ))}
+                  </select>
+                </div>
 
-          <div className="table-container glass-panel" style={{ padding: '0.5rem' }}>
-            <table style={{ width: '100%', fontSize: '0.88rem', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '0.6rem' }}>Class & Section</th>
-                  <th style={{ padding: '0.6rem' }}>Subject</th>
-                  <th style={{ padding: '0.6rem' }}>Assigned Teacher</th>
-                </tr>
-              </thead>
-              <tbody>
-                {assignments.map((a) => (
-                  <tr key={a.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    <td style={{ padding: '0.6rem', fontWeight: 600 }}>{a.className} — {a.sectionName}</td>
-                    <td style={{ padding: '0.6rem' }}>{a.subjectName}</td>
-                    <td style={{ padding: '0.6rem', color: 'var(--brand-primary)', fontWeight: 600 }}>{a.teacherName || 'Faculty'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                {selectedTimetableSectionId && (
+                  <Button variant="primary" onClick={() => setShowScheduleModal(true)}>
+                    <Plus size={14} style={{ marginRight: '0.3rem' }} />
+                    Add Period Slot
+                  </Button>
+                )}
+              </div>
 
-      {/* TAB 5: ACADEMIC YEARS */}
-      {activeTab === 'years' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setShowYearModal(true)}>
-              Create Academic Session
-            </Button>
-          </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                {daysOfWeek.map((day) => {
+                  const daySlots = schedules.filter((s) => s.dayOfWeek.toLowerCase() === day.toLowerCase());
+                  return (
+                    <div key={day} className="glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.4rem' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{day}</span>
+                        <Badge tone={daySlots.length > 0 ? 'primary' : 'neutral'}>{daySlots.length} Periods</Badge>
+                      </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
-            {years.map((y) => (
-              <div key={y.id} className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{y.label}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                    {new Date(y.startDate).toLocaleDateString()} — {new Date(y.endDate).toLocaleDateString()}
+                      {daySlots.length === 0 ? (
+                        <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                          No periods scheduled
+                        </div>
+                      ) : (
+                        daySlots.map((slot) => (
+                          <div
+                            key={slot.id}
+                            style={{
+                              padding: '0.6rem 0.75rem',
+                              borderRadius: 'var(--radius-sm)',
+                              background: 'var(--surface-sunken)',
+                              border: '1px solid var(--border-subtle)',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{slot.subjectName}</div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
+                                <Clock size={11} /> {slot.startTime} - {slot.endTime}
+                                {slot.roomNo && <><span>•</span> <MapPin size={11} /> {slot.roomNo}</>}
+                              </div>
+                              {slot.teacherName && (
+                                <div style={{ fontSize: '0.72rem', color: 'var(--brand-primary)', marginTop: '0.1rem' }}>
+                                  Teacher: {slot.teacherName}
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteSchedule(slot.id)}
+                            >
+                              <Trash2 size={12} style={{ color: 'var(--status-danger)' }} />
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: SUBJECTS */}
+          {activeTab === 'subjects' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button variant="primary" onClick={() => setShowSubjectModal(true)}>
+                  <Plus size={14} style={{ marginRight: '0.3rem' }} />
+                  Add Subject
+                </Button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
+                {subjects.map((sub) => (
+                  <div key={sub.id} className="glass-panel" style={{ padding: '1rem' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{sub.name}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '0.2rem' }}>
+                      Code: {sub.code || 'N/A'}
+                    </div>
                   </div>
-                </div>
-                {y.isCurrent && <Badge tone="success">Active Session</Badge>}
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-      </>
+            </div>
+          )}
+
+          {/* TAB 4: TEACHER ALLOCATIONS */}
+          {activeTab === 'assignments' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button variant="primary" onClick={() => setShowAssignModal(true)}>
+                  <Plus size={14} style={{ marginRight: '0.3rem' }} />
+                  Assign Teacher to Subject
+                </Button>
+              </div>
+
+              <div className="table-container glass-panel" style={{ padding: '0.5rem' }}>
+                <table style={{ width: '100%', fontSize: '0.88rem', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                      <th style={{ padding: '0.6rem' }}>Class & Section</th>
+                      <th style={{ padding: '0.6rem' }}>Subject</th>
+                      <th style={{ padding: '0.6rem' }}>Assigned Teacher</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assignments.map((a) => (
+                      <tr key={a.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '0.6rem', fontWeight: 600 }}>{a.className} — {a.sectionName}</td>
+                        <td style={{ padding: '0.6rem' }}>{a.subjectName}</td>
+                        <td style={{ padding: '0.6rem', color: 'var(--brand-primary)', fontWeight: 600 }}>{a.teacherName || 'Faculty'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: ACADEMIC YEARS */}
+          {activeTab === 'years' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button variant="primary" onClick={() => setShowYearModal(true)}>
+                  <Plus size={14} style={{ marginRight: '0.3rem' }} />
+                  Create Academic Session
+                </Button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+                {years.map((y) => (
+                  <div key={y.id} className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{y.label}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                        {new Date(y.startDate).toLocaleDateString()} — {new Date(y.endDate).toLocaleDateString()}
+                      </div>
+                    </div>
+                    {y.isCurrent && <Badge tone="success">Active Session</Badge>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Modal: Schedule Period */}
@@ -758,3 +944,5 @@ export const AcademicPage: React.FC = () => {
     </div>
   );
 };
+
+export default AcademicPage;

@@ -374,7 +374,7 @@ export const MembersPage: React.FC = () => {
                     key={m.id}
                     style={{
                       borderBottom: '1px solid var(--border-subtle)',
-                      background: isSelected ? 'rgba(30, 95, 91, 0.08)' : 'transparent',
+                      background: isSelected ? 'rgba(97, 84, 233, 0.08)' : 'transparent',
                     }}
                   >
                     <td style={{ padding: '0.65rem 0.5rem', textAlign: 'center' }}>

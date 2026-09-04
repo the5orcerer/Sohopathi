@@ -8,7 +8,8 @@ import {
   updateRolePermissions,
 } from '../services/api';
 import type { PermissionDefinition, Role } from '../types';
-import { Button, Badge, Modal, SearchBar } from '../components/common';
+import { Button, Badge, SearchBar } from '../components/common';
+import { Modal } from '../components/common/Modal';
 import {
   ShieldCheck,
   Plus,
@@ -19,6 +20,7 @@ import {
   Lock,
   Layers,
   Check,
+  Loader2,
 } from 'lucide-react';
 
 export const PermissionMatrixPage: React.FC = () => {
@@ -26,7 +28,7 @@ export const PermissionMatrixPage: React.FC = () => {
   const [permissions, setPermissions] = useState<PermissionDefinition[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
-  const [roleGrants, setRoleGrants] = useState<Record<string, string>>({}); // permissionKey -> scope
+  const [roleGrants, setRoleGrants] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -187,17 +189,26 @@ export const PermissionMatrixPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-          <Button variant="secondary" icon={<Plus size={15} />} onClick={() => setShowCreateModal(true)}>
+          <Button variant="secondary" onClick={() => setShowCreateModal(true)}>
+            <Plus size={15} style={{ marginRight: '0.3rem' }} />
             Add Custom Role
           </Button>
           <Button
             variant="primary"
-            icon={<Save size={15} />}
             onClick={handleSaveGrants}
-            loading={saving}
-            disabled={!selectedRoleId}
+            disabled={!selectedRoleId || saving}
           >
-            Save Role Permissions
+            {saving ? (
+              <>
+                <Loader2 size={15} className="animate-spin" style={{ marginRight: '0.3rem' }} />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save size={15} style={{ marginRight: '0.3rem' }} />
+                Save Role Permissions
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -241,235 +252,247 @@ export const PermissionMatrixPage: React.FC = () => {
 
       {loading ? (
         <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-          Loading role permission matrix...
+          <Loader2 size={28} className="animate-spin" style={{ margin: '0 auto 0.5rem' }} />
+          <p>Loading role permission matrix...</p>
         </div>
       ) : (
         /* Main Container: Sidebar Roles + Matrix Grid */
         <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '1.25rem', alignItems: 'start' }}>
-        {/* Left Column: Roles Selector */}
-        <div className="glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Institution Roles ({roles.length})
+          {/* Left Column: Roles Selector */}
+          <div className="glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Institution Roles ({roles.length})
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {roles.map((role) => {
+                const isSelected = selectedRoleId === role.id;
+                return (
+                  <div
+                    key={role.id}
+                    onClick={() => setSelectedRoleId(role.id)}
+                    style={{
+                      padding: '0.75rem 0.85rem',
+                      borderRadius: 'var(--radius-sm)',
+                      background: isSelected ? 'var(--brand-primary)' : 'var(--surface-sunken)',
+                      color: isSelected ? '#fff' : 'var(--text-primary)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {role.isSystem ? <Lock size={13} style={{ opacity: 0.8 }} /> : <Users size={13} style={{ opacity: 0.8 }} />}
+                      <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{role.name}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      {role.memberCount !== undefined && (
+                        <span
+                          style={{
+                            fontSize: '0.7rem',
+                            padding: '0.1rem 0.4rem',
+                            borderRadius: '10px',
+                            background: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--border-subtle)',
+                          }}
+                        >
+                          {role.memberCount} users
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            {roles.map((role) => {
-              const isSelected = selectedRoleId === role.id;
+          {/* Right Column: Sleek Permission Matrix by Module */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Active Role Meta & Search */}
+            <div
+              className="glass-panel"
+              style={{
+                padding: '1rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>
+                    {selectedRole?.name || 'Select Role'}
+                  </h3>
+                  {selectedRole?.isSystem && <Badge tone="info">System Template</Badge>}
+                </div>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                  Configuring access privileges. {Object.keys(roleGrants).length} permissions active.
+                </p>
+              </div>
+
+              <div style={{ width: '260px' }}>
+                <SearchBar
+                  placeholder="Search matrix permissions..."
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                />
+              </div>
+            </div>
+
+            {/* Module Groups */}
+            {Object.entries(groupedPermissions).map(([mKey, group]) => {
+              const visibleItems = group.items.filter((p) => {
+                if (!searchQuery) return true;
+                const q = searchQuery.toLowerCase();
+                return (
+                  p.key.toLowerCase().includes(q) ||
+                  p.description.toLowerCase().includes(q) ||
+                  group.moduleName.toLowerCase().includes(q)
+                );
+              });
+
+              if (visibleItems.length === 0) return null;
+
               return (
-                <div
-                  key={role.id}
-                  onClick={() => setSelectedRoleId(role.id)}
-                  style={{
-                    padding: '0.75rem 0.85rem',
-                    borderRadius: 'var(--radius-sm)',
-                    background: isSelected ? 'var(--brand-primary)' : 'var(--surface-sunken)',
-                    color: isSelected ? '#fff' : 'var(--text-primary)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    {role.isSystem ? <Lock size={13} style={{ opacity: 0.8 }} /> : <Users size={13} style={{ opacity: 0.8 }} />}
-                    <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{role.name}</span>
+                <div key={mKey} className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Layers size={17} style={{ color: 'var(--brand-primary)' }} />
+                      <h4 style={{ fontSize: '0.98rem', fontWeight: 700, margin: 0 }}>{group.moduleName}</h4>
+                      <Badge tone="neutral">{visibleItems.length} controls</Badge>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      <Button variant="ghost" size="sm" onClick={() => handleGrantAllInModule(visibleItems)}>
+                        Grant All
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleRevokeAllInModule(visibleItems)}>
+                        Revoke All
+                      </Button>
+                    </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    {role.memberCount !== undefined && (
-                      <span
-                        style={{
-                          fontSize: '0.7rem',
-                          padding: '0.1rem 0.4rem',
-                          borderRadius: '10px',
-                          background: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--border-subtle)',
-                        }}
-                      >
-                        {role.memberCount} users
-                      </span>
-                    )}
+                  <div className="table-container">
+                    <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                          <th style={{ padding: '0.6rem 0.5rem', width: '38%' }}>Permission Capability</th>
+                          <th style={{ padding: '0.6rem 0.5rem', width: '62%' }}>Granted Scope Level</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleItems.map((p) => {
+                          const currentScope = roleGrants[p.key];
+
+                          return (
+                            <tr key={p.key} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                              <td style={{ padding: '0.65rem 0.5rem', verticalAlign: 'top' }}>
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>
+                                  {p.key}
+                                </div>
+                                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+                                  {p.description}
+                                </div>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.5rem', verticalAlign: 'middle' }}>
+                                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                  {/* Denied / Disabled Option */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleScopeChange(p.key, null)}
+                                    style={{
+                                      padding: '0.3rem 0.6rem',
+                                      borderRadius: 'var(--radius-sm)',
+                                      border: '1px solid var(--border-subtle)',
+                                      fontSize: '0.76rem',
+                                      fontWeight: 600,
+                                      cursor: 'pointer',
+                                      background: !currentScope ? 'rgba(239, 68, 68, 0.12)' : 'var(--surface-sunken)',
+                                      color: !currentScope ? 'var(--status-danger)' : 'var(--text-muted)',
+                                      borderColor: !currentScope ? 'var(--status-danger)' : 'var(--border-subtle)',
+                                    }}
+                                  >
+                                    Denied
+                                  </button>
+
+                                  {/* Supported Scopes */}
+                                  {p.scopeOptions.map((opt) => {
+                                    const isSelected = currentScope === opt;
+                                    let toneColor = 'var(--brand-primary)';
+                                    let bgTone = 'rgba(97, 84, 233, 0.15)';
+
+                                    if (opt === 'self') {
+                                      toneColor = 'var(--status-warning)';
+                                      bgTone = 'rgba(245, 158, 11, 0.15)';
+                                    } else if (opt === 'assigned_sections') {
+                                      toneColor = 'var(--status-info)';
+                                      bgTone = 'rgba(59, 130, 246, 0.15)';
+                                    }
+
+                                    return (
+                                      <button
+                                        key={opt}
+                                        type="button"
+                                        onClick={() => handleScopeChange(p.key, opt)}
+                                        style={{
+                                          padding: '0.3rem 0.6rem',
+                                          borderRadius: 'var(--radius-sm)',
+                                          border: '1px solid var(--border-subtle)',
+                                          fontSize: '0.76rem',
+                                          fontWeight: 600,
+                                          cursor: 'pointer',
+                                          background: isSelected ? bgTone : 'var(--surface-sunken)',
+                                          color: isSelected ? toneColor : 'var(--text-secondary)',
+                                          borderColor: isSelected ? toneColor : 'var(--border-subtle)',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '0.25rem',
+                                        }}
+                                      >
+                                        {isSelected && <Check size={11} />}
+                                        {opt === 'institution'
+                                          ? 'Institution Wide'
+                                          : opt === 'assigned_sections'
+                                          ? 'Assigned Sections Only'
+                                          : 'Self Only'}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               );
             })}
           </div>
         </div>
-
-        {/* Right Column: Sleek Permission Matrix by Module */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {/* Active Role Meta & Search */}
-          <div
-            className="glass-panel"
-            style={{
-              padding: '1rem',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '0.75rem',
-            }}
-          >
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>
-                  {selectedRole?.name || 'Select Role'}
-                </h3>
-                {selectedRole?.isSystem && <Badge tone="info">System Template</Badge>}
-              </div>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
-                Configuring access privileges. {Object.keys(roleGrants).length} permissions active.
-              </p>
-            </div>
-
-            <div style={{ width: '260px' }}>
-              <SearchBar
-                placeholder="Search matrix permissions..."
-                value={searchQuery}
-                onChange={setSearchQuery}
-              />
-            </div>
-          </div>
-
-          {/* Module Groups */}
-          {Object.entries(groupedPermissions).map(([mKey, group]) => {
-            const visibleItems = group.items.filter((p) => {
-              if (!searchQuery) return true;
-              const q = searchQuery.toLowerCase();
-              return (
-                p.key.toLowerCase().includes(q) ||
-                p.description.toLowerCase().includes(q) ||
-                group.moduleName.toLowerCase().includes(q)
-              );
-            });
-
-            if (visibleItems.length === 0) return null;
-
-            return (
-              <div key={mKey} className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Layers size={17} style={{ color: 'var(--brand-primary)' }} />
-                    <h4 style={{ fontSize: '0.98rem', fontWeight: 700, margin: 0 }}>{group.moduleName}</h4>
-                    <Badge tone="neutral">{visibleItems.length} controls</Badge>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '0.35rem' }}>
-                    <Button variant="ghost" size="sm" onClick={() => handleGrantAllInModule(visibleItems)}>
-                      Grant All
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleRevokeAllInModule(visibleItems)}>
-                      Revoke All
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="table-container">
-                  <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                        <th style={{ padding: '0.6rem 0.5rem', width: '38%' }}>Permission Capability</th>
-                        <th style={{ padding: '0.6rem 0.5rem', width: '62%' }}>Granted Scope Level</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleItems.map((p) => {
-                        const currentScope = roleGrants[p.key];
-
-                        return (
-                          <tr key={p.key} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                            <td style={{ padding: '0.65rem 0.5rem', verticalAlign: 'top' }}>
-                              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>
-                                {p.key}
-                              </div>
-                              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-                                {p.description}
-                              </div>
-                            </td>
-                            <td style={{ padding: '0.65rem 0.5rem', verticalAlign: 'middle' }}>
-                              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                                {/* Denied / Disabled Option */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleScopeChange(p.key, null)}
-                                  style={{
-                                    padding: '0.3rem 0.6rem',
-                                    borderRadius: 'var(--radius-sm)',
-                                    border: '1px solid var(--border-subtle)',
-                                    fontSize: '0.76rem',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    background: !currentScope ? 'rgba(239, 68, 68, 0.12)' : 'var(--surface-sunken)',
-                                    color: !currentScope ? 'var(--status-danger)' : 'var(--text-muted)',
-                                    borderColor: !currentScope ? 'var(--status-danger)' : 'var(--border-subtle)',
-                                  }}
-                                >
-                                  Denied
-                                </button>
-
-                                {/* Supported Scopes */}
-                                {p.scopeOptions.map((opt) => {
-                                  const isSelected = currentScope === opt;
-                                  let toneColor = 'var(--brand-primary)';
-                                  let bgTone = 'rgba(30, 95, 91, 0.15)';
-
-                                  if (opt === 'self') {
-                                    toneColor = '#f59e0b';
-                                    bgTone = 'rgba(245, 158, 11, 0.15)';
-                                  } else if (opt === 'assigned_sections') {
-                                    toneColor = '#3b82f6';
-                                    bgTone = 'rgba(59, 130, 246, 0.15)';
-                                  }
-
-                                  return (
-                                    <button
-                                      key={opt}
-                                      type="button"
-                                      onClick={() => handleScopeChange(p.key, opt)}
-                                      style={{
-                                        padding: '0.3rem 0.6rem',
-                                        borderRadius: 'var(--radius-sm)',
-                                        border: '1px solid var(--border-subtle)',
-                                        fontSize: '0.76rem',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        background: isSelected ? bgTone : 'var(--surface-sunken)',
-                                        color: isSelected ? toneColor : 'var(--text-secondary)',
-                                        borderColor: isSelected ? toneColor : 'var(--border-subtle)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '0.25rem',
-                                      }}
-                                    >
-                                      {isSelected && <Check size={11} />}
-                                      {opt === 'institution'
-                                        ? 'Institution Wide'
-                                        : opt === 'assigned_sections'
-                                        ? 'Assigned Sections Only'
-                                        : 'Self Only'}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        </div>
       )}
 
-      {/* Modal: Create Custom Role */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create New Custom Role">
-        <form onSubmit={handleCreateRole} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-            <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Role Name</label>
+      {/* ✅ ============================================================ */}
+      {/* ✅ Create Role Modal - সম্পূর্ণ ফিক্সড */}
+      {/* ✅ ============================================================ */}
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="Create New Custom Role"
+        subtitle="Define a new role with custom permissions"
+        maxWidth="540px"
+        closeOnOutsideClick={false}
+      >
+        <form onSubmit={handleCreateRole} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              Role Name <span style={{ color: '#ef4444' }}>*</span>
+            </label>
             <input
               type="text"
               required
@@ -477,28 +500,42 @@ export const PermissionMatrixPage: React.FC = () => {
               value={newRoleName}
               onChange={(e) => setNewRoleName(e.target.value)}
               style={{
-                padding: '0.6rem',
+                padding: '0.7rem 0.85rem',
                 borderRadius: 'var(--radius-sm)',
-                background: 'var(--surface-sunken)',
+                background: 'var(--bg-primary)',
                 color: 'var(--text-primary)',
                 border: '1px solid var(--border-subtle)',
                 fontSize: '0.9rem',
+                width: '100%',
+                outline: 'none',
+                transition: 'border-color 0.2s ease',
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = 'var(--brand-primary)';
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-subtle)';
               }}
             />
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-            <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Clone Permissions from Template (Optional)</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              Clone Permissions from Template <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+            </label>
             <select
               value={templateRoleId}
               onChange={(e) => setTemplateRoleId(e.target.value)}
               style={{
-                padding: '0.6rem',
+                padding: '0.7rem 0.85rem',
                 borderRadius: 'var(--radius-sm)',
-                background: 'var(--surface-sunken)',
+                background: 'var(--bg-primary)',
                 color: 'var(--text-primary)',
                 border: '1px solid var(--border-subtle)',
                 fontSize: '0.85rem',
+                width: '100%',
+                outline: 'none',
+                cursor: 'pointer',
               }}
             >
               <option value="">Start from Scratch (Empty Permissions)</option>
@@ -510,16 +547,46 @@ export const PermissionMatrixPage: React.FC = () => {
             </select>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
-            <Button variant="secondary" onClick={() => setShowCreateModal(false)}>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'flex-end', 
+            gap: '0.75rem', 
+            marginTop: '0.5rem',
+            paddingTop: '1rem',
+            borderTop: '1px solid var(--border-subtle)'
+          }}>
+            <Button 
+              variant="secondary" 
+              onClick={() => {
+                setShowCreateModal(false);
+                setNewRoleName('');
+                setTemplateRoleId('');
+              }}
+              type="button"
+            >
               Cancel
             </Button>
-            <Button variant="primary" type="submit" loading={creatingRole}>
-              Create Role
+            <Button variant="primary" type="submit" disabled={creatingRole || !newRoleName.trim()}>
+              {creatingRole ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" style={{ marginRight: '0.3rem' }} />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus size={16} style={{ marginRight: '0.3rem' }} />
+                  Create Role
+                </>
+              )}
             </Button>
           </div>
         </form>
       </Modal>
+      {/* ✅ ============================================================ */}
+      {/* ✅ Modal End */}
+      {/* ✅ ============================================================ */}
     </div>
   );
 };
+
+export default PermissionMatrixPage;

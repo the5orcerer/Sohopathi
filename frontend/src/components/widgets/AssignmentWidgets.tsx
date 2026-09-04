@@ -51,7 +51,7 @@ export const AssignmentList: React.FC<WidgetProps> = ({ dataSource }) => {
       </div>
 
       <div className="widget-body">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '280px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', overflowY: 'auto' }}>
           {assignments.length === 0 ? (
             <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
               No current assignments.
@@ -161,7 +161,7 @@ export const PendingAssignments: React.FC<WidgetProps> = ({ dataSource }) => {
       <div className="widget-body">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', overflowY: 'auto' }}>
           {pending.length === 0 ? (
-            <div style={{ padding: '1.5rem', textAlign: 'center', color: '#10b981', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--status-success)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
               <CheckCircle2 size={24} />
               <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>All caught up! No pending submissions.</span>
             </div>
@@ -186,7 +186,7 @@ export const PendingAssignments: React.FC<WidgetProps> = ({ dataSource }) => {
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.2rem' }}>
                   <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                    <Clock size={12} color="#f59e0b" /> Due: {item.dueDate ? new Date(item.dueDate).toLocaleDateString() : 'Soon'}
+                    <Clock size={12} color="var(--status-warning)" /> Due: {item.dueDate ? new Date(item.dueDate).toLocaleDateString() : 'Soon'}
                   </span>
 
                   {canSubmit && (
@@ -271,11 +271,11 @@ export const AssignmentStatistics: React.FC<WidgetProps> = ({ dataSource }) => {
           </div>
           <div className="stat-box">
             <span className="stat-label">Graded</span>
-            <span className="stat-value" style={{ color: '#10b981' }}>{stats.gradedCount}</span>
+            <span className="stat-value" style={{ color: 'var(--status-success)' }}>{stats.gradedCount}</span>
           </div>
           <div className="stat-box">
             <span className="stat-label">Pending Review</span>
-            <span className="stat-value" style={{ color: '#f59e0b' }}>{stats.pendingGradingCount}</span>
+            <span className="stat-value" style={{ color: 'var(--status-warning)' }}>{stats.pendingGradingCount}</span>
           </div>
         </div>
 
