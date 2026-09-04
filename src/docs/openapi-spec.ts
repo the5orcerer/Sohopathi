@@ -442,6 +442,41 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
         },
       },
     },
+    '/api/auth/resolve-subdomain/{subdomain}': {
+      get: {
+        tags: ['Auth'],
+        summary: 'Resolve Institution by Subdomain',
+        description: 'Returns public institution profile and branding for a tenant subdomain (used by biddyapith.tech hosted portals).',
+        security: [],
+        parameters: [
+          {
+            name: 'subdomain',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', example: 'dhakamodel' },
+            description: 'The school or tenant subdomain slug',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Institution details and public branding',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/Institution' },
+              },
+            },
+          },
+          404: {
+            description: 'Institution not found',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
     '/api/auth/login': {
       post: {
         tags: ['Auth'],

@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import * as Sentry from '@sentry/react';
 import type { Session, NavItem, DashboardWidget, User, ActiveMembership } from '../types';
 import { setApiAuth, fetchNav, fetchDashboard, buildApiUrl } from '../services/api';
+import { getTenantSubdomain } from '../utils/tenant';
+
 interface SessionContextValue {
   isAuthenticated: boolean;
   user: User | null;
@@ -16,7 +18,7 @@ interface SessionContextValue {
   mustChangePassword: boolean;
   theme: 'light' | 'dark';
   toggleTheme: () => void;
-  login: (params: { institutionCode?: string; username?: string; email?: string; password?: string; institutionId?: string }) => Promise<void>;
+  login: (params: { institutionCode?: string; subdomain?: string; username?: string; email?: string; password?: string; institutionId?: string }) => Promise<void>;
   changePassword: (newPassword: string) => Promise<void>;
   signup: (data: { email: string; name: string; phone?: string; roleName?: string; username?: string; password?: string; institutionId?: string }) => Promise<void>;
   logout: () => void;
@@ -39,6 +41,7 @@ const STORAGE_KEY_INST_ID = 'sohopathi_inst_id';
 const STORAGE_KEY_THEME = 'sohopathi_theme';
 
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const hostTenant = getTenantSubdomain();
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY_TOKEN));
   const [institutionId, setInstitutionId] = useState<string | null>(
     () => localStorage.getItem(STORAGE_KEY_INST_ID) || 'f2c10000-0000-0000-0000-000000000001'
@@ -46,7 +49,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [user, setUser] = useState<User | null>(null);
   const [activeMembership, setActiveMembership] = useState<ActiveMembership | null>(null);
   const [institutionName, setInstitutionName] = useState<string>('Dhaka Model International Academy');
-  const [institutionSubdomain, setInstitutionSubdomain] = useState<string>('dhakamodel');
+  const [institutionSubdomain, setInstitutionSubdomain] = useState<string>(hostTenant || 'dhakamodel');
   const [memberships, setMemberships] = useState<any[]>([]);
   const [permissions, setPermissions] = useState<string[]>([]);
   const [navItems, setNavItems] = useState<NavItem[]>([]);
@@ -71,13 +74,15 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const loadUserData = useCallback(
-    async (authToken: string, instId: string) => {
-      setApiAuth(authToken, instId);
+    async (authToken: string, instId: string, sub?: string) => {
+      const activeSub = sub || hostTenant || institutionSubdomain;
+      setApiAuth(authToken, instId, activeSub);
       try {
         const res = await fetch(buildApiUrl('/api/me'), {
           headers: {
             Authorization: `Bearer ${authToken}`,
             'x-institution-id': instId,
+            'x-institution-subdomain': activeSub || '',
           },
         });
 
@@ -126,29 +131,40 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setLoading(false);
       }
     },
-    []
+    [hostTenant, institutionSubdomain]
   );
 
   useEffect(() => {
     if (token && institutionId) {
-      loadUserData(token, institutionId);
+      loadUserData(token, institutionId, hostTenant || undefined);
     } else {
       setLoading(false);
     }
-  }, [token, institutionId, loadUserData]);
+  }, [token, institutionId, hostTenant, loadUserData]);
 
   const login = async (params: {
     institutionCode?: string;
+    subdomain?: string;
     username?: string;
     email?: string;
     password?: string;
     institutionId?: string;
   }) => {
     setLoading(true);
+    const effectiveSubdomain = hostTenant || params.subdomain || params.institutionCode;
+    const payload = {
+      ...params,
+      subdomain: effectiveSubdomain,
+      institutionCode: params.institutionCode || effectiveSubdomain,
+    };
+
     const res = await fetch(buildApiUrl('/api/auth/login'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      headers: {
+        'Content-Type': 'application/json',
+        'x-institution-subdomain': effectiveSubdomain || '',
+      },
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -171,14 +187,15 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setMemberships(data.memberships || []);
     setMustChangePassword(!!data.mustChangePassword);
 
+    const resolvedSub = data.activeMembership.institutionSubdomain || effectiveSubdomain;
     if (data.activeMembership.institutionName) {
       setInstitutionName(data.activeMembership.institutionName);
     }
-    if (data.activeMembership.institutionSubdomain) {
-      setInstitutionSubdomain(data.activeMembership.institutionSubdomain);
+    if (resolvedSub) {
+      setInstitutionSubdomain(resolvedSub);
     }
 
-    await loadUserData(newToken, newInstId);
+    await loadUserData(newToken, newInstId, resolvedSub);
   };
 
   const changePassword = async (newPassword: string) => {

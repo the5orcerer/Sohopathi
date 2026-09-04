@@ -21,7 +21,7 @@ function enableCors(app: express.Application) {
     res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
     res.header(
       'Access-Control-Allow-Headers',
-      'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-institution-id, baggage, sentry-trace, *'
+      'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-institution-id, x-institution-subdomain, x-subdomain, baggage, sentry-trace, *'
     );
     res.header('Access-Control-Max-Age', '86400');
     if (req.method === 'OPTIONS') {

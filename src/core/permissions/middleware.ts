@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/node';
 import { pool, withTenantContext } from '../db';
 import { supabaseAuthProvider } from '../auth/supabase-auth-provider';
 import { resolveContext, ResolvedContext } from './resolve-permissions';
+import { extractTenantFromRequest } from '../tenant-utils';
 
 declare global {
   namespace Express {
@@ -34,7 +35,10 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
 
 export async function loadContext(req: Request, res: Response, next: NextFunction) {
   const userId = req.userId;
-  const institutionId = req.headers['x-institution-id'] as string;
+  const institutionId =
+    (req.headers['x-institution-id'] as string) ||
+    (req.headers['x-institution-subdomain'] as string) ||
+    extractTenantFromRequest(req);
   if (!institutionId) {
     return res.status(400).json({ error: 'missing institution context', code: 'MISSING_INSTITUTION' });
   }

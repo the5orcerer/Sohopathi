@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { withTenantContext } from '../db';
 import { authenticate } from '../permissions/middleware';
 import { randomUUID } from 'crypto';
+import { extractTenantFromRequest } from '../tenant-utils';
 
 export const authRouter = Router();
 
@@ -37,10 +38,49 @@ authRouter.post('/onboard', async (req: Request, res: Response) => {
   }
 });
 
+// 1c. Resolve Institution by Subdomain (Public endpoint)
+authRouter.get(['/resolve-subdomain/:subdomain', '/resolve'], async (req: Request, res: Response) => {
+  const subdomain =
+    req.params.subdomain ||
+    (req.query.subdomain as string) ||
+    extractTenantFromRequest(req);
+
+  if (!subdomain) {
+    res.status(400).json({ error: 'Subdomain or institution identifier required', code: 'MISSING_SUBDOMAIN' });
+    return;
+  }
+
+  try {
+    const result = await withTenantContext(null, async (client) => {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(subdomain);
+      const { rows } = await client.query(
+        isUuid
+          ? `select id, name, subdomain, branding, status, created_at
+             from institution
+             where id = $1 and status = 'active' limit 1`
+          : `select id, name, subdomain, branding, status, created_at
+             from institution
+             where lower(subdomain) = lower($1) and status = 'active' limit 1`,
+        [subdomain.trim()]
+      );
+      return rows[0] || null;
+    });
+
+    if (!result) {
+      res.status(404).json({ error: `Institution '${subdomain}' not found`, code: 'INSTITUTION_NOT_FOUND' });
+      return;
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to resolve institution' });
+  }
+});
+
 // 2. Institution-Scoped Login
 authRouter.post('/login', async (req: Request, res: Response) => {
   const { institutionCode: rawCode, institution, subdomain, username, email, password, institutionId } = req.body;
-  const institutionCode = rawCode || institution || subdomain;
+  const institutionCode = rawCode || institution || subdomain || extractTenantFromRequest(req);
 
   try {
     const sessionData = await withTenantContext(null, async (client) => {

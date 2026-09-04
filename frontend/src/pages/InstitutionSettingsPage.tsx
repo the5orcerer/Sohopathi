@@ -16,6 +16,7 @@ import {
   Phone,
   MapPin,
   Layers,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '../components/common';
 
@@ -169,9 +170,22 @@ export const InstitutionSettingsPage: React.FC = () => {
             </div>
 
             <div>
-              <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
-                Subdomain / Institution Code
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                  Subdomain / Institution Code
+                </label>
+                {data?.institution?.subdomain && (
+                  <a
+                    href={`https://${data.institution.subdomain}.biddyapith.tech`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: '0.75rem', color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', textDecoration: 'none' }}
+                  >
+                    <span>{data.institution.subdomain}.biddyapith.tech</span>
+                    <ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
               <input
                 type="text"
                 disabled

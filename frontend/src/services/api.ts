@@ -37,9 +37,11 @@ import type {
   UpdateAdmissionPayload,
   AdmitStudentPayload,
 } from '../types';
+import { getTenantSubdomain } from '../utils/tenant';
 
 let currentToken = 'mock-token-admin-1';
 let currentInstitutionId = 'f2c10000-0000-0000-0000-000000000001';
+let currentSubdomain = getTenantSubdomain() || '';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
@@ -69,13 +71,33 @@ function recordLog(log: ApiLog) {
   logListeners.forEach((l) => l([...apiLogs]));
 }
 
-export function setApiAuth(token: string, institutionId: string) {
+export function setApiAuth(token: string, institutionId: string, subdomain?: string) {
   currentToken = token;
   currentInstitutionId = institutionId;
+  if (subdomain !== undefined) {
+    currentSubdomain = subdomain;
+  } else if (!currentSubdomain) {
+    currentSubdomain = getTenantSubdomain() || '';
+  }
 }
 
 export function getApiAuth() {
-  return { token: currentToken, institutionId: currentInstitutionId };
+  return { token: currentToken, institutionId: currentInstitutionId, subdomain: currentSubdomain };
+}
+
+export async function resolveInstitutionBySubdomain(subdomain: string): Promise<InstitutionItem | null> {
+  const clean = encodeURIComponent(subdomain.trim().toLowerCase());
+  try {
+    const res = await fetch(buildApiUrl(`/api/auth/resolve-subdomain/${clean}`));
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error(`Failed to resolve institution: ${res.statusText}`);
+    }
+    return await res.json();
+  } catch (err) {
+    console.warn(`Could not resolve institution subdomain ${subdomain}:`, err);
+    return null;
+  }
 }
 
 export async function fetchWithAuth<T = any>(
@@ -88,6 +110,7 @@ export async function fetchWithAuth<T = any>(
     'Content-Type': 'application/json',
     Authorization: `Bearer ${currentToken}`,
     'x-institution-id': currentInstitutionId,
+    'x-institution-subdomain': currentSubdomain || getTenantSubdomain() || '',
     ...(options.headers as Record<string, string>),
   };
 

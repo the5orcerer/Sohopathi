@@ -1,12 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSession } from '../context/SessionContext';
-import { GraduationCap, ArrowRight, AlertCircle, Sun, Moon, PlusCircle, CheckCircle2, ShieldCheck, KeyRound } from 'lucide-react';
-import { provisionInstitution } from '../services/api';
+import { GraduationCap, ArrowRight, AlertCircle, Sun, Moon, PlusCircle, CheckCircle2, ShieldCheck, KeyRound, Building2, Globe } from 'lucide-react';
+import { provisionInstitution, resolveInstitutionBySubdomain } from '../services/api';
+import { getTenantSubdomain, buildTenantUrl } from '../utils/tenant';
 
 export const LoginPage: React.FC = () => {
   const { login, changePassword, mustChangePassword, theme, toggleTheme } = useSession();
 
-  const [institutionCode, setInstitutionCode] = useState('');
+  const detectedSubdomain = useMemo(() => getTenantSubdomain(), []);
+  const [institutionCode, setInstitutionCode] = useState(detectedSubdomain || '');
+  const [resolvedInstitution, setResolvedInstitution] = useState<any | null>(null);
+  const [resolvingTenant, setResolvingTenant] = useState<boolean>(!!detectedSubdomain);
+  const [tenantNotFound, setTenantNotFound] = useState<boolean>(false);
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -28,10 +34,40 @@ export const LoginPage: React.FC = () => {
   const [provisionLoading, setProvisionLoading] = useState(false);
   const [provisionError, setProvisionError] = useState<string | null>(null);
 
+  // Fetch institution metadata if hosted subdomain is present
+  useEffect(() => {
+    if (!detectedSubdomain) return;
+    let active = true;
+    setResolvingTenant(true);
+    setTenantNotFound(false);
+
+    resolveInstitutionBySubdomain(detectedSubdomain)
+      .then((inst) => {
+        if (!active) return;
+        if (inst) {
+          setResolvedInstitution(inst);
+          setTenantNotFound(false);
+        } else {
+          setTenantNotFound(true);
+        }
+      })
+      .catch(() => {
+        if (active) setTenantNotFound(true);
+      })
+      .finally(() => {
+        if (active) setResolvingTenant(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [detectedSubdomain]);
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!institutionCode.trim() || !username.trim()) {
-      setError('Please provide your Institution ID and Username / Email');
+    const effectiveCode = detectedSubdomain || institutionCode.trim();
+    if (!effectiveCode || !username.trim()) {
+      setError(detectedSubdomain ? 'Please enter your username and password' : 'Please provide your Institution ID and Username / Email');
       return;
     }
 
@@ -39,7 +75,8 @@ export const LoginPage: React.FC = () => {
     setError(null);
     try {
       await login({
-        institutionCode: institutionCode.trim(),
+        institutionCode: effectiveCode,
+        subdomain: effectiveCode,
         username: username.trim(),
         password,
       });
@@ -191,12 +228,86 @@ export const LoginPage: React.FC = () => {
         >
           <div style={{ marginBottom: '1.25rem' }}>
             <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-              Sign In to Your Institution
+              {detectedSubdomain
+                ? (resolvedInstitution?.name ? `Sign In to ${resolvedInstitution.name}` : 'Sign In to Your Institution')
+                : 'Sign In to Your Institution'}
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-              Enter your institution ID and credentials
+              {detectedSubdomain
+                ? 'Enter your credentials to access your institutional portal'
+                : 'Enter your institution ID and credentials'}
             </p>
           </div>
+
+          {detectedSubdomain && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                padding: '0.75rem 1rem',
+                backgroundColor: 'var(--surface-sunken)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                marginBottom: '1rem',
+              }}
+            >
+              <div
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--primary-subtle)',
+                  color: 'var(--primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Building2 size={20} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: '0.92rem',
+                    color: 'var(--text-primary)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {resolvingTenant ? 'Resolving institution...' : (resolvedInstitution?.name || detectedSubdomain)}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Globe size={12} />
+                  <span>{detectedSubdomain}.biddyapith.tech</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tenantNotFound && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.75rem 0.85rem',
+                background: 'var(--danger-bg)',
+                color: 'var(--danger)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.82rem',
+                marginBottom: '1rem',
+              }}
+            >
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <span>
+                Institution &ldquo;<strong>{detectedSubdomain}</strong>&rdquo; was not found on Biddyapith. Please verify the URL or contact support.
+              </span>
+            </div>
+          )}
 
           {error && (
             <div
@@ -218,20 +329,22 @@ export const LoginPage: React.FC = () => {
           )}
 
           <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div className="form-group">
-              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Institution ID / Subdomain</span>
-              </label>
-              <input
-                type="text"
-                className="input"
-                placeholder="e.g. dhakamodel"
-                value={institutionCode}
-                onChange={(e) => setInstitutionCode(e.target.value)}
-                autoFocus
-                required
-              />
-            </div>
+            {!detectedSubdomain && (
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Institution ID / Subdomain</span>
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="e.g. dhakamodel"
+                  value={institutionCode}
+                  onChange={(e) => setInstitutionCode(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </div>
+            )}
 
             <div className="form-group">
               <label className="form-label">Username or Email</label>
@@ -241,6 +354,7 @@ export const LoginPage: React.FC = () => {
                 placeholder="e.g. admin or employee@school.edu"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                autoFocus={!!detectedSubdomain}
                 required
               />
             </div>
@@ -428,10 +542,22 @@ export const LoginPage: React.FC = () => {
                   </p>
                   <div style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                     <div><strong>Institution ID:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{provisionSuccessData.institutionId}</span></div>
+                    <div><strong>Subdomain:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{provisionSubdomain}</span></div>
                     <div><strong>Admin Username:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{provisionSuccessData.username}</span></div>
                     {provisionSuccessData.temporaryPassword && (
                       <div><strong>Temporary Password:</strong> <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{provisionSuccessData.temporaryPassword}</span></div>
                     )}
+                    <div>
+                      <strong>Live Domain:</strong>{' '}
+                      <a
+                        href={buildTenantUrl(provisionSubdomain)}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'var(--primary)', textDecoration: 'underline', fontFamily: 'var(--font-mono)' }}
+                      >
+                        {provisionSubdomain}.biddyapith.tech
+                      </a>
+                    </div>
                   </div>
                 </div>
 
