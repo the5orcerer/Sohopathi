@@ -83,7 +83,7 @@ export function createApp(): express.Application {
 
   const router = Router();
 
-  app.get('/health', (req: Request, res: Response) => {
+  app.get(['/health', '/api/health'], (req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
   });
 
@@ -110,7 +110,7 @@ export function bootApp(): express.Application {
   const router = Router();
 
   // Public unauthenticated health check
-  app.get('/health', (req: Request, res: Response) => {
+  app.get(['/health', '/api/health'], (req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
   });
 

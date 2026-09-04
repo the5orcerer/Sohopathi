@@ -18,6 +18,7 @@ authRouter.get('/institutions', async (req: Request, res: Response) => {
       `);
       return rows;
     });
+    res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to list institutions' });
@@ -71,6 +72,7 @@ authRouter.get(['/resolve-subdomain/:subdomain', '/resolve'], async (req: Reques
       return;
     }
 
+    res.setHeader('Cache-Control', 'public, max-age=120, s-maxage=300, stale-while-revalidate=600');
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to resolve institution' });

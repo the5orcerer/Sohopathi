@@ -11,6 +11,7 @@ export async function createInstitution(req: Request, res: Response, client: Poo
 // --- Permissions Catalog & Matrix ---
 export async function listPermissions(req: Request, res: Response, client: PoolClient) {
   const permissions = await coreRepository.listPermissions(client);
+  res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=1200');
   res.json(permissions);
 }
 

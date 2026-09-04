@@ -4,6 +4,7 @@ import { noticeRepository } from './repository';
 
 export async function listNotices(req: Request, res: Response, client: PoolClient) {
   const notices = await noticeRepository.list(client);
+  res.setHeader('Cache-Control', 'private, max-age=30, stale-while-revalidate=120');
   res.json(notices);
 }
 

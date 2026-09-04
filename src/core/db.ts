@@ -10,9 +10,9 @@ const isCloudDb = !isLocalhost;
 export const pool = new Pool({
   connectionString: env.DATABASE_URL.split('?')[0],
   ssl: isCloudDb ? { rejectUnauthorized: false } : undefined,
-  max: parseInt(process.env.PG_MAX_POOL || (process.env.NODE_ENV === 'test' ? '10' : '2'), 10),
-  idleTimeoutMillis: 10000,
-  connectionTimeoutMillis: 5000,
+  max: parseInt(process.env.PG_MAX_POOL || (process.env.NODE_ENV === 'test' ? '10' : '1'), 10),
+  idleTimeoutMillis: 1000,
+  connectionTimeoutMillis: 3000,
   allowExitOnIdle: true,
 });
 
