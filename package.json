@@ -12,6 +12,7 @@
     "preview:frontend": "cd frontend && npm run preview",
     "seed:db": "DATABASE_URL=\"${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5433/education-platform}\" tsx src/core/init-db.ts",
     "seed:env": "tsx src/core/init-db.ts",
+    "db:push": "tsx src/core/db-push.ts",
     "test": "vitest run --fileParallelism false --maxConcurrency 1 --pool=threads --poolOptions.threads.singleThread --testTimeout 60000 --hookTimeout 60000"
   },
   "dependencies": {

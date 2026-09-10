@@ -367,6 +367,34 @@ export interface AttendanceSheetItem {
   attendanceId: string | null;
 }
 
+export interface EmployeeAttendanceItem {
+  membershipId: string;
+  name: string;
+  email: string;
+  phone?: string;
+  roleId: string;
+  roleName: string;
+  attendanceId?: string | null;
+  status: 'present' | 'absent' | 'late' | 'on_leave' | 'half_day' | 'unmarked';
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  notes?: string | null;
+  date: string;
+  recordedAt?: string;
+}
+
+export interface EmployeeAttendanceSummaryData {
+  date: string;
+  totalStaff: number;
+  presentToday: number;
+  absentToday: number;
+  lateToday: number;
+  onLeaveToday: number;
+  halfDayToday: number;
+  unmarkedToday: number;
+  attendanceRate: number;
+}
+
 export interface AttendanceSummaryData {
   sectionId?: string;
   date?: string;

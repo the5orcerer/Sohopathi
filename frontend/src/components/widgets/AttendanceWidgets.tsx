@@ -131,7 +131,7 @@ export const AttendanceSummary: React.FC<WidgetProps> = ({ dataSource }) => {
         {/* Recent Class Breakdown */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Section Roster Breakdown
+            Section Attendance Breakdown
           </div>
           {data.recentClassRecords?.map((record) => {
             const pct = Math.round((record.presentCount / record.totalCount) * 100);

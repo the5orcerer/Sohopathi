@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Loader2, Inbox } from 'lucide-react';
+import { Pagination } from './Pagination';
 
 export interface Column<T> {
   key: string;
@@ -16,21 +17,13 @@ export interface DataTableProps<T> {
   isLoading?: boolean;
   emptyMessage?: string;
   onRowClick?: (item: T) => void;
+  pagination?: {
+    pageSize?: number;
+    showSizeChanger?: boolean;
+    pageSizeOptions?: number[];
+  };
 }
 
-/**
- * Reusable generic typed DataTable component.
- * Usage:
- *   <DataTable
- *     columns={[
- *       { key: 'name', header: 'Student Name' },
- *       { key: 'roll', header: 'Roll' },
- *       { key: 'status', header: 'Status', render: (s) => <Badge tone="success">{s.status}</Badge> },
- *     ]}
- *     data={students}
- *     keyExtractor={(s) => s.id}
- *   />
- */
 export function DataTable<T>({
   columns,
   data,
@@ -38,7 +31,14 @@ export function DataTable<T>({
   isLoading = false,
   emptyMessage = 'No records found',
   onRowClick,
+  pagination,
 }: DataTableProps<T>) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(pagination?.pageSize || 10);
+
+  const displayData = pagination
+    ? data.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+    : data;
   if (isLoading) {
     return (
       <div
@@ -108,9 +108,9 @@ export function DataTable<T>({
           </tr>
         </thead>
         <tbody>
-          {data.map((item, idx) => (
+          {displayData.map((item, idx) => (
             <tr
-              key={keyExtractor(item, idx)}
+              key={keyExtractor(item, (currentPage - 1) * pageSize + idx)}
               onClick={() => onRowClick && onRowClick(item)}
               style={{
                 borderBottom: '1px solid var(--border-subtle)',
@@ -134,13 +134,24 @@ export function DataTable<T>({
                     verticalAlign: 'middle',
                   }}
                 >
-                  {col.render ? col.render(item, idx) : (item as any)[col.key]}
+                  {col.render ? col.render(item, (currentPage - 1) * pageSize + idx) : (item as any)[col.key]}
                 </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
+
+      {pagination && data.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalItems={data.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={pagination.showSizeChanger !== false ? setPageSize : undefined}
+          pageSizeOptions={pagination.pageSizeOptions}
+        />
+      )}
     </div>
   );
 }

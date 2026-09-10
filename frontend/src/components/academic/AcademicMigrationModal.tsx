@@ -110,8 +110,8 @@ export const AcademicMigrationModal: React.FC<AcademicMigrationModalProps> = ({
         } catch {}
       }
 
-      // Build mock baseline roster for generated classes
-      const rosterRecords: any[] = [];
+      // Build mock baseline records for generated classes
+      const enrollmentRecords: any[] = [];
       const secList = presetSections.split(',').map((s) => s.trim()).filter(Boolean);
 
       for (let c = presetMinClass; c <= presetMaxClass; c++) {
@@ -119,7 +119,7 @@ export const AcademicMigrationModal: React.FC<AcademicMigrationModalProps> = ({
         for (const sec of secList) {
           const secName = `Section ${sec}`;
           // Generate sample baseline student per section
-          rosterRecords.push({
+          enrollmentRecords.push({
             academicYear: presetYear,
             className: clsName,
             sectionName: secName,
@@ -132,7 +132,7 @@ export const AcademicMigrationModal: React.FC<AcademicMigrationModalProps> = ({
         }
       }
 
-      const res = await unifiedAcademicMigration(rosterRecords);
+      const res = await unifiedAcademicMigration(enrollmentRecords);
       setSummary(res);
       onSuccess?.();
     } catch (err: any) {
@@ -154,14 +154,14 @@ export const AcademicMigrationModal: React.FC<AcademicMigrationModalProps> = ({
       setSummary(res);
       onSuccess?.();
     } catch (err: any) {
-      setError(err.message || 'Failed to import roster spreadsheet');
+      setError(err.message || 'Failed to import student enrollment spreadsheet');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Academic Structure & Historical Roster Setup Wizard" maxWidth="720px">
+    <Modal isOpen={isOpen} onClose={onClose} title="Academic Structure & Historical Enrollment Setup Wizard" maxWidth="720px">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         {/* Tab Selection */}
         <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
@@ -260,7 +260,7 @@ export const AcademicMigrationModal: React.FC<AcademicMigrationModalProps> = ({
           /* Preset Builder Tab */
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ background: 'var(--surface-sunken)', padding: '1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              💡 <strong>Instant School Setup:</strong> Automatically generates all classes, sections, national curriculum subjects (Bangla, English, Math, Science, ICT, etc.) and baseline rosters in 1 click so you don't need manual line-by-line entry.
+              💡 <strong>Instant School Setup:</strong> Automatically generates all classes, sections, national curriculum subjects (Bangla, English, Math, Science, ICT, etc.) and baseline student directory in 1 click so you don't need manual line-by-line entry.
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
@@ -340,7 +340,7 @@ export const AcademicMigrationModal: React.FC<AcademicMigrationModalProps> = ({
                 onClick={() => handleParseCsv(sampleCsvData)}
                 style={{ background: 'transparent', border: 'none', color: 'var(--primary)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
               >
-                Load Sample Roster Data
+                Load Sample Records
               </button>
             </div>
 

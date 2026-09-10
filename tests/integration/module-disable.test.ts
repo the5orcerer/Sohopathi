@@ -49,10 +49,12 @@ describe('Module Disable Tests', () => {
     instId = body.institutionId;
     adminUserId = body.ownerUserId;
     adminToken = `mock-token-${adminUserId}`;
-  });
+  }, 30000);
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it('disabling notices module removes notices permissions from resolveContext and blocks notices routes', async () => {

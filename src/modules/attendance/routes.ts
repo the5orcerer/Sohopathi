@@ -220,3 +220,55 @@ export async function recordMarks(req: Request, res: Response, client: PoolClien
   );
   res.status(201).json(results);
 }
+
+// --- Employee Attendance Handlers ---
+export async function listEmployeeAttendance(req: Request, res: Response, client: PoolClient) {
+  const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
+  const roleId = req.query.roleId as string | undefined;
+  const status = req.query.status as string | undefined;
+  const search = req.query.search as string | undefined;
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+  const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
+
+  let membershipId: string | undefined;
+  if (req.grantedScope === 'self') {
+    membershipId = req.ctx!.membershipId;
+  }
+
+  const result = await attendanceRepository.listEmployeeAttendance(client, req.ctx!.institutionId, {
+    date,
+    roleId,
+    status,
+    search,
+    limit,
+    offset,
+    membershipId,
+  });
+  res.json(result);
+}
+
+export async function markEmployeeAttendance(req: Request, res: Response, client: PoolClient) {
+  const { records } = req.body;
+  if (!Array.isArray(records) || records.length === 0) {
+    return res.status(400).json({ error: 'records must be a non-empty array', code: 'VALIDATION_ERROR' });
+  }
+
+  const results = await attendanceRepository.markEmployeeAttendanceBatch(
+    client,
+    req.ctx!.institutionId,
+    req.ctx?.membershipId,
+    records
+  );
+  res.status(200).json({ success: true, count: results.length, records: results });
+}
+
+export async function getEmployeeAttendanceSummary(req: Request, res: Response, client: PoolClient) {
+  const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
+  const summary = await attendanceRepository.getEmployeeAttendanceSummary(
+    client,
+    req.ctx!.institutionId,
+    date
+  );
+  res.json(summary);
+}
+

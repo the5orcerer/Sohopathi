@@ -11,6 +11,8 @@ export const attendanceManifest: ModuleManifest = {
   permissions: [
     { key: 'attendance.read', description: 'View attendance records', scopeOptions: ['institution', 'assigned_sections', 'self'] },
     { key: 'attendance.create', description: 'Take attendance for assigned sections', scopeOptions: ['assigned_sections', 'institution'] },
+    { key: 'attendance.employee.read', description: 'View employee and staff attendance records', scopeOptions: ['institution', 'self'] },
+    { key: 'attendance.employee.create', description: 'Record and manage daily employee attendance', scopeOptions: ['institution'] },
     { key: 'exams.manage', description: 'Create and configure examination sessions and paper schedules', scopeOptions: ['institution'] },
     { key: 'marks.read', description: 'View student marks', scopeOptions: ['institution', 'assigned_sections', 'self'] },
     { key: 'marks.create', description: 'Enter marks for assigned sections', scopeOptions: ['assigned_sections', 'institution'] },
@@ -39,6 +41,30 @@ export const attendanceManifest: ModuleManifest = {
       },
       handler: routes.markAttendance,
     },
+
+    // Employee Attendance
+    { method: 'GET', path: '/employees', requiredPermission: 'attendance.employee.read', handler: routes.listEmployeeAttendance },
+    {
+      method: 'POST',
+      path: '/employees',
+      requiredPermission: 'attendance.employee.create',
+      validation: {
+        body: z.object({
+          records: z.array(
+            z.object({
+              membershipId: z.string().uuid(),
+              date: z.string(),
+              status: z.string(),
+              checkInTime: z.string().optional(),
+              checkOutTime: z.string().optional(),
+              notes: z.string().optional(),
+            })
+          ),
+        }),
+      },
+      handler: routes.markEmployeeAttendance,
+    },
+    { method: 'GET', path: '/employees/summary', requiredPermission: 'attendance.employee.read', handler: routes.getEmployeeAttendanceSummary },
 
     // Examinations
     { method: 'GET', path: '/exams', requiredPermission: 'marks.read', handler: routes.listExams },

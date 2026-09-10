@@ -71,10 +71,12 @@ describe('Cross-Tenant RLS Isolation Test', () => {
     expect(resB.status).toBe(201);
     instBId = bodyB.institutionId;
     ownerBId = bodyB.ownerUserId;
-  });
+  }, 30000);
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it('provisions two distinct institutions (A and B)', () => {

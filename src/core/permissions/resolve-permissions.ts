@@ -1,4 +1,5 @@
 import { PoolClient } from 'pg';
+import { appCache } from '../cache';
 
 export interface ResolvedContext {
   userId: string;
@@ -7,6 +8,14 @@ export interface ResolvedContext {
   roleId: string;
   roleName: string;
   permissions: Map<string, string>; // permission key -> scope
+}
+
+export function invalidateContextCache(userId?: string, institutionId?: string): void {
+  if (userId && institutionId) {
+    appCache.del(`ctx:${userId}:${institutionId}`);
+  } else {
+    appCache.invalidatePrefix('ctx:');
+  }
 }
 
 export async function resolveContext(
@@ -20,12 +29,27 @@ export async function resolveContext(
   let resolvedInstId = institutionId;
 
   if (!isUuid) {
-    const { rows: instRows } = await client.query(
-      `select id from institution where lower(subdomain) = lower($1) or lower(name) = lower($1)`,
-      [institutionId]
-    );
-    if (instRows.length === 0) return null;
-    resolvedInstId = instRows[0].id;
+    const cachedInstId = appCache.get<string>(`inst:sub:${institutionId.toLowerCase()}`);
+    if (cachedInstId) {
+      resolvedInstId = cachedInstId;
+    } else {
+      const { rows: instRows } = await client.query(
+        `select id from institution where lower(subdomain) = lower($1) or lower(name) = lower($1)`,
+        [institutionId]
+      );
+      if (instRows.length === 0) return null;
+      resolvedInstId = instRows[0].id;
+      appCache.set(`inst:sub:${institutionId.toLowerCase()}`, resolvedInstId, 300);
+    }
+  }
+
+  const cacheKey = `ctx:${userId}:${resolvedInstId}`;
+  const shouldCache = process.env.NODE_ENV !== 'test';
+  if (shouldCache) {
+    const cached = appCache.get<ResolvedContext>(cacheKey);
+    if (cached) {
+      return cached;
+    }
   }
 
   try {
@@ -82,7 +106,7 @@ export async function resolveContext(
     }
     await client.query('COMMIT');
 
-    return {
+    const result: ResolvedContext = {
       userId,
       institutionId: resolvedInstId,
       membershipId,
@@ -90,6 +114,12 @@ export async function resolveContext(
       roleName,
       permissions,
     };
+
+    if (shouldCache) {
+      appCache.set(cacheKey, result, 60);
+    }
+
+    return result;
   } catch (err) {
     try {
       await client.query('ROLLBACK');

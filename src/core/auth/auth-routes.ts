@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { withTenantContext } from '../db';
-import { authenticate } from '../permissions/middleware';
+import { authenticate, loadContext } from '../permissions/middleware';
 import { randomUUID } from 'crypto';
 import { extractTenantFromRequest } from '../tenant-utils';
 
@@ -253,6 +253,128 @@ authRouter.post('/login', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(401).json({ error: err.message || 'Authentication failed' });
   }
+});
+
+// 2b. User Impersonation (Admin / Support Privilege)
+authRouter.post('/impersonate', authenticate, loadContext, async (req: Request, res: Response) => {
+  const { targetUserId, targetMembershipId } = req.body;
+  const callerCtx = req.ctx!;
+
+  // Verify caller authority: users.impersonate OR roles.manage OR admin role
+  const hasPermission =
+    callerCtx.permissions.has('users.impersonate') ||
+    callerCtx.permissions.has('roles.manage') ||
+    callerCtx.roleName?.toLowerCase().includes('admin');
+
+  if (!hasPermission) {
+    res.status(403).json({ error: 'Permission denied: You are not authorized to impersonate users', code: 'FORBIDDEN' });
+    return;
+  }
+
+  if (!targetUserId && !targetMembershipId) {
+    res.status(400).json({ error: 'targetUserId or targetMembershipId is required', code: 'MISSING_TARGET' });
+    return;
+  }
+
+  // Prevent self-impersonation loop
+  if (targetUserId && targetUserId === callerCtx.userId) {
+    res.status(400).json({ error: 'Cannot impersonate your own active account', code: 'SELF_IMPERSONATION' });
+    return;
+  }
+
+  try {
+    const sessionData = await withTenantContext(callerCtx.institutionId, async (client) => {
+      // Find the target user profile and active membership in the current institution
+      const { rows: matches } = await client.query(
+        `select m.id as membership_id, m.institution_id, m.user_id, m.role_id, m.login_username,
+                p.id as profile_id, p.name, coalesce(u.email, p.email, '') as email, p.phone, p.avatar_url,
+                p.must_change_password,
+                i.name as institution_name, i.subdomain as institution_subdomain,
+                coalesce(r.name, 'Member') as role_name
+         from membership m
+         join profile p on p.id = m.user_id
+         left join auth.users u on u.id = p.id
+         join institution i on i.id = m.institution_id
+         left join role r on r.id = m.role_id
+         where m.institution_id = $1
+           and (m.user_id = $2 or m.id = $3)
+         limit 1`,
+        [callerCtx.institutionId, targetUserId || null, targetMembershipId || null]
+      );
+
+      if (matches.length === 0) {
+        throw new Error('Target user not found in this institution');
+      }
+
+      const target = matches[0];
+
+      // Fetch all memberships for this target user
+      const { rows: memberships } = await client.query(
+        `select m.id, m.institution_id, m.role_id, m.login_username,
+                i.name as institution_name, i.subdomain as institution_subdomain,
+                coalesce(r.name, 'Member') as role_name
+         from membership m
+         join institution i on i.id = m.institution_id
+         left join role r on r.id = m.role_id
+         where m.user_id = $1`,
+        [target.profile_id]
+      );
+
+      // Caller info for audit and restoration
+      const { rows: callerProfiles } = await client.query(
+        `select name, coalesce(u.email, p.email, '') as email from profile p left join auth.users u on u.id = p.id where p.id = $1`,
+        [callerCtx.userId]
+      );
+      const callerProfile = callerProfiles[0] || { name: 'Admin', email: '' };
+
+      const token = `mock-token-${target.profile_id}`;
+
+      return {
+        token,
+        user: {
+          id: target.profile_id,
+          name: target.name,
+          email: target.email,
+          phone: target.phone,
+          avatarUrl: target.avatar_url,
+        },
+        activeMembership: {
+          id: target.membership_id,
+          institutionId: target.institution_id,
+          institutionName: target.institution_name,
+          institutionSubdomain: target.institution_subdomain,
+          username: target.login_username,
+          roleId: target.role_id,
+          roleName: target.role_name || 'Member',
+        },
+        memberships: memberships.map((m: any) => ({
+          id: m.id,
+          institutionId: m.institution_id,
+          institutionName: m.institution_name,
+          institutionSubdomain: m.institution_subdomain,
+          username: m.login_username,
+          roleId: m.role_id,
+          roleName: m.role_name,
+        })),
+        isImpersonated: true,
+        impersonator: {
+          id: callerCtx.userId,
+          name: callerProfile.name,
+          email: callerProfile.email,
+          roleName: callerCtx.roleName || 'Admin',
+        },
+      };
+    });
+
+    res.json(sessionData);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to impersonate user' });
+  }
+});
+
+// 2c. Stop Impersonation
+authRouter.post('/stop-impersonate', authenticate, async (req: Request, res: Response) => {
+  res.json({ success: true, message: 'Impersonation ended' });
 });
 
 // 3. Forced First-Login Password Change

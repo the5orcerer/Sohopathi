@@ -24,6 +24,10 @@ interface SessionContextValue {
   switchInstitution: (institutionId: string) => void;
   hasPermission: (permission: string) => boolean;
   refreshSession: () => Promise<void>;
+  isImpersonating: boolean;
+  impersonator: { id: string; name: string; email?: string; roleName: string } | null;
+  impersonateUser: (targetUserId: string) => Promise<void>;
+  stopImpersonating: () => Promise<void>;
   session: Session;
   currentPersona: {
     id: string;
@@ -38,6 +42,7 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 const STORAGE_KEY_TOKEN = 'Biddyapith_auth_token';
 const STORAGE_KEY_INST_ID = 'Biddyapith_inst_id';
 const STORAGE_KEY_THEME = 'Biddyapith_theme';
+const STORAGE_KEY_IMPERSONATION = 'Biddyapith_impersonation_backup';
 
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const hostTenant = getTenantSubdomain();
@@ -55,6 +60,21 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [dashboardWidgets, setDashboardWidgets] = useState<DashboardWidget[]>([]);
   const [mustChangePassword, setMustChangePassword] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Impersonation state
+  const [isImpersonating, setIsImpersonating] = useState<boolean>(() => {
+    return !!sessionStorage.getItem(STORAGE_KEY_IMPERSONATION);
+  });
+  const [impersonator, setImpersonator] = useState<{ id: string; name: string; email?: string; roleName: string } | null>(() => {
+    const raw = sessionStorage.getItem(STORAGE_KEY_IMPERSONATION);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed.impersonator || null;
+    } catch {
+      return null;
+    }
+  });
 
   // Theme setup
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -239,7 +259,97 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await loadUserData(newToken, newInstId);
   };
 
+  const impersonateUser = async (targetUserId: string) => {
+    if (!token || !institutionId) throw new Error('Not authenticated');
+    setLoading(true);
+    try {
+      const res = await fetch(buildApiUrl('/api/auth/impersonate'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'x-institution-id': institutionId,
+          'x-institution-subdomain': institutionSubdomain,
+        },
+        body: JSON.stringify({ targetUserId }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Impersonation failed' }));
+        throw new Error(err.error || 'Impersonation failed');
+      }
+
+      const data = await res.json();
+
+      // Store original session in sessionStorage to allow one-click return
+      const backup = {
+        token,
+        institutionId,
+        institutionSubdomain,
+        user,
+        activeMembership,
+        permissions,
+        impersonator: {
+          id: user?.id || '',
+          name: user?.name || 'Admin',
+          email: user?.email,
+          roleName: activeMembership?.roleName || 'Admin',
+        },
+      };
+      sessionStorage.setItem(STORAGE_KEY_IMPERSONATION, JSON.stringify(backup));
+
+      localStorage.setItem(STORAGE_KEY_TOKEN, data.token);
+      localStorage.setItem(STORAGE_KEY_INST_ID, data.activeMembership.institutionId);
+
+      setToken(data.token);
+      setUser(data.user);
+      setActiveMembership(data.activeMembership);
+      setMemberships(data.memberships || []);
+      setIsImpersonating(true);
+      setImpersonator(backup.impersonator);
+
+      await loadUserData(data.token, data.activeMembership.institutionId, data.activeMembership.institutionSubdomain);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stopImpersonating = async () => {
+    const raw = sessionStorage.getItem(STORAGE_KEY_IMPERSONATION);
+    if (!raw) return;
+    setLoading(true);
+    try {
+      const backup = JSON.parse(raw);
+      sessionStorage.removeItem(STORAGE_KEY_IMPERSONATION);
+
+      // Notify backend if needed
+      if (token) {
+        await fetch(buildApiUrl('/api/auth/stop-impersonate'), {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+
+      localStorage.setItem(STORAGE_KEY_TOKEN, backup.token);
+      localStorage.setItem(STORAGE_KEY_INST_ID, backup.institutionId);
+
+      setToken(backup.token);
+      setInstitutionId(backup.institutionId);
+      setUser(backup.user);
+      setActiveMembership(backup.activeMembership);
+      setIsImpersonating(false);
+      setImpersonator(null);
+
+      await loadUserData(backup.token, backup.institutionId, backup.institutionSubdomain);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = () => {
+    sessionStorage.removeItem(STORAGE_KEY_IMPERSONATION);
+    setIsImpersonating(false);
+    setImpersonator(null);
     localStorage.removeItem(STORAGE_KEY_TOKEN);
     setToken(null);
     setUser(null);
@@ -308,6 +418,10 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         switchInstitution,
         hasPermission,
         refreshSession,
+        isImpersonating,
+        impersonator,
+        impersonateUser,
+        stopImpersonating,
         session,
         currentPersona,
       }}

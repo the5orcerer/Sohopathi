@@ -36,6 +36,8 @@ import type {
   CreateAdmissionPayload,
   UpdateAdmissionPayload,
   AdmitStudentPayload,
+  EmployeeAttendanceItem,
+  EmployeeAttendanceSummaryData,
 } from '../types';
 
 import { getTenantSubdomain } from '../utils/tenant';
@@ -101,10 +103,52 @@ export async function resolveInstitutionBySubdomain(subdomain: string): Promise<
   }
 }
 
+interface ApiCacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+const apiCache = new Map<string, ApiCacheEntry<any>>();
+
+export function invalidateApiCache(prefix?: string) {
+  if (!prefix) {
+    apiCache.clear();
+  } else {
+    for (const key of apiCache.keys()) {
+      if (key.includes(prefix)) {
+        apiCache.delete(key);
+      }
+    }
+  }
+}
+
 export async function fetchWithAuth<T = any>(
   url: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const method = (options.method || 'GET').toUpperCase();
+  const isGet = method === 'GET';
+  const cacheKey = `${currentInstitutionId}:${url}`;
+
+  if (isGet) {
+    const cached = apiCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.data as T;
+    }
+  } else {
+    // Automatically invalidate related cache keys upon mutation
+    if (url.includes('/attendance')) invalidateApiCache('/attendance');
+    if (url.includes('/students') || url.includes('/classes') || url.includes('/sections')) {
+      invalidateApiCache('/core');
+      invalidateApiCache('/academic');
+    }
+    if (url.includes('/roles') || url.includes('/permissions')) {
+      invalidateApiCache('/roles');
+      invalidateApiCache('/permissions');
+    }
+    if (url.includes('/admissions')) invalidateApiCache('/admissions');
+    if (url.includes('/notices')) invalidateApiCache('/notices');
+  }
+
   const fullUrl = buildApiUrl(url);
   const startTime = Date.now();
   const headers: Record<string, string> = {
@@ -125,6 +169,10 @@ export async function fetchWithAuth<T = any>(
 
     if (res.ok) {
       const data = res.status === 204 ? ({} as T) : await res.json();
+      if (isGet) {
+        // Cache idempotent GET results for 15s to keep UI snappy and DB healthy
+        apiCache.set(cacheKey, { data, expiresAt: Date.now() + 15000 });
+      }
       recordLog({
         id: Math.random().toString(36).substring(2, 9),
         timestamp: new Date().toLocaleTimeString(),
@@ -643,6 +691,44 @@ export async function markAttendanceBatch(records: Array<{
 
 export async function fetchAttendanceSummary(): Promise<AttendanceSummaryData[]> {
   return fetchWithAuth<AttendanceSummaryData[]>('/api/attendance/summary');
+}
+
+// Employee Attendance APIs
+export async function fetchEmployeeAttendance(params: {
+  date: string;
+  roleId?: string;
+  status?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ employees: EmployeeAttendanceItem[]; total: number }> {
+  const q = new URLSearchParams();
+  if (params.date) q.set('date', params.date);
+  if (params.roleId && params.roleId !== 'all') q.set('roleId', params.roleId);
+  if (params.status && params.status !== 'all') q.set('status', params.status);
+  if (params.search) q.set('search', params.search);
+  if (params.limit) q.set('limit', String(params.limit));
+  if (params.offset) q.set('offset', String(params.offset));
+  return fetchWithAuth<{ employees: EmployeeAttendanceItem[]; total: number }>(`/api/attendance/employees?${q.toString()}`);
+}
+
+export async function markEmployeeAttendanceBatch(records: Array<{
+  membershipId: string;
+  date: string;
+  status: string;
+  checkInTime?: string;
+  checkOutTime?: string;
+  notes?: string;
+}>): Promise<any> {
+  return fetchWithAuth('/api/attendance/employees', {
+    method: 'POST',
+    body: JSON.stringify({ records }),
+  });
+}
+
+export async function fetchEmployeeAttendanceSummary(date?: string): Promise<EmployeeAttendanceSummaryData> {
+  const url = date ? `/api/attendance/employees/summary?date=${date}` : '/api/attendance/employees/summary';
+  return fetchWithAuth<EmployeeAttendanceSummaryData>(url);
 }
 
 // ============================================================

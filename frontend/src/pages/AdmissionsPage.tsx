@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   fetchAdmissions,
   fetchAdmissionStats,
@@ -33,7 +33,7 @@ import {
   GraduationCap,
   Loader2,
 } from 'lucide-react';
-import { Button, Badge, Modal, SearchBar, EmptyState } from '../components/common';
+import { Button, Badge, Modal, SearchBar, EmptyState, Pagination } from '../components/common';
 import { useSession } from '../context/SessionContext';
 
 export const AdmissionsPage: React.FC = () => {
@@ -48,6 +48,19 @@ export const AdmissionsPage: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedStatus, selectedClassId, searchTerm]);
+
+  const paginatedApplications = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return applications.slice(start, start + pageSize);
+  }, [applications, page, pageSize]);
 
   // Create Application Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -296,7 +309,7 @@ export const AdmissionsPage: React.FC = () => {
       'Fee Status': a.feeStatus,
       'Applied Date': a.createdAt ? new Date(a.createdAt).toLocaleDateString() : '',
     }));
-    exportToCsv('admissions-pipeline.csv', exportRows);
+    exportToCsv('admissions-register.csv', exportRows);
   };
 
   const getStatusBadge = (status: string) => {
@@ -355,7 +368,7 @@ export const AdmissionsPage: React.FC = () => {
             Admissions & Student Intake
           </h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.86rem', marginTop: '0.2rem' }}>
-            Track prospective applicants, review admissions pipeline, and automatically enroll students with login credentials.
+            Track prospective applicants, manage admissions workflow, and automatically enroll students with institutional records.
           </p>
         </div>
 
@@ -482,7 +495,7 @@ export const AdmissionsPage: React.FC = () => {
         </form>
       </div>
 
-      {/* Applications Roster Table */}
+      {/* Applications Register Table */}
       <div className="glass-panel" style={{ padding: '0', overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -511,7 +524,7 @@ export const AdmissionsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {applications.map((app) => (
+                {paginatedApplications.map((app) => (
                   <tr
                     key={app.id}
                     style={{
@@ -581,6 +594,19 @@ export const AdmissionsPage: React.FC = () => {
                 ))}
               </tbody>
             </table>
+
+            <div style={{ padding: '1rem 0.5rem 0.5rem' }}>
+              <Pagination
+                currentPage={page}
+                totalItems={applications.length}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setPage(1);
+                }}
+              />
+            </div>
           </div>
         )}
       </div>
@@ -794,7 +820,7 @@ export const AdmissionsPage: React.FC = () => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>
-                  Application Pipeline Status
+                  Application Review Status
                 </label>
                 <select
                   className="input"

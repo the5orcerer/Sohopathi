@@ -18,6 +18,7 @@ import {
   BookOpen,
   ClipboardList,
   Settings,
+  BarChart3,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -39,6 +40,7 @@ const getNavIcon = (path: string) => {
     case '/notices': return <Bell size={20} />;
     case '/students': return <GraduationCap size={20} />;
     case '/academic': return <Layers size={20} />;
+    case '/reports': return <BarChart3 size={20} />;
     case '/tasks': return <ClipboardList size={20} />;
     case '/members': return <Users size={20} />;
     case '/permission-matrix': return <Sliders size={20} />;

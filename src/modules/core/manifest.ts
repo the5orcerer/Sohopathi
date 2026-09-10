@@ -107,7 +107,7 @@ export const coreManifest: ModuleManifest = {
     },
 
     // Academic Structure
-    { method: 'GET', path: '/academic-years', requiredPermission: 'academic_years.manage,schedules.read,attendance.read,marks.read,assignments.read', handler: routes.listAcademicYears },
+    { method: 'GET', path: '/academic-years', requiredPermission: 'academic_years.manage', handler: routes.listAcademicYears },
     {
       method: 'POST',
       path: '/academic-years',
@@ -122,7 +122,7 @@ export const coreManifest: ModuleManifest = {
       },
       handler: routes.createAcademicYear,
     },
-    { method: 'GET', path: '/classes', requiredPermission: 'classes.manage,students.read,schedules.read,attendance.read,marks.read,assignments.read', handler: routes.listClasses },
+    { method: 'GET', path: '/classes', requiredPermission: 'classes.manage', handler: routes.listClasses },
     {
       method: 'POST',
       path: '/classes',
@@ -136,7 +136,7 @@ export const coreManifest: ModuleManifest = {
       },
       handler: routes.createClass,
     },
-    { method: 'GET', path: '/sections', requiredPermission: 'sections.manage,classes.manage,students.read,schedules.read,attendance.read,marks.read,assignments.read', handler: routes.listSections },
+    { method: 'GET', path: '/sections', requiredPermission: 'sections.manage', handler: routes.listSections },
     {
       method: 'POST',
       path: '/sections',
@@ -150,7 +150,7 @@ export const coreManifest: ModuleManifest = {
       },
       handler: routes.createSection,
     },
-    { method: 'GET', path: '/subjects', requiredPermission: 'subjects.manage,classes.manage,students.read,schedules.read,attendance.read,marks.read,assignments.read', handler: routes.listSubjects },
+    { method: 'GET', path: '/subjects', requiredPermission: 'subjects.manage', handler: routes.listSubjects },
     {
       method: 'POST',
       path: '/subjects',

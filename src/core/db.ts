@@ -1,65 +1,42 @@
 import { Pool, PoolClient } from 'pg';
 import { env } from './env';
 
-const isLocalhost =
-  env.DATABASE_URL.includes('127.0.0.1') ||
-  env.DATABASE_URL.includes('localhost');
-
-const isCloudDb = !isLocalhost;
+const cleanConnectionString = env.DATABASE_URL.replace(/[\?&]sslmode=[^&]+/, '');
+const isLocal = env.DATABASE_URL.includes('127.0.0.1') || env.DATABASE_URL.includes('localhost');
 
 export const pool = new Pool({
-  connectionString: env.DATABASE_URL.split('?')[0],
-  ssl: isCloudDb ? { rejectUnauthorized: false } : undefined,
-  max: parseInt(process.env.PG_MAX_POOL || (process.env.NODE_ENV === 'test' ? '10' : '1'), 10),
-  idleTimeoutMillis: 1000,
-  connectionTimeoutMillis: 3000,
-  allowExitOnIdle: true,
+  connectionString: cleanConnectionString,
+  max: 10,
+  ssl: isLocal ? false : { rejectUnauthorized: false },
 });
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 let rlsInitialized = false;
 
-export async function ensureTenantRLS(client: PoolClient, force = false): Promise<void> {
-  if (rlsInitialized && !force) return;
+export async function ensureTenantRLS(client: PoolClient): Promise<void> {
+  if (rlsInitialized) return;
 
   // Use advisory lock to prevent concurrent test runners from running DDL simultaneously
   await client.query(`SELECT pg_advisory_xact_lock(748291);`);
 
-
-  if (!isCloudDb) {
-    await client.query(`
-      do $$
-      begin
-        begin
-          create role app_user with login password 'password' nosuperuser nobypassrls;
-        exception
-          when others then null;
-        end;
-        begin
-          grant usage, create on schema auth to app_user;
-          grant all on all tables in schema auth to app_user;
-          grant all on all sequences in schema auth to app_user;
-          grant all on all functions in schema auth to app_user;
-          alter default privileges in schema auth grant all on tables to app_user;
-          alter default privileges in schema auth grant all on sequences to app_user;
-          alter default privileges in schema auth grant all on functions to app_user;
-
-          grant usage, create on schema public to app_user;
-          grant all on all tables in schema public to app_user;
-          grant all on all sequences in schema public to app_user;
-          grant all on all functions in schema public to app_user;
-          alter default privileges in schema public grant all on tables to app_user;
-          alter default privileges in schema public grant all on sequences to app_user;
-          alter default privileges in schema public grant all on functions to app_user;
-        exception
-          when others then null;
-        end;
-      end $$;
-    `);
-  }
-
   await client.query(`
+    do $$
+    begin
+      begin
+        create role app_user with login password 'password' nosuperuser nobypassrls;
+      exception
+        when duplicate_object then null;
+      end;
+    end $$;
+    grant all on schema public to app_user;
+    grant all on all tables in schema public to app_user;
+    grant all on all sequences in schema public to app_user;
+    grant all on all functions in schema public to app_user;
+
+    grant usage on schema auth to app_user;
+    grant all on all tables in schema auth to app_user;
+
     -- Update institution tenant isolation policy to allow creation / lookup when current_institution_id is NULL
     drop policy if exists tenant_isolation on public.institution;
     create policy tenant_isolation on public.institution
@@ -234,69 +211,53 @@ export async function ensureTenantRLS(client: PoolClient, force = false): Promis
       read_at timestamptz not null default now(),
       unique (notice_id, membership_id)
     );
+
+    -- 9. Employee Attendance Table
+    create table if not exists public.employee_attendance (
+      id uuid primary key default gen_random_uuid(),
+      institution_id uuid not null references public.institution(id) on delete cascade,
+      membership_id uuid not null references public.membership(id) on delete cascade,
+      date date not null default current_date,
+      status text not null default 'present',
+      check_in_time text,
+      check_out_time text,
+      notes text,
+      recorded_by_membership_id uuid references public.membership(id) on delete set null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      unique (institution_id, membership_id, date)
+    );
   `);
 
-  const standardTenantTables = [
+  const tenantTables = [
     'institution_module','campus','academic_year','membership',
     'membership_scope','event','audit_log','student','guardian','student_guardian',
     'class','section','subject','class_subject_teacher','enrollment','attendance',
-    'exam','mark','notice','notice_read_receipt','assignment','assignment_attachment',
-    'assignment_submission','assignment_grade',
+    'exam','mark','notice','fee_invoice','payment','assignment','assignment_attachment',
+    'assignment_submission','assignment_grade','vehicle','transport_driver',
+    'transport_route','transport_stop','transport_route_stop','student_transport_assignment',
+    'role_permission','institution','role','dashboard_layout',
     'custom_field_definition','class_schedule','exam_paper',
-    'notification','user_task','institution_setting','admission_application'
+    'notification','user_task','institution_setting',
+    'admission_application','notice_read_receipt','employee_attendance'
   ];
 
-  const allTenantTables = [
-    ...standardTenantTables,
-    'institution','role','role_permission','dashboard_layout'
-  ];
-
-  for (const t of allTenantTables) {
-    await client.query(`alter table public.${t} enable row level security;`);
+  for (const t of tenantTables) {
     await client.query(`alter table public.${t} force row level security;`);
-  }
-
-  for (const t of standardTenantTables) {
-    // Ensure standard tenant policy exists for standard tables with institution_id
+    // Ensure standard tenant policy exists for newly added tables
     await client.query(`
       do $$
       begin
-        drop policy if exists tenant_isolation on public.${t};
-        drop policy if exists "Enable all for users based on institution_id" on public.${t};
-        drop policy if exists "tenant_isolation_policy" on public.${t};
-        create policy tenant_isolation on public.${t}
-          using (institution_id = public.current_institution_id() or (public.current_institution_id() is null and '${t}' in ('institution', 'role', 'role_permission')))
-          with check (institution_id = public.current_institution_id() or (public.current_institution_id() is null and '${t}' in ('institution', 'role', 'role_permission')));
+        if not exists (
+          select 1 from pg_policies where schemaname = 'public' and tablename = '${t}' and policyname = 'tenant_isolation'
+        ) then
+          create policy tenant_isolation on public.${t} using (institution_id = public.current_institution_id());
+        end if;
       exception
         when others then null;
       end $$;
     `);
   }
-
-  // Ensure custom tenant policies for special tables
-  await client.query(`
-    do $$
-    begin
-      drop policy if exists tenant_isolation on public.institution;
-      create policy tenant_isolation on public.institution
-        using (id = public.current_institution_id() or public.current_institution_id() is null)
-        with check (true);
-
-      drop policy if exists tenant_isolation on public.role;
-      create policy tenant_isolation on public.role
-        using (institution_id = public.current_institution_id() or institution_id is null);
-
-      drop policy if exists tenant_isolation on public.role_permission;
-      create policy tenant_isolation on public.role_permission
-        using (institution_id = public.current_institution_id() or institution_id is null);
-
-      drop policy if exists tenant_isolation on public.dashboard_layout;
-      create policy tenant_isolation on public.dashboard_layout
-        using (institution_id = public.current_institution_id() or institution_id is null);
-    exception
-      when others then null;
-    end $$;
-  `);
 
   rlsInitialized = true;
 }
@@ -310,19 +271,14 @@ export async function withTenantContext<T>(
 ): Promise<T> {
   const client = await pool.connect();
   try {
-    if (!isCloudDb) {
-      try {
-        await client.query(`SET LOCAL ROLE app_user`);
-      } catch {}
-    }
+    await client.query('BEGIN');
     if (institutionId) {
       if (!UUID_REGEX.test(institutionId)) {
         throw new Error(`Invalid institutionId format: ${institutionId}`);
       }
+      await client.query('SET LOCAL ROLE app_user');
       // SET LOCAL is transaction-scoped — safe with transaction poolers
       await client.query(`SET LOCAL app.current_institution_id = '${institutionId}'`);
-    } else {
-      await client.query(`SET LOCAL app.current_institution_id = ''`);
     }
     const result = await fn(client);
     await client.query('COMMIT');

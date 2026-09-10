@@ -1,625 +1,905 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSession } from '../context/SessionContext';
 import {
   fetchSections,
   fetchAttendanceSheet,
   markAttendanceBatch,
-  fetchAttendanceSummary,
-  fetchStudents,
+  fetchEmployeeAttendance,
+  markEmployeeAttendanceBatch,
   exportToCsv,
 } from '../services/api';
-import type {
-  SectionItem,
-  AttendanceSheetItem,
-} from '../types';
+import type { SectionItem, AttendanceSheetItem, EmployeeAttendanceItem } from '../types';
 import {
   CalendarCheck,
   Download,
   CheckCircle2,
   Calendar,
-  Clock,
   AlertCircle,
   Users,
   Save,
   Loader2,
-  UserCheck,
-  UserX,
-  UserMinus,
+  Briefcase,
+  Search,
 } from 'lucide-react';
-import { Button, Badge } from '../components/common';
+import { Button, Badge, Pagination } from '../components/common';
 
 export const AttendancePage: React.FC = () => {
-  const { activeMembership, user } = useSession();
-  
-  // Role detection
+  const { activeMembership } = useSession();
+
+  // Active top-level tab: Students vs Employees
+  const [activeTab, setActiveTab] = useState<'students' | 'employees'>('students');
+
+  // Role & Permissions
   const role = activeMembership?.roleName?.toLowerCase() || '';
   const isStudent = role.includes('student');
-  const isTeacher = role.includes('teacher') || role.includes('faculty');
-  const isAdmin = role.includes('admin') || role.includes('coordinator') || role.includes('principal');
-  
-  // Permissions
-  const canTakeAttendance = isAdmin || isTeacher;
+  const canTakeAttendance = !isStudent;
 
+  // -------------------------------------------------------------
+  // 1. STUDENT ATTENDANCE STATE
+  // -------------------------------------------------------------
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [selectedSectionId, setSelectedSectionId] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [sheetStudents, setSheetStudents] = useState<AttendanceSheetItem[]>([]);
-  const [loadingSheet, setLoadingSheet] = useState(false);
-  const [savingAttendance, setSavingAttendance] = useState(false);
-  const [attendanceSavedSuccess, setAttendanceSavedSuccess] = useState(false);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  
-  // Student own attendance
-  const [ownStudentId, setOwnStudentId] = useState<string | null>(null);
+  const [loadingStudents, setLoadingStudents] = useState<boolean>(true);
+  const [savingStudents, setSavingStudents] = useState<boolean>(false);
+  const [studentSavedSuccess, setStudentSavedSuccess] = useState<boolean>(false);
+  const [studentError, setStudentError] = useState<string | null>(null);
 
-  // ✅ Student Attendance Summary (for student view)
-  const [studentSummary, setStudentSummary] = useState<{
-    totalDays: number;
-    presentCount: number;
-    absentCount: number;
-    lateCount: number;
-    attendanceRate: number;
-  }>({
-    totalDays: 0,
-    presentCount: 0,
-    absentCount: 0,
-    lateCount: 0,
-    attendanceRate: 0,
-  });
+  // Student Pagination
+  const [studentPage, setStudentPage] = useState<number>(1);
+  const [studentPageSize, setStudentPageSize] = useState<number>(15);
 
-  // Initial load
+  // -------------------------------------------------------------
+  // 2. EMPLOYEE ATTENDANCE STATE
+  // -------------------------------------------------------------
+  const [employeeDate, setEmployeeDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [employeeRecords, setEmployeeRecords] = useState<EmployeeAttendanceItem[]>([]);
+  const [loadingEmployees, setLoadingEmployees] = useState<boolean>(false);
+  const [savingEmployees, setSavingEmployees] = useState<boolean>(false);
+  const [employeeSavedSuccess, setEmployeeSavedSuccess] = useState<boolean>(false);
+  const [employeeError, setEmployeeError] = useState<string | null>(null);
+
+  // Employee Filters & Pagination
+  const [employeeSearch, setEmployeeSearch] = useState<string>('');
+  const [employeeRoleFilter, setEmployeeRoleFilter] = useState<string>('all');
+  const [employeeStatusFilter, setEmployeeStatusFilter] = useState<string>('all');
+  const [employeePage, setEmployeePage] = useState<number>(1);
+  const [employeePageSize, setEmployeePageSize] = useState<number>(15);
+
+  // Load sections on mount
   useEffect(() => {
-    if (isStudent) {
-      // Student: Load all students to find own ID
-      fetchStudents()
-        .then((students) => {
-          const ownStudent = students.find(s => s.userId === user?.id);
-          if (ownStudent) {
-            setOwnStudentId(ownStudent.id);
-            // Auto-select student's section
-            if (ownStudent.sectionId) {
-              setSelectedSectionId(ownStudent.sectionId);
-            }
-          }
-        })
-        .catch(console.error);
-    } else {
-      // Admin/Teacher: Load sections
-      fetchSections()
-        .then((secs) => {
-          setSections(secs);
-          if (secs.length > 0) setSelectedSectionId(secs[0].id);
-        })
-        .catch(console.error);
-    }
-
-    // Load attendance summary for student
-    if (isStudent) {
-      fetchAttendanceSummary()
-        .then((summary) => {
-          if (summary && summary.length > 0) {
-            const data = summary[0];
-            const total = data.totalStudents || 0;
-            const present = data.presentCount || 0;
-            const absent = data.absentCount || 0;
-            const late = data.lateCount || 0;
-            const rate = total > 0 ? Math.round((present / total) * 100) : 0;
-            
-            setStudentSummary({
-              totalDays: total,
-              presentCount: present,
-              absentCount: absent,
-              lateCount: late,
-              attendanceRate: rate,
-            });
-          }
-        })
-        .catch(console.error);
-    }
-  }, [isStudent, user]);
-
-  // Load attendance sheet when section or date changes
-  useEffect(() => {
-    if (!selectedSectionId) return;
-    
-    setLoadingSheet(true);
-    setError(null);
-    setAttendanceSavedSuccess(false);
-
-    fetchAttendanceSheet(selectedSectionId, selectedDate)
-      .then((sheet) => {
-        let filteredSheet = sheet;
-        
-        // ✅ Student: শুধু নিজের Attendance দেখাবে
-        if (isStudent && ownStudentId) {
-          filteredSheet = sheet.filter(s => s.studentId === ownStudentId);
+    fetchSections()
+      .then((data) => {
+        setSections(data);
+        if (data.length > 0 && !selectedSectionId) {
+          setSelectedSectionId(data[0].id);
         }
-        
-        const defaulted = filteredSheet.map((s) => ({
-          ...s,
-          status: s.status || 'present',
-        }));
-        setSheetStudents(defaulted);
       })
-      .catch((err) => setError(err.message || 'Failed to load attendance sheet'))
-      .finally(() => setLoadingSheet(false));
-  }, [selectedSectionId, selectedDate, isStudent, ownStudentId]);
+      .catch((err) => {
+        console.error('Failed to load sections', err);
+      });
+  }, []);
 
-  const handleStatusChange = (studentId: string, status: 'present' | 'absent' | 'late' | 'excused') => {
-    // ✅ Student cannot change attendance status
-    if (isStudent) return;
-    
+  // Load student attendance sheet
+  const loadStudentSheet = async (sectionId: string, date: string) => {
+    if (!sectionId) return;
+    try {
+      setLoadingStudents(true);
+      setStudentError(null);
+      setStudentSavedSuccess(false);
+      const data = await fetchAttendanceSheet(sectionId, date);
+      setSheetStudents(data);
+    } catch (err: any) {
+      setStudentError(err.message || 'Failed to load student attendance records');
+    } finally {
+      setLoadingStudents(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedSectionId) {
+      loadStudentSheet(selectedSectionId, selectedDate);
+    }
+  }, [selectedSectionId, selectedDate]);
+
+  // Load employee attendance records
+  const loadEmployeeData = async (date: string) => {
+    try {
+      setLoadingEmployees(true);
+      setEmployeeError(null);
+      setEmployeeSavedSuccess(false);
+      const data = await fetchEmployeeAttendance({ date });
+      setEmployeeRecords(data.employees || []);
+    } catch (err: any) {
+      setEmployeeError(err.message || 'Failed to load employee attendance records');
+    } finally {
+      setLoadingEmployees(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'employees') {
+      loadEmployeeData(employeeDate);
+    }
+  }, [activeTab, employeeDate]);
+
+  // Student Attendance Handlers
+  const handleStudentStatusChange = (studentId: string, status: 'present' | 'absent' | 'late' | 'excused') => {
     setSheetStudents((prev) =>
       prev.map((s) => (s.studentId === studentId ? { ...s, status } : s))
     );
-    setAutoSaveStatus('Unsaved changes...');
+    setStudentSavedSuccess(false);
   };
 
-  const handleMarkAll = (status: 'present' | 'absent' | 'late' | 'excused') => {
-    // ✅ Student cannot mark all
-    if (isStudent) return;
-    
+  const handleMarkAllStudents = (status: 'present' | 'absent' | 'late' | 'excused') => {
     setSheetStudents((prev) => prev.map((s) => ({ ...s, status })));
-    setAutoSaveStatus('Unsaved changes...');
+    setStudentSavedSuccess(false);
   };
 
-  const handleSaveAttendance = async () => {
-    if (!selectedSectionId || sheetStudents.length === 0 || isStudent) return;
-    
+  const handleSaveStudentAttendance = async () => {
+    if (!selectedSectionId || sheetStudents.length === 0) return;
     try {
-      setSavingAttendance(true);
-      setError(null);
-      await markAttendanceBatch(
-        sheetStudents.map((s) => ({
-          studentId: s.studentId,
-          sectionId: selectedSectionId,
-          date: selectedDate,
-          status: s.status || 'present',
-        }))
-      );
-
-      setAttendanceSavedSuccess(true);
-      setAutoSaveStatus('All changes saved to database');
-      setTimeout(() => setAttendanceSavedSuccess(false), 4000);
+      setSavingStudents(true);
+      setStudentError(null);
+      const records = sheetStudents.map((s) => ({
+        studentId: s.studentId,
+        sectionId: selectedSectionId,
+        date: selectedDate,
+        status: s.status || 'present',
+      }));
+      await markAttendanceBatch(records);
+      setStudentSavedSuccess(true);
+      setTimeout(() => setStudentSavedSuccess(false), 4000);
     } catch (err: any) {
-      setError(err.message || 'Failed to record attendance');
+      setStudentError(err.message || 'Failed to save student attendance');
     } finally {
-      setSavingAttendance(false);
+      setSavingStudents(false);
     }
   };
 
-  const handleExportCsv = () => {
-    exportToCsv(
-      `Attendance_${selectedDate}_${isStudent ? 'My' : 'Section'}_${selectedSectionId}`,
-      sheetStudents.map((s) => ({
-        Date: selectedDate,
-        RollNo: s.rollNo || '',
-        StudentName: s.name,
-        AdmissionNo: s.admissionNo,
-        Status: (s.status || 'present').toUpperCase(),
-      }))
-    );
+  const handleExportStudentCsv = () => {
+    const activeSection = sections.find((s) => s.id === selectedSectionId);
+    const rows = sheetStudents.map((s) => ({
+      Date: selectedDate,
+      Class: activeSection?.className || '',
+      Section: activeSection?.name || '',
+      RollNo: s.rollNo,
+      AdmissionNo: s.admissionNo,
+      StudentName: s.name,
+      Status: (s.status || 'present').toUpperCase(),
+    }));
+    exportToCsv(`student-attendance-${selectedDate}.csv`, rows);
   };
 
-  const presentCount = sheetStudents.filter((s) => s.status === 'present').length;
-  const absentCount = sheetStudents.filter((s) => s.status === 'absent').length;
-  const lateCount = sheetStudents.filter((s) => s.status === 'late').length;
-  const attendanceRate = sheetStudents.length > 0 ? Math.round((presentCount / sheetStudents.length) * 100) : 0;
+  // Employee Attendance Handlers
+  const handleEmployeeFieldChange = (
+    membershipId: string,
+    field: 'status' | 'checkInTime' | 'checkOutTime' | 'notes',
+    value: string
+  ) => {
+    setEmployeeRecords((prev) =>
+      prev.map((rec) => (rec.membershipId === membershipId ? { ...rec, [field]: value } : rec))
+    );
+    setEmployeeSavedSuccess(false);
+  };
 
-  // ✅ Student View
-  if (isStudent) {
-    return (
-      <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <div>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-              <CalendarCheck size={26} style={{ color: 'var(--brand-primary)' }} /> My Attendance
-            </h1>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0' }}>
-              View your personal attendance records and history.
-            </p>
-          </div>
-          <Badge tone="primary">Student View</Badge>
+  const handleMarkAllEmployees = (status: 'present' | 'absent' | 'late' | 'on_leave') => {
+    setEmployeeRecords((prev) =>
+      prev.map((rec) => ({
+        ...rec,
+        status,
+        checkInTime: status === 'present' ? (rec.checkInTime || '09:00') : rec.checkInTime,
+      }))
+    );
+    setEmployeeSavedSuccess(false);
+  };
+
+  const handleSaveEmployeeAttendance = async () => {
+    if (employeeRecords.length === 0) return;
+    try {
+      setSavingEmployees(true);
+      setEmployeeError(null);
+      const records = employeeRecords.map((rec) => ({
+        membershipId: rec.membershipId,
+        date: employeeDate,
+        status: rec.status,
+        checkInTime: rec.checkInTime || undefined,
+        checkOutTime: rec.checkOutTime || undefined,
+        notes: rec.notes || undefined,
+      }));
+      await markEmployeeAttendanceBatch(records);
+      setEmployeeSavedSuccess(true);
+      setTimeout(() => setEmployeeSavedSuccess(false), 4000);
+    } catch (err: any) {
+      setEmployeeError(err.message || 'Failed to save employee attendance');
+    } finally {
+      setSavingEmployees(false);
+    }
+  };
+
+  const handleExportEmployeeCsv = () => {
+    const rows = employeeRecords.map((rec) => ({
+      Date: employeeDate,
+      EmployeeName: rec.name,
+      Role: rec.roleName,
+      Status: rec.status.toUpperCase(),
+      CheckIn: rec.checkInTime || '—',
+      CheckOut: rec.checkOutTime || '—',
+      Notes: rec.notes || '',
+    }));
+    exportToCsv(`employee-attendance-${employeeDate}.csv`, rows);
+  };
+
+  // Filtered & Paginated Employees
+  const filteredEmployees = useMemo(() => {
+    return employeeRecords.filter((rec) => {
+      const matchesSearch =
+        rec.name.toLowerCase().includes(employeeSearch.toLowerCase()) ||
+        (rec.email && rec.email.toLowerCase().includes(employeeSearch.toLowerCase()));
+      const matchesRole = employeeRoleFilter === 'all' || rec.roleName === employeeRoleFilter;
+      const matchesStatus = employeeStatusFilter === 'all' || rec.status === employeeStatusFilter;
+      return matchesSearch && matchesRole && matchesStatus;
+    });
+  }, [employeeRecords, employeeSearch, employeeRoleFilter, employeeStatusFilter]);
+
+  const paginatedEmployees = useMemo(() => {
+    const start = (employeePage - 1) * employeePageSize;
+    return filteredEmployees.slice(start, start + employeePageSize);
+  }, [filteredEmployees, employeePage, employeePageSize]);
+
+  // Paginated Students
+  const paginatedStudents = useMemo(() => {
+    const start = (studentPage - 1) * studentPageSize;
+    return sheetStudents.slice(start, start + studentPageSize);
+  }, [sheetStudents, studentPage, studentPageSize]);
+
+  // Student KPI Computations
+  const studentPresent = sheetStudents.filter((s) => s.status === 'present').length;
+  const studentAbsent = sheetStudents.filter((s) => s.status === 'absent').length;
+  const studentLate = sheetStudents.filter((s) => s.status === 'late').length;
+  const studentExcused = sheetStudents.filter((s) => s.status === 'excused').length;
+  const studentRate = sheetStudents.length > 0 ? Math.round((studentPresent / sheetStudents.length) * 100) : 0;
+
+  // Employee KPI Computations
+  const empPresent = employeeRecords.filter((e) => e.status === 'present').length;
+  const empAbsent = employeeRecords.filter((e) => e.status === 'absent').length;
+  const empLate = employeeRecords.filter((e) => e.status === 'late').length;
+  const empExcused = employeeRecords.filter((e) => e.status === 'on_leave').length;
+  const empRate = employeeRecords.length > 0 ? Math.round((empPresent / employeeRecords.length) * 100) : 0;
+
+  // Distinct Employee Roles for filter
+  const distinctRoles = useMemo(() => {
+    const rolesSet = new Set<string>();
+    employeeRecords.forEach((r) => {
+      if (r.roleName) rolesSet.add(r.roleName);
+    });
+    return Array.from(rolesSet);
+  }, [employeeRecords]);
+
+  return (
+    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {/* Header & Tab Switcher */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0, color: 'var(--text-primary)' }}>
+            <CalendarCheck size={26} style={{ color: 'var(--brand-primary)' }} /> Attendance & Presence Tracking
+          </h1>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0' }}>
+            Daily attendance recording, roll call registers, and staff presence management.
+          </p>
         </div>
 
-        {error && (
-          <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--status-danger)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-            <AlertCircle size={18} />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* ✅ Student Attendance Summary Cards - সম্পূর্ণ */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
-          <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'var(--primary-subtle)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Users size={20} />
-            </div>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Days</div>
-              <div style={{ fontSize: '1.35rem', fontWeight: 700 }}>{studentSummary.totalDays || sheetStudents.length}</div>
-            </div>
-          </div>
-
-          <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(34, 197, 94, 0.15)', color: 'var(--status-success)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <UserCheck size={20} />
-            </div>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Present</div>
-              <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--status-success)' }}>{studentSummary.presentCount || presentCount}</div>
-            </div>
-          </div>
-
-          <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(239, 68, 68, 0.15)', color: 'var(--status-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <UserX size={20} />
-            </div>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Absent</div>
-              <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--status-danger)' }}>{studentSummary.absentCount || absentCount}</div>
-            </div>
-          </div>
-
-          <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(234, 179, 8, 0.15)', color: 'var(--status-warning)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <UserMinus size={20} />
-            </div>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Late</div>
-              <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--status-warning)' }}>{studentSummary.lateCount || lateCount}</div>
-            </div>
-          </div>
-
-          {/* ✅ Attendance Rate Card - যোগ করা হয়েছে */}
-          <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(99, 102, 241, 0.15)', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Clock size={20} />
-            </div>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Attendance Rate</div>
-              <div style={{ fontSize: '1.35rem', fontWeight: 700, color: (studentSummary.attendanceRate || attendanceRate) >= 75 ? 'var(--status-success)' : 'var(--status-danger)' }}>
-                {studentSummary.attendanceRate || attendanceRate}%
-              </div>
-            </div>
-          </div>
+        {/* Segmented Dual Tab Switcher */}
+        <div style={{ display: 'inline-flex', background: 'var(--surface-sunken)', padding: '0.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+          <button
+            onClick={() => setActiveTab('students')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.45rem 1rem',
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              background: activeTab === 'students' ? 'var(--surface)' : 'transparent',
+              color: activeTab === 'students' ? 'var(--text-primary)' : 'var(--text-muted)',
+              boxShadow: activeTab === 'students' ? 'var(--shadow-sm)' : 'none',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <Users size={16} /> Students Roll Call
+          </button>
+          <button
+            onClick={() => setActiveTab('employees')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.45rem 1rem',
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              background: activeTab === 'employees' ? 'var(--surface)' : 'transparent',
+              color: activeTab === 'employees' ? 'var(--text-primary)' : 'var(--text-muted)',
+              boxShadow: activeTab === 'employees' ? 'var(--shadow-sm)' : 'none',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <Briefcase size={16} /> Employee & Staff Attendance
+          </button>
         </div>
+      </div>
 
-        {/* Student Date Filter */}
-        <div className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div>
-              <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '0.2rem', color: 'var(--text-muted)' }}>Select Date</label>
-              <div style={{ position: 'relative' }}>
+      {/* ========================================================= */}
+      {/* VIEW 1: STUDENTS ROLL CALL                                */}
+      {/* ========================================================= */}
+      {activeTab === 'students' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Controls Bar */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+              padding: '1rem',
+              background: 'var(--surface)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Calendar size={16} style={{ color: 'var(--text-muted)' }} />
                 <input
                   type="date"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  style={{ padding: '0.5rem 0.75rem 0.5rem 2rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', fontSize: '0.85rem', minWidth: '180px' }}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                  }}
                 />
-                <Calendar size={14} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Section:</span>
+                <select
+                  value={selectedSectionId}
+                  onChange={(e) => {
+                    setSelectedSectionId(e.target.value);
+                    setStudentPage(1);
+                  }}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                    minWidth: '180px',
+                  }}
+                >
+                  {sections.map((sec) => (
+                    <option key={sec.id} value={sec.id}>
+                      {sec.className} - {sec.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
-            <Badge tone="info">{sheetStudents.length} Record{sheetStudents.length > 1 ? 's' : ''}</Badge>
-          </div>
 
-          <Button variant="secondary" onClick={handleExportCsv} disabled={sheetStudents.length === 0}>
-            <Download size={14} style={{ marginRight: '0.3rem' }} />
-            Export CSV
-          </Button>
-        </div>
-
-        {/* ✅ Student Attendance Table - তারিখ ও বার সহ */}
-        {loadingSheet ? (
-          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-            <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem' }} />
-            Loading your attendance...
-          </div>
-        ) : sheetStudents.length === 0 ? (
-          <div style={{ padding: '3rem', textAlign: 'center', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-            No attendance records found for the selected date.
-          </div>
-        ) : (
-          <div className="table-container glass-panel" style={{ padding: '0.5rem' }}>
-            <table style={{ width: '100%', fontSize: '0.88rem', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '0.65rem 0.75rem' }}>Date</th>
-                  <th style={{ padding: '0.65rem 0.75rem' }}>Day</th>
-                  <th style={{ padding: '0.65rem 0.75rem', width: '80px' }}>Roll #</th>
-                  <th style={{ padding: '0.65rem 0.75rem' }}>Student Name</th>
-                  <th style={{ padding: '0.65rem 0.75rem' }}>Admission No</th>
-                  <th style={{ padding: '0.65rem 0.75rem', textAlign: 'center' }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sheetStudents.map((st, index) => {
-                  // ✅ Date format and Day calculation
-                  const dateObj = new Date(selectedDate);
-                  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                  const dayName = dayNames[dateObj.getDay()];
-                  const formattedDate = dateObj.toLocaleDateString('en-BD', {
-                    day: '2-digit',
-                    month: 'short',
-                    year: 'numeric'
-                  });
-
-                  return (
-                    <tr key={st.studentId || index} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: 500 }}>
-                        {formattedDate}
-                      </td>
-                      <td style={{ padding: '0.65rem 0.75rem', color: 'var(--text-secondary)' }}>
-                        {dayName}
-                      </td>
-                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                        {st.rollNo || '—'}
-                      </td>
-                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: 600 }}>
-                        {st.name} {ownStudentId === st.studentId && <Badge tone="primary" style={{ fontSize: '0.6rem', marginLeft: '0.5rem' }}>You</Badge>}
-                      </td>
-                      <td style={{ padding: '0.65rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                        {st.admissionNo}
-                      </td>
-                      <td style={{ padding: '0.65rem 0.75rem', textAlign: 'center' }}>
-                        <Badge tone={
-                          st.status === 'present' ? 'success' :
-                          st.status === 'late' ? 'warning' :
-                          st.status === 'excused' ? 'neutral' : 'danger'
-                        }>
-                          {st.status?.toUpperCase() || 'ABSENT'}
-                        </Badge>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ✅ Admin/Teacher View
-  return (
-    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-        <div>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-            <CalendarCheck size={26} style={{ color: 'var(--brand-primary)' }} /> Student Attendance & Daily Registry
-          </h1>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0' }}>
-            Daily check-ins, section roll call sheets, analytics, and printable CSV registers.
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Button variant="secondary" onClick={handleExportCsv} disabled={sheetStudents.length === 0}>
-            <Download size={14} style={{ marginRight: '0.3rem' }} />
-            Export Sheet (CSV)
-          </Button>
-
-          {canTakeAttendance && (
-            <Button variant="primary" onClick={handleSaveAttendance} disabled={sheetStudents.length === 0 || savingAttendance}>
-              <Save size={14} style={{ marginRight: '0.3rem' }} />
-              {savingAttendance ? 'Saving...' : 'Save Daily Attendance'}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {attendanceSavedSuccess && (
-        <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid var(--status-success)', color: 'var(--status-success)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-          <CheckCircle2 size={18} />
-          <span>Attendance recorded successfully for {sheetStudents.length} students on {selectedDate}.</span>
-        </div>
-      )}
-
-      {error && (
-        <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--status-danger)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-        <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'var(--primary-subtle)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Users size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total students</div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 700 }}>{sheetStudents.length}</div>
-          </div>
-        </div>
-
-        <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(34, 197, 94, 0.15)', color: 'var(--status-success)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CheckCircle2 size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Present</div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--status-success)' }}>{presentCount}</div>
-          </div>
-        </div>
-
-        <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(239, 68, 68, 0.15)', color: 'var(--status-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <AlertCircle size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Absent</div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--status-danger)' }}>{absentCount}</div>
-          </div>
-        </div>
-
-        <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(234, 179, 8, 0.15)', color: 'var(--status-warning)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Clock size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Attendance Rate</div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 700, color: attendanceRate >= 75 ? 'var(--primary)' : 'var(--status-danger)' }}>{attendanceRate}%</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter and Date Bar */}
-      <div className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div>
-            <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '0.2rem', color: 'var(--text-muted)' }}>Class & Section</label>
-            <select
-              value={selectedSectionId}
-              onChange={(e) => setSelectedSectionId(e.target.value)}
-              style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', fontSize: '0.85rem', minWidth: '180px' }}
-            >
-              {sections.map((sec) => (
-                <option key={sec.id} value={sec.id}>
-                  {sec.className} — {sec.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '0.2rem', color: 'var(--text-muted)' }}>Attendance Date</label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                style={{ padding: '0.5rem 0.75rem 0.5rem 2rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', fontSize: '0.85rem' }}
-              />
-              <Calendar size={14} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {canTakeAttendance && (
+                <>
+                  <Button variant="secondary" size="sm" onClick={() => handleMarkAllStudents('present')}>
+                    Mark All Present
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => handleMarkAllStudents('absent')}>
+                    Mark All Absent
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleSaveStudentAttendance}
+                    disabled={savingStudents}
+                    icon={savingStudents ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  >
+                    {savingStudents ? 'Saving...' : 'Save Attendance'}
+                  </Button>
+                </>
+              )}
+              <Button variant="secondary" size="sm" onClick={handleExportStudentCsv} icon={<Download size={14} />}>
+                Export CSV
+              </Button>
             </div>
           </div>
-        </div>
 
-        {/* Quick Batch Actions - Teacher/Admin only */}
-        {canTakeAttendance && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>Mark All As:</span>
-            <button
-              type="button"
-              onClick={() => handleMarkAll('present')}
-              style={{ padding: '0.35rem 0.65rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(34, 197, 94, 0.3)', background: 'rgba(34, 197, 94, 0.1)', color: 'var(--status-success)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+          {/* Feedback Banners */}
+          {studentSavedSuccess && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1rem',
+                borderRadius: 'var(--radius-sm)',
+                background: 'rgba(34, 197, 94, 0.1)',
+                border: '1px solid var(--status-success)',
+                color: 'var(--status-success)',
+                fontSize: '0.85rem',
+              }}
             >
-              Present
-            </button>
-            <button
-              type="button"
-              onClick={() => handleMarkAll('absent')}
-              style={{ padding: '0.35rem 0.65rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--status-danger)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+              <CheckCircle2 size={16} /> Student attendance saved successfully to database!
+            </div>
+          )}
+
+          {studentError && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1rem',
+                borderRadius: 'var(--radius-sm)',
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid var(--status-danger)',
+                color: 'var(--status-danger)',
+                fontSize: '0.85rem',
+              }}
             >
-              Absent
-            </button>
-            <button
-              type="button"
-              onClick={() => handleMarkAll('late')}
-              style={{ padding: '0.35rem 0.65rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(234, 179, 8, 0.3)', background: 'rgba(234, 179, 8, 0.1)', color: 'var(--status-warning)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
-            >
-              Late
-            </button>
+              <AlertCircle size={16} /> {studentError}
+            </div>
+          )}
+
+          {/* KPI Summary Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+            <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Total Enrolled</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '0.2rem' }}>{sheetStudents.length}</div>
+            </div>
+            <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--status-success)', fontWeight: 600, textTransform: 'uppercase' }}>Present</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--status-success)', marginTop: '0.2rem' }}>{studentPresent}</div>
+            </div>
+            <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--status-danger)', fontWeight: 600, textTransform: 'uppercase' }}>Absent</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--status-danger)', marginTop: '0.2rem' }}>{studentAbsent}</div>
+            </div>
+            <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--status-warning)', fontWeight: 600, textTransform: 'uppercase' }}>Late / Excused</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--status-warning)', marginTop: '0.2rem' }}>{studentLate + studentExcused}</div>
+            </div>
+            <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--brand-primary)', fontWeight: 600, textTransform: 'uppercase' }}>Attendance Rate</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--brand-primary)', marginTop: '0.2rem' }}>{studentRate}%</div>
+            </div>
           </div>
-        )}
-      </div>
 
-      {autoSaveStatus && (
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'right' }}>
-          {autoSaveStatus}
+          {/* Student Roll Call Table */}
+          <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+            {loadingStudents ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem auto' }} />
+                <span>Loading student records...</span>
+              </div>
+            ) : sheetStudents.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No students enrolled in this section.
+              </div>
+            ) : (
+              <>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--surface-sunken)', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', textAlign: 'left' }}>
+                        <th style={{ padding: '0.75rem 1rem', width: '80px' }}>Roll</th>
+                        <th style={{ padding: '0.75rem 1rem', width: '130px' }}>Admission No</th>
+                        <th style={{ padding: '0.75rem 1rem' }}>Student Name</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Attendance Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedStudents.map((st) => (
+                        <tr key={st.studentId} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{st.rollNo || '—'}</td>
+                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{st.admissionNo}</td>
+                          <td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: 'var(--text-primary)' }}>{st.name}</td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: '0.25rem', background: 'var(--surface-sunken)', padding: '0.2rem', borderRadius: 'var(--radius-sm)' }}>
+                              {(['present', 'absent', 'late', 'excused'] as const).map((statusKey) => {
+                                const isCurrent = st.status === statusKey;
+                                const activeColor =
+                                  statusKey === 'present' ? '#16a34a' : statusKey === 'absent' ? '#dc2626' : statusKey === 'late' ? '#ca8a04' : '#475569';
+                                return (
+                                  <button
+                                    key={statusKey}
+                                    type="button"
+                                    onClick={() => handleStudentStatusChange(st.studentId, statusKey)}
+                                    style={{
+                                      padding: '0.25rem 0.65rem',
+                                      borderRadius: 'var(--radius-sm)',
+                                      border: 'none',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      textTransform: 'capitalize',
+                                      cursor: 'pointer',
+                                      background: isCurrent ? activeColor : 'transparent',
+                                      color: isCurrent ? '#ffffff' : 'var(--text-secondary)',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    {statusKey}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ padding: '0.75rem 1rem' }}>
+                  <Pagination
+                    currentPage={studentPage}
+                    totalItems={sheetStudents.length}
+                    pageSize={studentPageSize}
+                    onPageChange={setStudentPage}
+                    onPageSizeChange={(newSize) => {
+                      setStudentPageSize(newSize);
+                      setStudentPage(1);
+                    }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Attendance Sheet Table */}
-      {loadingSheet ? (
-        <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-          <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem' }} />
-          Loading roll call sheet...
-        </div>
-      ) : sheetStudents.length === 0 ? (
-        <div style={{ padding: '3rem', textAlign: 'center', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-          No enrolled students found in this section.
-        </div>
-      ) : (
-        <div className="table-container glass-panel" style={{ padding: '0.5rem' }}>
-          <table style={{ width: '100%', fontSize: '0.88rem', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                <th style={{ padding: '0.65rem 0.75rem', width: '80px' }}>Roll #</th>
-                <th style={{ padding: '0.65rem 0.75rem' }}>Student Name</th>
-                <th style={{ padding: '0.65rem 0.75rem' }}>Admission No</th>
-                <th style={{ padding: '0.65rem 0.75rem', textAlign: 'center', width: '320px' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sheetStudents.map((st) => (
-                <tr key={st.studentId} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '0.65rem 0.75rem', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                    {st.rollNo || '—'}
-                  </td>
-                  <td style={{ padding: '0.65rem 0.75rem', fontWeight: 600 }}>
-                    {st.name}
-                  </td>
-                  <td style={{ padding: '0.65rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                    {st.admissionNo}
-                  </td>
-                  <td style={{ padding: '0.65rem 0.75rem', textAlign: 'center' }}>
-                    {canTakeAttendance ? (
-                      <div style={{ display: 'inline-flex', gap: '0.35rem', background: 'var(--surface-sunken)', padding: '0.2rem', borderRadius: 'var(--radius-sm)' }}>
-                        {(['present', 'absent', 'late', 'excused'] as const).map((statusKey) => {
-                          const isCurrent = st.status === statusKey;
-                          const bgActive =
-                            statusKey === 'present'
-                              ? 'var(--status-success)'
-                              : statusKey === 'absent'
-                              ? 'var(--status-danger)'
-                              : statusKey === 'late'
-                              ? 'var(--status-warning)'
-                              : 'var(--primary)';
+      {/* ========================================================= */}
+      {/* VIEW 2: EMPLOYEE & STAFF ATTENDANCE                       */}
+      {/* ========================================================= */}
+      {activeTab === 'employees' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Controls Bar */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+              padding: '1rem',
+              background: 'var(--surface)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Calendar size={16} style={{ color: 'var(--text-muted)' }} />
+                <input
+                  type="date"
+                  value={employeeDate}
+                  onChange={(e) => setEmployeeDate(e.target.value)}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                  }}
+                />
+              </div>
 
-                          return (
-                            <button
-                              key={statusKey}
-                              type="button"
-                              onClick={() => handleStatusChange(st.studentId, statusKey)}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Search size={16} style={{ color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  placeholder="Search staff by name or email..."
+                  value={employeeSearch}
+                  onChange={(e) => {
+                    setEmployeeSearch(e.target.value);
+                    setEmployeePage(1);
+                  }}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                    minWidth: '220px',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Role:</span>
+                <select
+                  value={employeeRoleFilter}
+                  onChange={(e) => {
+                    setEmployeeRoleFilter(e.target.value);
+                    setEmployeePage(1);
+                  }}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <option value="all">All Roles</option>
+                  {distinctRoles.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Status:</span>
+                <select
+                  value={employeeStatusFilter}
+                  onChange={(e) => {
+                    setEmployeeStatusFilter(e.target.value);
+                    setEmployeePage(1);
+                  }}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="present">Present</option>
+                  <option value="absent">Absent</option>
+                  <option value="late">Late</option>
+                  <option value="on_leave">On Leave</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <Button variant="secondary" size="sm" onClick={() => handleMarkAllEmployees('present')}>
+                Mark All Present
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => handleMarkAllEmployees('late')}>
+                Mark All Late
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleSaveEmployeeAttendance}
+                disabled={savingEmployees}
+                icon={savingEmployees ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              >
+                {savingEmployees ? 'Saving...' : 'Save Staff Attendance'}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={handleExportEmployeeCsv} icon={<Download size={14} />}>
+                Export CSV
+              </Button>
+            </div>
+          </div>
+
+          {/* Feedback Banners */}
+          {employeeSavedSuccess && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1rem',
+                borderRadius: 'var(--radius-sm)',
+                background: 'rgba(34, 197, 94, 0.1)',
+                border: '1px solid var(--status-success)',
+                color: 'var(--status-success)',
+                fontSize: '0.85rem',
+              }}
+            >
+              <CheckCircle2 size={16} /> Staff attendance saved successfully to database!
+            </div>
+          )}
+
+          {employeeError && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1rem',
+                borderRadius: 'var(--radius-sm)',
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid var(--status-danger)',
+                color: 'var(--status-danger)',
+                fontSize: '0.85rem',
+              }}
+            >
+              <AlertCircle size={16} /> {employeeError}
+            </div>
+          )}
+
+          {/* KPI Summary Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+            <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Total Staff</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '0.2rem' }}>{employeeRecords.length}</div>
+            </div>
+            <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--status-success)', fontWeight: 600, textTransform: 'uppercase' }}>Present</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--status-success)', marginTop: '0.2rem' }}>{empPresent}</div>
+            </div>
+            <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--status-danger)', fontWeight: 600, textTransform: 'uppercase' }}>Absent</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--status-danger)', marginTop: '0.2rem' }}>{empAbsent}</div>
+            </div>
+            <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--status-warning)', fontWeight: 600, textTransform: 'uppercase' }}>Late / Leave</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--status-warning)', marginTop: '0.2rem' }}>{empLate + empExcused}</div>
+            </div>
+            <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--brand-primary)', fontWeight: 600, textTransform: 'uppercase' }}>Staff Attendance Rate</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--brand-primary)', marginTop: '0.2rem' }}>{empRate}%</div>
+            </div>
+          </div>
+
+          {/* Employee Attendance Table */}
+          <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+            {loadingEmployees ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem auto' }} />
+                <span>Loading staff attendance records...</span>
+              </div>
+            ) : filteredEmployees.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No staff members match the selected criteria.
+              </div>
+            ) : (
+              <>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--surface-sunken)', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', textAlign: 'left' }}>
+                        <th style={{ padding: '0.75rem 1rem' }}>Staff Member</th>
+                        <th style={{ padding: '0.75rem 1rem' }}>Role</th>
+                        <th style={{ padding: '0.75rem 1rem', width: '110px' }}>Check In</th>
+                        <th style={{ padding: '0.75rem 1rem', width: '110px' }}>Check Out</th>
+                        <th style={{ padding: '0.75rem 1rem', width: '220px' }}>Notes / Remarks</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedEmployees.map((rec) => (
+                        <tr key={rec.membershipId} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{rec.name}</div>
+                            {rec.email && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{rec.email}</div>}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <Badge tone={rec.roleName.toLowerCase().includes('admin') ? 'warning' : 'primary'}>
+                              {rec.roleName}
+                            </Badge>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <input
+                              type="time"
+                              value={rec.checkInTime || ''}
+                              onChange={(e) => handleEmployeeFieldChange(rec.membershipId, 'checkInTime', e.target.value)}
                               style={{
-                                padding: '0.25rem 0.65rem',
+                                padding: '0.25rem 0.4rem',
                                 borderRadius: 'var(--radius-sm)',
-                                border: 'none',
-                                fontSize: '0.75rem',
-                                fontWeight: 600,
-                                textTransform: 'capitalize',
-                                cursor: 'pointer',
-                                background: isCurrent ? bgActive : 'transparent',
-                                color: isCurrent ? '#ffffff' : 'var(--text-secondary)',
-                                transition: 'all 0.15s ease',
+                                border: '1px solid var(--border-subtle)',
+                                background: 'var(--surface-sunken)',
+                                color: 'var(--text-primary)',
+                                fontSize: '0.8rem',
+                                width: '100%',
                               }}
-                            >
-                              {statusKey}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <Badge tone={
-                        st.status === 'present' ? 'success' :
-                        st.status === 'late' ? 'warning' :
-                        st.status === 'excused' ? 'neutral' : 'danger'
-                      }>
-                        {st.status?.toUpperCase() || 'ABSENT'}
-                      </Badge>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                            />
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <input
+                              type="time"
+                              value={rec.checkOutTime || ''}
+                              onChange={(e) => handleEmployeeFieldChange(rec.membershipId, 'checkOutTime', e.target.value)}
+                              style={{
+                                padding: '0.25rem 0.4rem',
+                                borderRadius: 'var(--radius-sm)',
+                                border: '1px solid var(--border-subtle)',
+                                background: 'var(--surface-sunken)',
+                                color: 'var(--text-primary)',
+                                fontSize: '0.8rem',
+                                width: '100%',
+                              }}
+                            />
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <input
+                              type="text"
+                              placeholder="e.g. Leave approved"
+                              value={rec.notes || ''}
+                              onChange={(e) => handleEmployeeFieldChange(rec.membershipId, 'notes', e.target.value)}
+                              style={{
+                                padding: '0.25rem 0.5rem',
+                                borderRadius: 'var(--radius-sm)',
+                                border: '1px solid var(--border-subtle)',
+                                background: 'var(--surface-sunken)',
+                                color: 'var(--text-primary)',
+                                fontSize: '0.8rem',
+                                width: '100%',
+                              }}
+                            />
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: '0.25rem', background: 'var(--surface-sunken)', padding: '0.2rem', borderRadius: 'var(--radius-sm)' }}>
+                              {(['present', 'absent', 'late', 'on_leave'] as const).map((statusKey) => {
+                                const isCurrent = rec.status === statusKey;
+                                const activeColor =
+                                  statusKey === 'present' ? '#16a34a' : statusKey === 'absent' ? '#dc2626' : statusKey === 'late' ? '#ca8a04' : '#475569';
+                                return (
+                                  <button
+                                    key={statusKey}
+                                    type="button"
+                                    onClick={() => handleEmployeeFieldChange(rec.membershipId, 'status', statusKey)}
+                                    style={{
+                                      padding: '0.25rem 0.65rem',
+                                      borderRadius: 'var(--radius-sm)',
+                                      border: 'none',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      textTransform: 'capitalize',
+                                      cursor: 'pointer',
+                                      background: isCurrent ? activeColor : 'transparent',
+                                      color: isCurrent ? '#ffffff' : 'var(--text-secondary)',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    {statusKey}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ padding: '0.75rem 1rem' }}>
+                  <Pagination
+                    currentPage={employeePage}
+                    totalItems={filteredEmployees.length}
+                    pageSize={employeePageSize}
+                    onPageChange={setEmployeePage}
+                    onPageSizeChange={(newSize) => {
+                      setEmployeePageSize(newSize);
+                      setEmployeePage(1);
+                    }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

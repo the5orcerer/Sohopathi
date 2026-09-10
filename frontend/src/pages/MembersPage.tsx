@@ -6,9 +6,10 @@ import {
   updateMember,
   deleteMember,
   bulkDeleteMembers,
+  fetchCustomFields,
   exportToCsv,
 } from '../services/api';
-import type { Member, Role } from '../types';
+import type { Member, Role, CustomFieldDefinition } from '../types';
 import {
   Plus,
   Mail,
@@ -19,11 +20,12 @@ import {
   Users,
   Download,
 } from 'lucide-react';
-import { Button, Badge, Modal, SearchBar, EmptyState } from '../components/common';
+import { Button, Badge, Modal, SearchBar, EmptyState, CustomFieldsRenderer } from '../components/common';
 
 export const MembersPage: React.FC = () => {
   const [members, setMembers] = useState<Member[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
@@ -41,6 +43,7 @@ export const MembersPage: React.FC = () => {
   const [inviteUsername, setInviteUsername] = useState('');
   const [inviteRoleId, setInviteRoleId] = useState('');
   const [inviteTempPassword, setInviteTempPassword] = useState('InitPass123!');
+  const [inviteCustomFields, setInviteCustomFields] = useState<Record<string, any>>({});
   const [inviting, setInviting] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState<Member | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
@@ -50,8 +53,10 @@ export const MembersPage: React.FC = () => {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
+  const [editUsername, setEditUsername] = useState('');
   const [editRoleId, setEditRoleId] = useState('');
   const [editStatus, setEditStatus] = useState('active');
+  const [editCustomFields, setEditCustomFields] = useState<Record<string, any>>({});
   const [updatingMember, setUpdatingMember] = useState(false);
 
   // Delete Member Confirmation State
@@ -62,12 +67,14 @@ export const MembersPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const [membersData, rolesData] = await Promise.all([
+      const [membersData, rolesData, fieldsData] = await Promise.all([
         fetchMembers(),
         fetchRoles(),
+        fetchCustomFields('member').catch(() => []),
       ]);
       setMembers(membersData);
       setRoles(rolesData);
+      setCustomFields(fieldsData || []);
       if (rolesData.length > 0 && !inviteRoleId) {
         setInviteRoleId(rolesData[0].id);
       }
@@ -82,82 +89,16 @@ export const MembersPage: React.FC = () => {
     loadData();
   }, []);
 
-  const handleInviteSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inviteName.trim() || !inviteEmail.trim() || !inviteRoleId) return;
-
-    try {
-      setInviting(true);
-      setInviteError(null);
-      setInviteSuccess(null);
-
-      const newMember = await inviteMember({
-        name: inviteName.trim(),
-        email: inviteEmail.trim(),
-        phone: invitePhone.trim() || undefined,
-        username: inviteUsername.trim() || undefined,
-        roleId: inviteRoleId,
-        temporaryPassword: inviteTempPassword.trim() || undefined,
-      });
-
-      setMembers((prev) => [newMember, ...prev]);
-      setInviteSuccess(newMember);
-      setInviteName('');
-      setInviteEmail('');
-      setInvitePhone('');
-      setInviteUsername('');
-    } catch (err: any) {
-      setInviteError(err.message || 'Failed to invite staff member');
-    } finally {
-      setInviting(false);
+  const toggleSelectAll = () => {
+    if (selectedIds.length === filteredMembers.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredMembers.map((m) => m.id));
     }
   };
 
-  const handleOpenEdit = (m: Member) => {
-    setEditTargetMember(m);
-    setEditName(m.name);
-    setEditEmail(m.email);
-    setEditPhone(m.phone || '');
-    setEditRoleId(m.roleId);
-    setEditStatus(m.status);
-  };
-
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editTargetMember) return;
-
-    try {
-      setUpdatingMember(true);
-      const updated = await updateMember(editTargetMember.id, {
-        name: editName.trim(),
-        email: editEmail.trim(),
-        phone: editPhone.trim() || undefined,
-        roleId: editRoleId,
-        status: editStatus,
-      });
-
-      setMembers((prev) => prev.map((m) => (m.id === editTargetMember.id ? updated : m)));
-      setEditTargetMember(null);
-    } catch (err: any) {
-      alert(err.message || 'Failed to update member');
-    } finally {
-      setUpdatingMember(false);
-    }
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!deleteTargetMember) return;
-    try {
-      setDeletingMember(true);
-      await deleteMember(deleteTargetMember.id);
-      setMembers((prev) => prev.filter((m) => m.id !== deleteTargetMember.id));
-      setSelectedIds((prev) => prev.filter((id) => id !== deleteTargetMember.id));
-      setDeleteTargetMember(null);
-    } catch (err: any) {
-      alert(err.message || 'Failed to delete member');
-    } finally {
-      setDeletingMember(false);
-    }
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
   const handleBulkDelete = async () => {
@@ -191,20 +132,97 @@ export const MembersPage: React.FC = () => {
     );
   };
 
-  const toggleSelectAll = () => {
-    if (selectedIds.length === filteredMembers.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(filteredMembers.map((m) => m.id));
+  const handleInviteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteName.trim() || !inviteEmail.trim() || !inviteRoleId) {
+      setInviteError('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setInviting(true);
+      setInviteError(null);
+      setInviteSuccess(null);
+
+      const newMember = await inviteMember({
+        name: inviteName.trim(),
+        email: inviteEmail.trim().toLowerCase(),
+        phone: invitePhone.trim() || undefined,
+        username: inviteUsername.trim() || undefined,
+        roleId: inviteRoleId,
+        temporaryPassword: inviteTempPassword.trim(),
+        customFields: inviteCustomFields,
+      });
+
+      setMembers((prev) => [newMember, ...prev]);
+      setInviteSuccess(newMember);
+      setInviteName('');
+      setInviteEmail('');
+      setInvitePhone('');
+      setInviteUsername('');
+      setInviteCustomFields({});
+    } catch (err: any) {
+      setInviteError(err.message || 'Failed to invite staff member');
+    } finally {
+      setInviting(false);
     }
   };
 
-  const toggleSelectOne = (id: string) => {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  const handleOpenEdit = (m: Member) => {
+    setEditTargetMember(m);
+    setEditName(m.name);
+    setEditEmail(m.email);
+    setEditPhone(m.phone || '');
+    setEditUsername(m.username || '');
+    setEditRoleId(m.roleId);
+    setEditStatus(m.status || 'active');
+    setEditCustomFields((m as any).customFields || {});
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTargetMember) return;
+
+    try {
+      setUpdatingMember(true);
+      const updated = await updateMember(editTargetMember.id, {
+        name: editName.trim(),
+        email: editEmail.trim(),
+        phone: editPhone.trim() || undefined,
+        username: editUsername.trim() || undefined,
+        roleId: editRoleId,
+        status: editStatus,
+        customFields: editCustomFields,
+      });
+
+      setMembers((prev) => prev.map((m) => (m.id === editTargetMember.id ? { ...m, ...updated } : m)));
+      setEditTargetMember(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update member');
+    } finally {
+      setUpdatingMember(false);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTargetMember) return;
+    try {
+      setDeletingMember(true);
+      await deleteMember(deleteTargetMember.id);
+      setMembers((prev) => prev.filter((m) => m.id !== deleteTargetMember.id));
+      setSelectedIds((prev) => prev.filter((id) => id !== deleteTargetMember.id));
+      setDeleteTargetMember(null);
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete staff member');
+    } finally {
+      setDeletingMember(false);
+    }
   };
 
   const filteredMembers = members.filter((m) => {
     const matchesSearch =
+      !searchTerm ||
       m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       m.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (m.username && m.username.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -541,6 +559,12 @@ export const MembersPage: React.FC = () => {
                 </div>
               </div>
 
+              <CustomFieldsRenderer
+                fields={customFields}
+                values={inviteCustomFields}
+                onChange={(k: string, v: any) => setInviteCustomFields({ ...inviteCustomFields, [k]: v })}
+              />
+
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
                 <Button variant="secondary" onClick={() => setShowInviteModal(false)} disabled={inviting}>Cancel</Button>
                 <Button variant="primary" type="submit" loading={inviting}>Send Invitation</Button>
@@ -576,7 +600,28 @@ export const MembersPage: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <div>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Username</label>
+              <input
+                type="text"
+                value={editUsername}
+                onChange={(e) => setEditUsername(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Phone</label>
+              <input
+                type="tel"
+                value={editPhone}
+                onChange={(e) => setEditPhone(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div>
               <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Assigned Role</label>
               <select
@@ -588,15 +633,6 @@ export const MembersPage: React.FC = () => {
                   <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Phone</label>
-              <input
-                type="tel"
-                value={editPhone}
-                onChange={(e) => setEditPhone(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
             </div>
             <div>
               <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Status</label>
@@ -611,6 +647,12 @@ export const MembersPage: React.FC = () => {
               </select>
             </div>
           </div>
+
+          <CustomFieldsRenderer
+            fields={customFields}
+            values={editCustomFields}
+            onChange={(k: string, v: any) => setEditCustomFields({ ...editCustomFields, [k]: v })}
+          />
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
             <Button variant="secondary" onClick={() => setEditTargetMember(null)} disabled={updatingMember}>Cancel</Button>

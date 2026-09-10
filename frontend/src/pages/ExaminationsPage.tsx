@@ -688,7 +688,7 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
             {(!selectedSectionId || !selectedSubjectId || !selectedExamId) ? (
               <EmptyState
                 title="Select Exam, Section and Subject"
-                description="Choose criteria from the dropdown above to load the student marks entry roster."
+                description="Choose criteria from the dropdown above to load the student marks entry sheet."
               />
             ) : students.length === 0 ? (
               <EmptyState title="No students enrolled in this section" />

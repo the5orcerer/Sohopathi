@@ -13,6 +13,7 @@ import { noticesManifest } from './modules/notices/manifest';
 import { assignmentsManifest } from './modules/assignments/manifest';
 import { admissionManifest } from './modules/admission/manifest';
 import { authRouter } from './core/auth/auth-routes';
+import { leadsRouter } from './modules/leads/leads-routes';
 import { mountDocs } from './docs';
 
 function enableCors(app: express.Application) {
@@ -91,6 +92,8 @@ export function createApp(): express.Application {
     throw new Error('My first Sentry error from backend!');
   });
 
+  app.use('/api/leads', leadsRouter);
+
   app.use(router);
   Sentry.setupExpressErrorHandler(app);
   app.use(errorHandler);
@@ -120,6 +123,9 @@ export function bootApp(): express.Application {
 
   // Public unauthenticated auth routes
   app.use('/api/auth', authRouter);
+
+  // Public unauthenticated leads route
+  app.use('/api/leads', leadsRouter);
 
   // Register Active Platform Modules in memory (<5ms boot time)
   registerModule(onboardingManifest, router);

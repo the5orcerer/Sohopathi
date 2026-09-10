@@ -507,4 +507,195 @@ export const attendanceRepository = {
 
     return results;
   },
+
+  // --- Employee & Staff Attendance ---
+  async listEmployeeAttendance(
+    client: PoolClient,
+    institutionId: string,
+    options: {
+      date: string;
+      roleId?: string;
+      status?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+      membershipId?: string;
+    }
+  ): Promise<{ employees: any[]; total: number }> {
+    let whereClause = `where m.institution_id = $1 and m.status = 'active'`;
+    const params: any[] = [institutionId, options.date];
+
+    if (options.membershipId) {
+      params.push(options.membershipId);
+      whereClause += ` and m.id = $${params.length}`;
+    }
+
+    if (options.roleId && options.roleId !== 'all') {
+      params.push(options.roleId);
+      whereClause += ` and m.role_id = $${params.length}`;
+    }
+
+    if (options.search) {
+      params.push(`%${options.search.trim().toLowerCase()}%`);
+      whereClause += ` and (lower(p.name) like $${params.length} or lower(coalesce(p.email, '')) like $${params.length} or lower(coalesce(r.name, '')) like $${params.length})`;
+    }
+
+    if (options.status && options.status !== 'all') {
+      if (options.status === 'unmarked') {
+        whereClause += ` and ea.id is null`;
+      } else {
+        params.push(options.status);
+        whereClause += ` and ea.status = $${params.length}`;
+      }
+    }
+
+    const countQuery = `
+      select count(*)::int as total
+      from membership m
+      join profile p on p.id = m.user_id
+      left join role r on r.id = m.role_id
+      left join employee_attendance ea on ea.membership_id = m.id and ea.date = $2 and ea.institution_id = $1
+      ${whereClause}
+    `;
+    const { rows: countRows } = await client.query(countQuery, params);
+    const total = countRows[0]?.total || 0;
+
+    const limit = options.limit ?? 50;
+    const offset = options.offset ?? 0;
+    const queryParams = [...params, limit, offset];
+
+    const dataQuery = `
+      select
+        m.id as "membershipId",
+        p.name,
+        coalesce(p.email, '') as email,
+        p.phone,
+        r.id as "roleId",
+        coalesce(r.name, 'Staff') as "roleName",
+        ea.id as "attendanceId",
+        coalesce(ea.status, 'unmarked') as status,
+        ea.check_in_time as "checkInTime",
+        ea.check_out_time as "checkOutTime",
+        ea.notes,
+        coalesce(ea.date::text, $2) as date,
+        ea.created_at as "recordedAt"
+      from membership m
+      join profile p on p.id = m.user_id
+      left join role r on r.id = m.role_id
+      left join employee_attendance ea on ea.membership_id = m.id and ea.date = $2 and ea.institution_id = $1
+      ${whereClause}
+      order by r.name asc, p.name asc
+      limit $${queryParams.length - 1} offset $${queryParams.length}
+    `;
+
+    const { rows } = await client.query(dataQuery, queryParams);
+    return { employees: rows, total };
+  },
+
+  async markEmployeeAttendanceBatch(
+    client: PoolClient,
+    institutionId: string,
+    recordedByMembershipId: string | undefined,
+    records: Array<{
+      membershipId: string;
+      date: string;
+      status: string;
+      checkInTime?: string;
+      checkOutTime?: string;
+      notes?: string;
+    }>
+  ): Promise<any[]> {
+    const results: any[] = [];
+    for (const r of records) {
+      const { rows } = await client.query(
+        `insert into public.employee_attendance (
+           institution_id, membership_id, date, status, check_in_time, check_out_time, notes, recorded_by_membership_id, updated_at
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8, now())
+         on conflict (institution_id, membership_id, date) do update set
+           status = excluded.status,
+           check_in_time = coalesce(excluded.check_in_time, employee_attendance.check_in_time),
+           check_out_time = coalesce(excluded.check_out_time, employee_attendance.check_out_time),
+           notes = coalesce(excluded.notes, employee_attendance.notes),
+           recorded_by_membership_id = excluded.recorded_by_membership_id,
+           updated_at = now()
+         returning id, institution_id as "institutionId", membership_id as "membershipId", date, status, check_in_time as "checkInTime", check_out_time as "checkOutTime", notes`,
+        [
+          institutionId,
+          r.membershipId,
+          r.date,
+          r.status,
+          r.checkInTime || null,
+          r.checkOutTime || null,
+          r.notes || null,
+          recordedByMembershipId || null,
+        ]
+      );
+      results.push(rows[0]);
+    }
+
+    if (results.length > 0) {
+      await logAudit(client, {
+        institutionId,
+        actorMembershipId: recordedByMembershipId,
+        action: 'mark_employee_attendance',
+        entityType: 'employee_attendance',
+        entityId: results[0].id,
+        after: { count: results.length, date: records[0]?.date },
+      });
+    }
+
+    return results;
+  },
+
+  async getEmployeeAttendanceSummary(
+    client: PoolClient,
+    institutionId: string,
+    date: string
+  ): Promise<{
+    date: string;
+    totalStaff: number;
+    presentToday: number;
+    absentToday: number;
+    lateToday: number;
+    onLeaveToday: number;
+    halfDayToday: number;
+    unmarkedToday: number;
+    attendanceRate: number;
+  }> {
+    const { rows: staffCountRows } = await client.query(
+      `select count(*)::int as total from membership where institution_id = $1 and status = 'active'`,
+      [institutionId]
+    );
+    const totalStaff = staffCountRows[0]?.total || 0;
+
+    const { rows: statRows } = await client.query(
+      `select
+         count(*) filter (where status = 'present')::int as present,
+         count(*) filter (where status = 'absent')::int as absent,
+         count(*) filter (where status = 'late')::int as late,
+         count(*) filter (where status in ('on_leave', 'leave'))::int as on_leave,
+         count(*) filter (where status = 'half_day')::int as half_day
+       from public.employee_attendance
+       where institution_id = $1 and date = $2`,
+      [institutionId, date]
+    );
+
+    const stats = statRows[0] || { present: 0, absent: 0, late: 0, on_leave: 0, half_day: 0 };
+    const presentCount = stats.present || 0;
+    const markedTotal = presentCount + stats.absent + stats.late + stats.on_leave + stats.half_day;
+    const unmarkedToday = Math.max(0, totalStaff - markedTotal);
+    const attendanceRate = totalStaff > 0 ? Math.round(((presentCount + (stats.late || 0)) / totalStaff) * 100) : 100;
+
+    return {
+      date,
+      totalStaff,
+      presentToday: presentCount,
+      absentToday: stats.absent || 0,
+      lateToday: stats.late || 0,
+      onLeaveToday: stats.on_leave || 0,
+      halfDayToday: stats.half_day || 0,
+      unmarkedToday,
+      attendanceRate,
+    };
+  },
 };

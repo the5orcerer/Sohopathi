@@ -288,7 +288,27 @@ export const PermissionMatrixPage: React.FC = () => {
                       <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{role.name}</span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          padding: '0.1rem 0.35rem',
+                          borderRadius: 'var(--radius-sm)',
+                          background: isSelected
+                            ? 'rgba(255,255,255,0.25)'
+                            : role.isSystem
+                            ? 'rgba(99, 102, 241, 0.15)'
+                            : 'rgba(16, 185, 129, 0.15)',
+                          color: isSelected
+                            ? '#fff'
+                            : role.isSystem
+                            ? 'var(--brand-primary)'
+                            : 'var(--status-success)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {role.isSystem ? 'System' : 'Custom'}
+                      </span>
                       {role.memberCount !== undefined && (
                         <span
                           style={{
@@ -298,7 +318,7 @@ export const PermissionMatrixPage: React.FC = () => {
                             background: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--border-subtle)',
                           }}
                         >
-                          {role.memberCount} users
+                          {role.memberCount}
                         </span>
                       )}
                     </div>

@@ -1,5 +1,6 @@
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
+import { invalidateContextCache } from '../../core/permissions/resolve-permissions';
 
 export interface Institution {
   id: string;
@@ -365,8 +366,9 @@ export const coreRepository = {
   },
 
   async listRoles(client: PoolClient, institutionId: string): Promise<Role[]> {
+    // Return tenant-specific roles, and fill in missing template roles without duplicate names
     const { rows } = await client.query(
-      `select 
+      `select distinct on (lower(r.name))
         r.id,
         r.institution_id as "institutionId",
         r.name,
@@ -374,10 +376,16 @@ export const coreRepository = {
         (select count(*)::int from membership m where m.role_id = r.id and m.institution_id = $1) as "memberCount"
        from role r
        where (r.institution_id = $1 or r.institution_id is null)
-       order by r.institution_id nulls first, r.name asc`,
+       order by lower(r.name), r.institution_id nulls last`,
       [institutionId]
     );
-    return rows;
+
+    // Sort: System roles first, then custom roles alphabetically
+    return rows.sort((a, b) => {
+      if (a.isSystem && !b.isSystem) return -1;
+      if (!a.isSystem && b.isSystem) return 1;
+      return a.name.localeCompare(b.name);
+    });
   },
 
   async createRole(
@@ -412,6 +420,8 @@ export const coreRepository = {
       entityId: role.id,
       after: role,
     });
+
+    invalidateContextCache(undefined, institutionId);
     return role;
   },
 
@@ -436,20 +446,50 @@ export const coreRepository = {
     roleId: string,
     permissions: Array<{ permissionKey: string; scope: string }>,
     actorMembershipId?: string
-  ): Promise<void> {
-    const { rows: beforeRows } = await client.query(
-      `select p.key, rp.scope from role_permission rp join permission p on p.id = rp.permission_id where rp.role_id = $1`,
+  ): Promise<{ effectiveRoleId: string }> {
+    const { rows: [targetRole] } = await client.query(
+      `select id, institution_id, name from role where id = $1`,
       [roleId]
     );
+    if (!targetRole) throw new Error('Role not found');
 
-    await client.query(`delete from role_permission where role_id = $1`, [roleId]);
+    let effectiveRoleId = roleId;
+
+    // If attempting to edit a global system template role (institution_id IS NULL),
+    // clone or resolve to the institution's role so global templates are never mutated across tenants.
+    if (!targetRole.institution_id) {
+      const { rows: [existingClone] } = await client.query(
+        `select id from role where institution_id = $1 and lower(name) = lower($2)`,
+        [institutionId, targetRole.name]
+      );
+      if (existingClone) {
+        effectiveRoleId = existingClone.id;
+      } else {
+        const { rows: [newClone] } = await client.query(
+          `insert into role (institution_id, name, is_system)
+           values ($1, $2, false)
+           returning id`,
+          [institutionId, targetRole.name]
+        );
+        effectiveRoleId = newClone.id;
+      }
+    }
+
+    const { rows: beforeRows } = await client.query(
+      `select p.key, rp.scope from role_permission rp join permission p on p.id = rp.permission_id where rp.role_id = $1`,
+      [effectiveRoleId]
+    );
+
+    await client.query(`delete from role_permission where role_id = $1`, [effectiveRoleId]);
 
     for (const p of permissions) {
       await client.query(
         `insert into role_permission (institution_id, role_id, permission_id, scope)
-         values ($1, $2, (select id from permission where key = $3), $4)
+         select $1, $2, p.id, $4
+         from permission p
+         where p.key = $3
          on conflict (role_id, permission_id) do update set scope = excluded.scope`,
-        [institutionId, roleId, p.permissionKey, p.scope]
+        [institutionId, effectiveRoleId, p.permissionKey, p.scope]
       );
     }
 
@@ -458,10 +498,13 @@ export const coreRepository = {
       actorMembershipId,
       action: 'update_permissions',
       entityType: 'role_permission',
-      entityId: roleId,
+      entityId: effectiveRoleId,
       before: beforeRows,
       after: permissions,
     });
+
+    invalidateContextCache(undefined, institutionId);
+    return { effectiveRoleId };
   },
 
   // --- Memberships (Employees / Staff) ---

@@ -63,7 +63,7 @@ export const RecentAdmissions: React.FC<WidgetProps> = ({ dataSource }) => {
       <div className="widget-header">
         <div className="widget-title">
           <span className="widget-icon"><UserPlus size={16} /></span>
-          Recent Admissions Pipeline
+          Recent Admissions Register
         </div>
         <Badge tone="primary">{applications.length} Active</Badge>
       </div>

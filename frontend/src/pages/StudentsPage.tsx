@@ -8,9 +8,12 @@ import {
   updateStudent,
   deleteStudent,
   bulkDeleteStudents,
+  bulkImportStudents,
+  fetchCustomFields,
+  createCustomField,
   exportToCsv,
 } from '../services/api';
-import type { StudentItem, ClassItem, SectionItem } from '../types';
+import type { StudentItem, ClassItem, SectionItem, CustomFieldDefinition } from '../types';
 import {
   GraduationCap,
   Plus,
@@ -21,8 +24,11 @@ import {
   Sparkles,
   Loader2,
   User,
+  Sliders,
+  Upload,
+  CheckCircle2,
 } from 'lucide-react';
-import { Button, Badge, Modal, SearchBar, EmptyState, Student360Modal } from '../components/common';
+import { Button, Badge, Modal, SearchBar, EmptyState, Student360Modal, CustomFieldsRenderer } from '../components/common';
 import { AcademicMigrationModal } from '../components/academic/AcademicMigrationModal';
 
 export const StudentsPage: React.FC = () => {
@@ -44,6 +50,7 @@ export const StudentsPage: React.FC = () => {
   const [students, setStudents] = useState<StudentItem[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
+  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [selectedSectionId, setSelectedSectionId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -71,6 +78,7 @@ export const StudentsPage: React.FC = () => {
   const [addRollNo, setAddRollNo] = useState('');
   const [addGuardianName, setAddGuardianName] = useState('');
   const [addGuardianPhone, setAddGuardianPhone] = useState('');
+  const [addCustomFields, setAddCustomFields] = useState<Record<string, any>>({});
   const [savingStudent, setSavingStudent] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -86,27 +94,53 @@ export const StudentsPage: React.FC = () => {
   const [editGuardianName, setEditGuardianName] = useState('');
   const [editGuardianPhone, setEditGuardianPhone] = useState('');
   const [editStatus, setEditStatus] = useState('active');
+  const [editCustomFields, setEditCustomFields] = useState<Record<string, any>>({});
   const [updatingStudent, setUpdatingStudent] = useState(false);
 
   // Delete Student Modal State
   const [deleteTargetStudent, setDeleteTargetStudent] = useState<StudentItem | null>(null);
   const [deletingStudent, setDeletingStudent] = useState(false);
 
+  // Dynamic Custom Field Creator Modal
+  const [showFieldModal, setShowFieldModal] = useState(false);
+  const [newFieldLabel, setNewFieldLabel] = useState('');
+  const [newFieldType, setNewFieldType] = useState('text');
+  const [newFieldOptions, setNewFieldOptions] = useState('');
+  const [creatingField, setCreatingField] = useState(false);
+
+  // Bulk CSV Import Modal State
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkCsvText, setBulkCsvText] = useState(
+    `admissionNo,name,gender,rollNo
+ADM-2026-101,Abrar Fahad,Male,05
+ADM-2026-102,Zarin Tasnim,Female,06
+ADM-2026-103,Shadman Sakib,Male,07`
+  );
+  const [bulkClassId, setBulkClassId] = useState('');
+  const [bulkSectionId, setBulkSectionId] = useState('');
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkSuccessCount, setBulkSuccessCount] = useState<number | null>(null);
+
   const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const [studentsRes, classesRes, sectionsRes] = await Promise.all([
+      const [studentsRes, classesRes, sectionsRes, fieldsRes] = await Promise.all([
         fetchStudents({
           classId: selectedClassId || undefined,
           sectionId: selectedSectionId || undefined,
         }),
         fetchClasses().catch(() => []),
         fetchSections(selectedClassId || undefined).catch(() => []),
+        fetchCustomFields('student').catch(() => []),
       ]);
       setStudents(studentsRes);
       setClasses(classesRes);
       setSections(sectionsRes);
+      setCustomFields(fieldsRes || []);
+      if (classesRes.length > 0 && !bulkClassId) {
+        setBulkClassId(classesRes[0].id);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load students roster');
     } finally {
@@ -118,10 +152,20 @@ export const StudentsPage: React.FC = () => {
     loadData();
   }, [selectedClassId, selectedSectionId]);
 
+  useEffect(() => {
+    if (bulkClassId) {
+      const matchSections = sections.filter((s) => s.classId === bulkClassId);
+      if (matchSections.length > 0) {
+        setBulkSectionId(matchSections[0].id);
+      } else {
+        setBulkSectionId('');
+      }
+    }
+  }, [bulkClassId, sections]);
+
   // ✅ Student-এর নিজের Student ID বের করা
   const getOwnStudentId = () => {
-    // user-এর ID দিয়ে Student খুঁজে বের করা
-    const ownStudent = students.find(s => s.userId === user?.id);
+    const ownStudent = students.find((s) => s.userId === user?.id);
     return ownStudent?.id || null;
   };
 
@@ -145,6 +189,7 @@ export const StudentsPage: React.FC = () => {
     setEditGuardianName(student.guardianName || '');
     setEditGuardianPhone(student.guardianPhone || '');
     setEditStatus(student.status || 'active');
+    setEditCustomFields((student as any).customFields || {});
   };
 
   const handleAddStudentSubmit = async (e: React.FormEvent) => {
@@ -167,6 +212,7 @@ export const StudentsPage: React.FC = () => {
         rollNo: addRollNo.trim() || undefined,
         guardianName: addGuardianName.trim() || undefined,
         guardianPhone: addGuardianPhone.trim() || undefined,
+        customFields: addCustomFields,
       });
 
       setStudents((prev) => [created, ...prev]);
@@ -176,6 +222,7 @@ export const StudentsPage: React.FC = () => {
       setAddRollNo('');
       setAddGuardianName('');
       setAddGuardianPhone('');
+      setAddCustomFields({});
     } catch (err: any) {
       setModalError(err.message || 'Failed to enroll student');
     } finally {
@@ -200,6 +247,7 @@ export const StudentsPage: React.FC = () => {
         guardianName: editGuardianName.trim() || undefined,
         guardianPhone: editGuardianPhone.trim() || undefined,
         status: editStatus,
+        customFields: editCustomFields,
       });
 
       setStudents((prev) => prev.map((s) => (s.id === editStudent.id ? { ...s, ...updated } : s)));
@@ -239,6 +287,79 @@ export const StudentsPage: React.FC = () => {
       alert(err.message || 'Failed to bulk delete students');
     } finally {
       setBulkDeleting(false);
+    }
+  };
+
+  const handleCreateCustomField = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFieldLabel.trim()) return;
+    try {
+      setCreatingField(true);
+      const optionsArray = newFieldType === 'select' ? newFieldOptions.split(',').map((s) => s.trim()).filter(Boolean) : [];
+      await createCustomField({
+        entityType: 'student',
+        label: newFieldLabel.trim(),
+        fieldType: newFieldType as any,
+        options: optionsArray,
+      });
+      setShowFieldModal(false);
+      setNewFieldLabel('');
+      setNewFieldOptions('');
+      const updatedFields = await fetchCustomFields('student');
+      setCustomFields(updatedFields || []);
+    } catch (err: any) {
+      alert(err.message || 'Failed to add custom field');
+    } finally {
+      setCreatingField(false);
+    }
+  };
+
+  const handleBulkImportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkClassId || !bulkSectionId) {
+      alert('Please select target Class and Section');
+      return;
+    }
+
+    setBulkImporting(true);
+    try {
+      const lines = bulkCsvText.trim().split('\n');
+      const header = lines[0].split(',').map((h) => h.trim());
+      const studentsToImport: any[] = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        const parts = line.split(',').map((p) => p.trim());
+        if (parts.length >= 2) {
+          const item: any = {
+            classId: bulkClassId,
+            sectionId: bulkSectionId,
+          };
+          header.forEach((h, idx) => {
+            if (parts[idx]) item[h] = parts[idx];
+          });
+          studentsToImport.push(item);
+        }
+      }
+
+      if (studentsToImport.length === 0) {
+        alert('No valid student rows found in CSV');
+        setBulkImporting(false);
+        return;
+      }
+
+      const res = await bulkImportStudents(studentsToImport);
+      setBulkSuccessCount(res.count);
+      setTimeout(() => {
+        setShowBulkModal(false);
+        setBulkSuccessCount(null);
+        loadData();
+      }, 1500);
+    } catch (err: any) {
+      alert(err.message || 'Failed to import students');
+    } finally {
+      setBulkImporting(false);
     }
   };
 
@@ -311,6 +432,20 @@ export const StudentsPage: React.FC = () => {
             <Download size={14} style={{ marginRight: '0.3rem' }} />
             Export CSV
           </Button>
+
+          {/* ✅ Custom Fields & Bulk Import - Admin ও Teacher দেখতে পারে */}
+          {canWrite && !isStudent && (
+            <>
+              <Button variant="secondary" onClick={() => setShowFieldModal(true)}>
+                <Sliders size={14} style={{ marginRight: '0.3rem' }} />
+                Custom Fields
+              </Button>
+              <Button variant="secondary" onClick={() => setShowBulkModal(true)}>
+                <Upload size={14} style={{ marginRight: '0.3rem' }} />
+                Import CSV
+              </Button>
+            </>
+          )}
 
           {/* ✅ Setup & Migration Wizard - Admin ও Teacher দেখতে পারে */}
           {canMigrate && (
@@ -716,6 +851,12 @@ export const StudentsPage: React.FC = () => {
               </div>
             </div>
 
+            <CustomFieldsRenderer
+              fields={customFields}
+              values={addCustomFields}
+              onChange={(k, v) => setAddCustomFields({ ...addCustomFields, [k]: v })}
+            />
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
               <Button variant="secondary" onClick={() => setShowAddModal(false)} disabled={savingStudent}>
                 Cancel
@@ -866,6 +1007,13 @@ export const StudentsPage: React.FC = () => {
               </div>
             </div>
 
+            <CustomFieldsRenderer
+              fields={customFields}
+              values={editCustomFields}
+              onChange={(k, v) => setEditCustomFields({ ...editCustomFields, [k]: v })}
+              disabled={isStudent}
+            />
+
             <div style={{ 
               padding: '0.75rem', 
               background: isStudent ? 'rgba(99, 102, 241, 0.08)' : 'transparent',
@@ -914,6 +1062,124 @@ export const StudentsPage: React.FC = () => {
           </div>
         </Modal>
       )}
+
+      {/* Modal: Custom Field Definition Creator */}
+      <Modal isOpen={showFieldModal} onClose={() => setShowFieldModal(false)} title="Add Dynamic Custom Field">
+        <form onSubmit={handleCreateCustomField} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Field Label</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Blood Group, Emergency Contact, Medical Notes"
+              value={newFieldLabel}
+              onChange={(e) => setNewFieldLabel(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Field Type</label>
+            <select
+              value={newFieldType}
+              onChange={(e) => setNewFieldType(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+            >
+              <option value="text">Text</option>
+              <option value="number">Number</option>
+              <option value="select">Dropdown Select</option>
+              <option value="date">Date</option>
+              <option value="boolean">Checkbox / Toggle</option>
+            </select>
+          </div>
+
+          {newFieldType === 'select' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Options (Comma-separated)</label>
+              <input
+                type="text"
+                placeholder="e.g. A+, A-, B+, B-, O+, O-, AB+, AB-"
+                value={newFieldOptions}
+                onChange={(e) => setNewFieldOptions(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              />
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+            <Button variant="secondary" onClick={() => setShowFieldModal(false)}>Cancel</Button>
+            <Button variant="primary" type="submit" loading={creatingField}>Create Field</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Bulk CSV Import */}
+      <Modal isOpen={showBulkModal} onClose={() => setShowBulkModal(false)} title="Bulk Import Students via CSV">
+        <form onSubmit={handleBulkImportSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {bulkSuccessCount !== null ? (
+            <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--status-success)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <CheckCircle2 size={16} /> Successfully imported {bulkSuccessCount} students!
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Target Class *</label>
+                  <select
+                    required
+                    value={bulkClassId}
+                    onChange={(e) => setBulkClassId(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    {classes.map((cls) => (
+                      <option key={cls.id} value={cls.id}>{cls.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Target Section *</label>
+                  <select
+                    required
+                    value={bulkSectionId}
+                    onChange={(e) => setBulkSectionId(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    {sections
+                      .filter((s) => s.classId === bulkClassId)
+                      .map((sec) => (
+                        <option key={sec.id} value={sec.id}>{sec.name}</option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Paste CSV Data (admissionNo, name, gender, rollNo)</label>
+                <textarea
+                  rows={6}
+                  value={bulkCsvText}
+                  onChange={(e) => setBulkCsvText(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.82rem',
+                    border: '1px solid var(--border-subtle)',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <Button variant="secondary" onClick={() => setShowBulkModal(false)}>Cancel</Button>
+                <Button variant="primary" type="submit" loading={bulkImporting}>Execute Import</Button>
+              </div>
+            </>
+          )}
+        </form>
+      </Modal>
     </div>
   );
 };

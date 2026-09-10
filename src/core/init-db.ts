@@ -2,22 +2,13 @@ import { pool, ensureTenantRLS } from './db';
 import fs from 'fs';
 import path from 'path';
 import { logger } from './logger';
-import { env } from './env';
 
-export async function initializeDatabase(reset?: boolean) {
+export async function initializeDatabase(reset = true) {
   const client = await pool.connect();
   try {
     logger.info('Connecting to PostgreSQL database...');
 
-    const isCloudDb =
-      env.DATABASE_URL.includes('aivencloud.com') ||
-      env.DATABASE_URL.includes('supabase.co') ||
-      env.DATABASE_URL.includes('pooler.supabase.com') ||
-      env.DATABASE_URL.includes('neon.tech') ||
-      env.DATABASE_URL.includes('sslmode=require');
-    const shouldReset = reset ?? (!isCloudDb && !process.argv.includes('--no-reset'));
-
-    if (shouldReset && !isCloudDb) {
+    if (reset) {
       logger.info('Resetting public and auth schemas for clean init...');
       await client.query(`
         drop schema if exists public cascade;
@@ -32,43 +23,31 @@ export async function initializeDatabase(reset?: boolean) {
       `);
     }
 
-    // 1. Setup extensions and auth schema (skip on Supabase cloud where auth schema is managed)
-    if (!isCloudDb) {
-      await client.query(`
-        create extension if not exists "pgcrypto";
+    // 1. Setup extensions and auth schema
+    await client.query(`
+      create extension if not exists "pgcrypto";
 
-        create schema if not exists auth;
-        create table if not exists auth.users (
-          id uuid primary key default gen_random_uuid(),
-          email text unique,
-          raw_user_meta_data jsonb default '{}'::jsonb,
-          aud text default 'authenticated',
-          role text default 'authenticated',
-          created_at timestamptz default now()
-        );
-        alter table auth.users add column if not exists aud text default 'authenticated';
-        alter table auth.users add column if not exists role text default 'authenticated';
-        create or replace function auth.uid() returns uuid language sql stable as $$
-          select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
-        $$;
-      `);
-    } else {
-      await client.query(`create extension if not exists "pgcrypto";`);
-    }
+      create schema if not exists auth;
+      create table if not exists auth.users (
+        id uuid primary key default gen_random_uuid(),
+        email text unique,
+        raw_user_meta_data jsonb default '{}'::jsonb,
+        created_at timestamptz default now()
+      );
+      create or replace function auth.uid() returns uuid language sql stable as $$
+        select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+      $$;
+    `);
 
     // 2. Read and apply canonical schema if available
     const schemaPath = path.join(__dirname, '../../instruction_set/education-platform-schema.sql');
     if (fs.existsSync(schemaPath)) {
-      try {
-        const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-        logger.info('Applying canonical database schema...');
-        await client.query(schemaSql);
-      } catch (err: any) {
-        // Tables already exist on cloud database, continue with schema extensions & RLS
-      }
+      const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+      logger.info('Applying canonical database schema...');
+      await client.query(schemaSql);
     }
 
-    // 2b. Add additional columns for onboarding & institution-scoped authentication and ensure RLS schema
+    // 2b. Add additional columns for onboarding & institution-scoped authentication
     await client.query(`
       alter table public.profile 
         add column if not exists must_change_password boolean not null default false,
@@ -83,19 +62,15 @@ export async function initializeDatabase(reset?: boolean) {
         where login_username is not null;
     `);
 
-    await ensureTenantRLS(client, true);
-
     // 3. Upsert Active Core Modules
     logger.info('Registering platform modules...');
     await client.query(`
       insert into public.module (key, name, version) values
-        ('onboarding', 'Institution Onboarding', '1.0.0'),
         ('system', 'System / Dashboard', '1.0.0'),
         ('core', 'Core / Academic & Administration', '1.0.0'),
         ('attendance', 'Attendance & Marks', '1.0.0'),
         ('notices', 'Notices & Circulars', '1.0.0'),
-        ('assignments', 'Assignments & Homework', '1.0.0'),
-        ('admissions', 'Admissions & Inquiries', '1.0.0')
+        ('assignments', 'Assignments & Homework', '1.0.0')
       on conflict (key) do update set name = excluded.name;
     `);
 
@@ -119,6 +94,7 @@ export async function initializeDatabase(reset?: boolean) {
       ['settings.manage', 'core', 'Configure institution profile, branding, and feature toggles', ['institution']],
       ['students.read', 'core', 'View student directory and profiles', ['institution', 'assigned_sections', 'self']],
       ['students.write', 'core', 'Create, enroll, and edit student records', ['institution']],
+      ['users.impersonate', 'core', 'Impersonate institutional members for support and administration', ['institution']],
       ['attendance.read', 'attendance', 'View student attendance records', ['institution', 'assigned_sections', 'self']],
       ['attendance.create', 'attendance', 'Record daily attendance for sections', ['assigned_sections', 'institution']],
       ['exams.manage', 'attendance', 'Create and configure examination sessions and paper schedules', ['institution']],
@@ -133,9 +109,6 @@ export async function initializeDatabase(reset?: boolean) {
       ['assignments.grade', 'assignments', 'Grade student submissions and provide feedback', ['assigned_sections', 'institution']],
       ['notices.read', 'notices', 'View campus notices and circulars', ['institution', 'self']],
       ['notices.write', 'notices', 'Publish and manage campus announcements', ['institution']],
-      ['admissions.read', 'admissions', 'View admission applications and pipeline metrics', ['institution', 'assigned_sections', 'self']],
-      ['admissions.write', 'admissions', 'Submit, review, and update admission applications', ['institution']],
-      ['admissions.approve', 'admissions', 'Approve admission applications and enroll students', ['institution']],
     ];
 
     for (const [key, moduleKey, desc, scopes] of permissions) {
@@ -198,9 +171,7 @@ export async function initializeDatabase(reset?: boolean) {
         { key: 'assignments.grade', scope: 'institution' },
         { key: 'notices.read', scope: 'institution' },
         { key: 'notices.write', scope: 'institution' },
-        { key: 'admissions.read', scope: 'institution' },
-        { key: 'admissions.write', scope: 'institution' },
-        { key: 'admissions.approve', scope: 'institution' },
+        { key: 'users.impersonate', scope: 'institution' },
       ],
       Teacher: [
         { key: 'students.read', scope: 'assigned_sections' },
@@ -213,11 +184,11 @@ export async function initializeDatabase(reset?: boolean) {
         { key: 'assignments.read', scope: 'assigned_sections' },
         { key: 'assignments.create', scope: 'assigned_sections' },
         { key: 'assignments.update', scope: 'assigned_sections' },
-        { key: 'assignments.delete', scope: 'assigned_sections' },
         { key: 'assignments.grade', scope: 'assigned_sections' },
         { key: 'notices.read', scope: 'institution' },
       ],
       Student: [
+        { key: 'students.read', scope: 'self' },
         { key: 'schedules.read', scope: 'self' },
         { key: 'attendance.read', scope: 'self' },
         { key: 'marks.read', scope: 'self' },
@@ -226,6 +197,7 @@ export async function initializeDatabase(reset?: boolean) {
         { key: 'notices.read', scope: 'institution' },
       ],
       Guardian: [
+        { key: 'students.read', scope: 'self' },
         { key: 'schedules.read', scope: 'self' },
         { key: 'attendance.read', scope: 'self' },
         { key: 'marks.read', scope: 'self' },
@@ -291,31 +263,9 @@ export async function initializeDatabase(reset?: boolean) {
         { key: 'sections.manage', scope: 'institution' },
         { key: 'subjects.manage', scope: 'institution' },
         { key: 'teachers.assign', scope: 'institution' },
-        { key: 'schedules.manage', scope: 'institution' },
-        { key: 'schedules.read', scope: 'institution' },
-        { key: 'tasks.manage', scope: 'institution' },
-        { key: 'tasks.read', scope: 'institution' },
-        { key: 'settings.manage', scope: 'institution' },
-        { key: 'custom_fields.manage', scope: 'institution' },
-        { key: 'audit_logs.read', scope: 'institution' },
         { key: 'students.read', scope: 'institution' },
         { key: 'students.write', scope: 'institution' },
-        { key: 'attendance.read', scope: 'institution' },
-        { key: 'attendance.create', scope: 'institution' },
-        { key: 'exams.manage', scope: 'institution' },
-        { key: 'marks.read', scope: 'institution' },
-        { key: 'marks.create', scope: 'institution' },
-        { key: 'marks.approve', scope: 'institution' },
-        { key: 'assignments.read', scope: 'institution' },
-        { key: 'assignments.create', scope: 'institution' },
-        { key: 'assignments.update', scope: 'institution' },
-        { key: 'assignments.delete', scope: 'institution' },
-        { key: 'assignments.grade', scope: 'institution' },
         { key: 'notices.read', scope: 'institution' },
-        { key: 'notices.write', scope: 'institution' },
-        { key: 'admissions.read', scope: 'institution' },
-        { key: 'admissions.write', scope: 'institution' },
-        { key: 'admissions.approve', scope: 'institution' },
       ],
       Teacher: templateRoleGrants['Teacher'],
       Student: templateRoleGrants['Student'],
@@ -339,7 +289,7 @@ export async function initializeDatabase(reset?: boolean) {
       }
     }
 
-    // 9. Users, Profiles, and Memberships with login_username & default passwords
+    // 9. Users, Profiles, and Memberships with login_username
     const demoPersonas = [
       {
         id: '00000000-0000-0000-0000-000000000001',
@@ -347,8 +297,6 @@ export async function initializeDatabase(reset?: boolean) {
         email: 'admin@dhakamodel.edu',
         username: 'admin',
         role: 'Institution Admin',
-        password: 'password123',
-        mustChangePassword: false,
       },
       {
         id: '00000000-0000-0000-0000-000000000002',
@@ -356,8 +304,6 @@ export async function initializeDatabase(reset?: boolean) {
         email: 'coordinator@dhakamodel.edu',
         username: 'coordinator',
         role: 'Academic Coordinator',
-        password: 'password123',
-        mustChangePassword: false,
       },
       {
         id: '00000000-0000-0000-0000-000000000003',
@@ -365,8 +311,6 @@ export async function initializeDatabase(reset?: boolean) {
         email: 'teacher@dhakamodel.edu',
         username: 'teacher',
         role: 'Teacher',
-        password: 'password123',
-        mustChangePassword: false,
       },
       {
         id: '00000000-0000-0000-0000-000000000004',
@@ -374,17 +318,6 @@ export async function initializeDatabase(reset?: boolean) {
         email: 'student@dhakamodel.edu',
         username: 'student',
         role: 'Student',
-        password: 'changeme',
-        mustChangePassword: false,
-      },
-      {
-        id: '00000000-0000-0000-0000-000000000005',
-        name: 'Amina Akter',
-        email: 'amina@dhakamodel.edu',
-        username: 'amina.akter',
-        role: 'Student',
-        password: 'changeme',
-        mustChangePassword: true,
       },
     ];
 
@@ -395,29 +328,23 @@ export async function initializeDatabase(reset?: boolean) {
         on conflict (id) do update set email = excluded.email, raw_user_meta_data = excluded.raw_user_meta_data;
 
         insert into public.profile (id, name, phone, must_change_password, password_hash)
-        values ('${u.id}', '${u.name}', '+880 1700-000000', ${u.mustChangePassword}, '${u.password}')
-        on conflict (id) do update set name = excluded.name, password_hash = '${u.password}', must_change_password = ${u.mustChangePassword};
+        values ('${u.id}', '${u.name}', '+880 1700-000000', false, 'password123')
+        on conflict (id) do update set name = excluded.name;
 
         insert into public.membership (user_id, institution_id, role_id, login_username, status, invite_status)
         values (
           '${u.id}',
           '${instId}',
-          (select id from public.role where (institution_id = '${instId}' or institution_id is null) and name = '${u.role}' order by institution_id nulls last limit 1),
+          (select id from public.role where institution_id = '${instId}' and name = '${u.role}'),
           '${u.username}',
           'active',
           'active'
         )
         on conflict (user_id, institution_id) do update
-        set role_id = (select id from public.role where (institution_id = '${instId}' or institution_id is null) and name = '${u.role}' order by institution_id nulls last limit 1),
+        set role_id = (select id from public.role where institution_id = '${instId}' and name = '${u.role}'),
             login_username = '${u.username}';
       `);
     }
-
-    // Also add tahmid.rahman alias/username lookup support
-    await client.query(`
-      update public.membership set login_username = 'tahmid.rahman'
-      where user_id = '00000000-0000-0000-0000-000000000004' and institution_id = '${instId}';
-    `);
 
     // 10. Academic Structure (Campuses, Years, Classes, Sections, Subjects, Assignments)
     logger.info('Seeding academic structure and student records...');
@@ -457,18 +384,18 @@ export async function initializeDatabase(reset?: boolean) {
         '${instId}',
         '30000000-0000-0000-0000-000000000001',
         '40000000-0000-0000-0000-000000000001',
-        (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003' and institution_id = '${instId}' limit 1)
+        (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003')
       ) on conflict do nothing;
 
       -- Seed Student (Tahmid Rahman)
       insert into public.student (id, institution_id, user_id, admission_no, name, date_of_birth, gender, status)
       values ('50000000-0000-0000-0000-000000000001', '${instId}', '00000000-0000-0000-0000-000000000004', 'ADM-2026-001', 'Tahmid Rahman', '2010-05-14', 'Male', 'active')
-      on conflict (institution_id, admission_no) do update set name = excluded.name, user_id = '00000000-0000-0000-0000-000000000004';
+      on conflict (institution_id, admission_no) do update set name = excluded.name;
 
       -- Seed Student 2 (Amina Akter)
       insert into public.student (id, institution_id, user_id, admission_no, name, date_of_birth, gender, status)
-      values ('50000000-0000-0000-0000-000000000002', '${instId}', '00000000-0000-0000-0000-000000000005', 'ADM-2026-002', 'Amina Akter', '2010-08-22', 'Female', 'active')
-      on conflict (institution_id, admission_no) do update set name = excluded.name, user_id = '00000000-0000-0000-0000-000000000005';
+      values ('50000000-0000-0000-0000-000000000002', '${instId}', null, 'ADM-2026-002', 'Amina Akter', '2010-08-22', 'Female', 'active')
+      on conflict (institution_id, admission_no) do update set name = excluded.name;
 
       -- Enrollments
       insert into public.enrollment (institution_id, student_id, academic_year_id, class_id, section_id, roll_no, status)
@@ -491,43 +418,26 @@ export async function initializeDatabase(reset?: boolean) {
         88,
         100,
         'A+',
-        (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003' and institution_id = '${instId}' limit 1)
+        (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003')
       ) on conflict (exam_id, student_id, subject_id) do nothing;
 
       -- Attendance
       insert into public.attendance (institution_id, student_id, section_id, date, status, recorded_by_membership_id)
       values
-        ('${instId}', '50000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', current_date, 'present', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003' and institution_id = '${instId}' limit 1)),
-        ('${instId}', '50000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', current_date, 'present', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003' and institution_id = '${instId}' limit 1))
+        ('${instId}', '50000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', current_date, 'present', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003')),
+        ('${instId}', '50000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', current_date, 'present', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000003'))
       on conflict (student_id, date) do nothing;
 
       -- Notices
       insert into public.notice (institution_id, title, body, audience_scope, published_by_membership_id)
       values
-        ('${instId}', 'Welcome to the New Academic Session 2026-2027', 'Classes have commenced for all grades. Students are advised to collect their curriculum schedules from their respective section coordinators.', 'institution', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000001' and institution_id = '${instId}' limit 1)),
-        ('${instId}', 'Science Fair Abstract Submission Deadline', 'All Grade 9 and 10 students must submit their project abstracts by the upcoming Thursday.', 'institution', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000002' and institution_id = '${instId}' limit 1))
+        ('${instId}', 'Welcome to the New Academic Session 2026-2027', 'Classes have commenced for all grades. Students are advised to collect their curriculum schedules from their respective section coordinators.', 'institution', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000001')),
+        ('${instId}', 'Science Fair Abstract Submission Deadline', 'All Grade 9 and 10 students must submit their project abstracts by the upcoming Thursday.', 'institution', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000002'))
       on conflict do nothing;
-
-      -- Admissions Seed
-      insert into public.admission_application (
-        institution_id, application_no, academic_year_id, class_id,
-        applicant_name, date_of_birth, gender, guardian_name, guardian_phone, guardian_email,
-        previous_school, status, application_fee, fee_status, notes
-      ) values
-        ('${instId}', 'APP-2026-001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002',
-         'Zubair Al Mahfuz', '2011-03-15', 'Male', 'Mahfuzur Rahman', '+880 1811-223344', 'mahfuz@gmail.com',
-         'Dhanmondi Govt Boys High School', 'submitted', 500, 'paid', 'Transferred from previous city. Excellent academic records.'),
-        ('${instId}', 'APP-2026-002', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
-         'Samia Faruk', '2010-09-10', 'Female', 'Faruk Ahmed', '+880 1912-334455', 'faruk.ahmed@yahoo.com',
-         'Scholastica Senior Campus', 'under_review', 500, 'paid', 'Seeking admission into Science group with Higher Math.'),
-        ('${instId}', 'APP-2026-003', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002',
-         'Tanvir Hassan', '2011-06-20', 'Male', 'Hassan Mahmud', '+880 1711-556677', 'hassan.m@gmail.com',
-         'Viqarunnisa Noon School', 'shortlisted', 500, 'paid', 'Interview scheduled for upcoming Monday.')
-      on conflict (institution_id, application_no) do nothing;
     `);
 
     // Ensure RLS permissions for app_user
-    await ensureTenantRLS(client, true);
+    await ensureTenantRLS(client);
 
     logger.info('Database initialized and seeded successfully with multi-tenant onboarding schema!');
   } finally {

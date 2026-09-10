@@ -13,12 +13,14 @@ import { ExaminationsPage } from './pages/ExaminationsPage';
 import { AssignmentsPage } from './pages/AssignmentsPage';
 import { TasksPage } from './pages/TasksPage';
 import { AdmissionsPage } from './pages/AdmissionsPage';
+import { ReportsPage } from './pages/ReportsPage';
 import { InstitutionSettingsPage } from './pages/InstitutionSettingsPage';
 import { LoginPage } from './pages/LoginPage';
 import { ScopeChip } from './components/common/ScopeChip';
+import { SchoolPulseBanner } from './components/dashboard/SchoolPulseBanner';
 
 // Universal Dashboard
-const DashboardView: React.FC<{ onNavigate: (path: string) => void }> = () => {
+const DashboardView: React.FC<{ onNavigate: (path: string) => void }> = ({ onNavigate }) => {
   const { user, activeMembership, institutionName, dashboardWidgets } = useSession();
 
   const getScope = () => {
@@ -56,6 +58,9 @@ const DashboardView: React.FC<{ onNavigate: (path: string) => void }> = () => {
           <ScopeChip scope={getScope()} label={activeMembership?.roleName} />
         </div>
       </div>
+
+      {/* School Pulse KPI Cards & Operational Shortcuts */}
+      <SchoolPulseBanner onNavigate={onNavigate} />
 
       {/* Universal Dashboard Grid - Permission-based filtering */}
       <DashboardGrid widgets={dashboardWidgets} />
@@ -107,6 +112,7 @@ const MainAppContent: React.FC = () => {
       case '/notices': return <NoticesPage />;
       case '/students': return <StudentsPage />;
       case '/academic': return <AcademicPage />;
+      case '/reports': return <ReportsPage onNavigate={handleNavigate} />;
       case '/tasks': return <TasksPage />;
       case '/members': return <MembersPage />;
       case '/permission-matrix': return <PermissionMatrixPage />;

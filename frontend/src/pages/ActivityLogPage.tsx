@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ProtectedRoute } from '../components/auth/ProtectedRoute';
 import { fetchAuditLogs, fetchMembers } from '../services/api';
 import type { AuditLogEntry, Member } from '../types';
-import { SearchBar, Badge, Button, EmptyState } from '../components/common';
+import { SearchBar, Badge, Button, EmptyState, Pagination } from '../components/common';
 import { History, User, Calendar, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 
 export const ActivityLogPage: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
@@ -41,6 +41,9 @@ export const ActivityLogPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
     fetchMembers().then(setMembers).catch(console.error);
   }, [selectedAction, selectedEntity, selectedActor]);
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
   const filteredLogs = logs.filter((log) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
@@ -51,6 +54,15 @@ export const ActivityLogPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
       (log.entityId && log.entityId.toLowerCase().includes(q))
     );
   });
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, selectedAction, selectedEntity, selectedActor]);
+
+  const paginatedLogs = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredLogs.slice(start, start + pageSize);
+  }, [filteredLogs, page, pageSize]);
 
   const getActionTone = (action: string): 'success' | 'warning' | 'danger' | 'info' | 'primary' => {
     const act = action.toLowerCase();
@@ -201,11 +213,11 @@ export const ActivityLogPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
-              <span>Showing <strong>{filteredLogs.length}</strong> of {total} events</span>
+              <span>Showing <strong>{paginatedLogs.length}</strong> of {filteredLogs.length} events (Total in DB: {total})</span>
               <span>Sorted by Most Recent</span>
             </div>
 
-            {filteredLogs.map((log) => {
+            {paginatedLogs.map((log) => {
               const isExpanded = expandedLogId === log.id;
               const hasDiff = (log.before && Object.keys(log.before).length > 0) || (log.after && Object.keys(log.after).length > 0);
 
@@ -300,6 +312,19 @@ export const ActivityLogPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
                 </div>
               );
             })}
+
+            <div style={{ padding: '0.75rem 0.25rem' }}>
+              <Pagination
+                currentPage={page}
+                totalItems={filteredLogs.length}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setPage(1);
+                }}
+              />
+            </div>
           </div>
         )}
       </div>
