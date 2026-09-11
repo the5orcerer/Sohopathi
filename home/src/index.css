@@ -111,11 +111,15 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  max-width: 100vw;
+  overflow-x: hidden;
   background: var(--paper);
   color: var(--ink);
   font-family: 'Roboto', Arial, sans-serif;
@@ -5703,19 +5707,31 @@ input:focus-visible {
     margin-top: 33px;
   }
   .hero-product {
-    height: 330px;
+    height: auto;
+    min-height: 260px;
     margin-top: 15px;
-    transform: scale(0.86);
-    transform-origin: center top;
-    width: 116%;
-    margin-left: -8%;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    transform: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
   }
   .hero-dashboard {
-    right: -80px;
-    top: 55px;
-    width: 535px;
+    position: relative;
+    right: auto;
+    top: auto;
+    width: 100%;
+    max-width: 100%;
+    transform: scale(0.95);
+    transform-origin: center top;
   }
-  .hero-product>.phone-mockup { left: 0; top: 25px; }
+  .hero-product>.phone-mockup {
+    display: none;
+  }
 
   .trust-card { padding: 19px 10px; }
   .trust-grid { grid-template-columns: repeat(2, 1fr); }
@@ -5835,11 +5851,11 @@ input:focus-visible {
 }
 
 @media (max-width:380px) {
-  .hero-copy h1 { font-size: 35px; }
+  .hero-copy h1 { font-size: 32px; }
   .hero-product {
-    transform: scale(0.72);
-    width: 139%;
-    margin-left: -19%;
+    width: 100%;
+    margin-left: 0;
+    transform: none;
   }
   .trust-stat { gap: 6px; }
   .trust-stat strong { font-size: 15px; }

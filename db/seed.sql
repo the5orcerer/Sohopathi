@@ -63,7 +63,10 @@ from (values
   ('admissions.approve', 'admissions', 'Approve admission applications and enroll students', array['institution']),
 
   ('transport.read', 'transport', 'View routes and transport vehicle information', array['institution', 'assigned_routes', 'self']),
-  ('transport.manage', 'transport', 'Manage transport fleet and route stops', array['institution'])
+  ('transport.manage', 'transport', 'Manage transport fleet and route stops', array['institution']),
+
+  ('templates.read', 'core', 'View document templates and generated certificates', array['institution', 'assigned_sections', 'self']),
+  ('templates.manage', 'core', 'Create and edit document certificates and print templates', array['institution'])
 ) as p(key, module_key, description, scope_options)
 join m on m.key = p.module_key
 on conflict (key) do update set description = excluded.description, scope_options = excluded.scope_options;
@@ -118,8 +121,11 @@ from (values
   ('Institution Admin', 'admissions.read', 'institution'),
   ('Institution Admin', 'admissions.write', 'institution'),
   ('Institution Admin', 'admissions.approve', 'institution'),
+  ('Institution Admin', 'templates.read', 'institution'),
+  ('Institution Admin', 'templates.manage', 'institution'),
 
   ('Teacher', 'students.read', 'assigned_sections'),
+  ('Teacher', 'templates.read', 'assigned_sections'),
   ('Teacher', 'schedules.read', 'assigned_sections'),
   ('Teacher', 'tasks.read', 'self'),
   ('Teacher', 'attendance.read', 'assigned_sections'),
@@ -394,4 +400,302 @@ values
   ('f2c10000-0000-0000-0000-000000000001', 'Welcome to Biddyapith Academic Session 2026-2027', 'Classes have commenced for all grades. Students are advised to collect their curriculum schedules from their respective section coordinators.', 'institution', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000001')),
   ('f2c10000-0000-0000-0000-000000000001', 'Science Fair Abstract Submission Deadline', 'All Grade 9 and 10 students must submit their project abstracts by the upcoming Thursday.', 'institution', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000001'))
 on conflict do nothing;
+
+-- Document & Certificate Templates
+insert into public.template (id, institution_id, type, name, description, content, metadata)
+values
+  (
+    '70000000-0000-0000-0000-000000000001',
+    'f2c10000-0000-0000-0000-000000000001',
+    'tc',
+    'Official Transfer Certificate (TC)',
+    'Standard government and board compliant school leaving transfer certificate with complete student academic records.',
+    '<div class="doc-container tc-document" style="font-family: ''Times New Roman'', Georgia, serif; max-width: 800px; margin: 0 auto; padding: 40px; border: 4px double #1e293b; background: #ffffff; color: #0f172a;">
+  <div style="text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 15px; margin-bottom: 25px;">
+    <h1 style="margin: 0; font-size: 26px; text-transform: uppercase; letter-spacing: 1.5px; color: #1e3a8a;">{{institution.name}}</h1>
+    <p style="margin: 4px 0 0 0; font-size: 13px; color: #475569;">Affiliated with Board of Intermediate and Secondary Education &bull; Code: DMIA-2026</p>
+    <div style="margin-top: 15px; display: inline-block; padding: 4px 18px; background: #0f172a; color: #ffffff; font-weight: bold; font-size: 15px; letter-spacing: 2px; text-transform: uppercase;">
+      Transfer Certificate
+    </div>
+  </div>
+
+  <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 20px;">
+    <div><strong>TC Book No:</strong> TC-2026/{{student.classId}}</div>
+    <div><strong>Certificate Sl No:</strong> {{certificateNo}}</div>
+    <div><strong>Issue Date:</strong> {{issueDate}}</div>
+  </div>
+
+  <div style="font-size: 14.5px; line-height: 2.2; text-align: justify;">
+    This is to certify that <strong>{{student.name}}</strong>, Admission Number <strong>{{student.admissionNo}}</strong>, 
+    Roll Number <strong>{{student.rollNo}}</strong>, son/daughter of <strong>{{student.guardianName}}</strong>, was a bona fide student 
+    of this institution. According to school records, the student''s Date of Birth is <strong>{{student.dateOfBirth}}</strong>.
+    <br/>
+    The student was enrolled in <strong>Class {{student.className}}</strong>, Section <strong>{{student.sectionName}}</strong> during the academic session 
+    <strong>{{academicYear}}</strong>. All institutional dues, library books, and laboratory equipment have been satisfactorily cleared up to date.
+    <br/>
+    <strong>General Conduct & Character:</strong> {{conductRemarks}}
+    <br/>
+    <strong>Reason for Leaving School:</strong> {{reasonForLeaving}}
+    <br/>
+    We wish the student outstanding success and progress in all future educational pursuits.
+  </div>
+
+  <div style="margin-top: 70px; display: flex; justify-content: space-between; text-align: center; font-size: 13px;">
+    <div style="width: 200px; border-top: 1px dashed #475569; padding-top: 6px;">
+      Class Teacher
+    </div>
+    <div style="width: 140px; height: 140px; border: 2px dashed #94a3b8; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #64748b; margin-top: -30px;">
+      Official School Seal
+    </div>
+    <div style="width: 200px; border-top: 1px dashed #475569; padding-top: 6px;">
+      Headmaster / Principal
+    </div>
+  </div>
+</div>',
+    '{"orientation":"portrait","variables":["student.name","student.admissionNo","student.rollNo","student.className","student.sectionName","student.guardianName","student.dateOfBirth","certificateNo","issueDate","academicYear","conductRemarks","reasonForLeaving"]}'::jsonb
+  ),
+  (
+    '70000000-0000-0000-0000-000000000002',
+    'f2c10000-0000-0000-0000-000000000001',
+    'marksheet',
+    'Academic Marksheet & Progress Transcript',
+    'Official academic examination marksheet with subject breakdowns, grades, GPA, and term progress summary.',
+    '<div class="doc-container marksheet-document" style="font-family: -apple-system, BlinkMacSystemFont, ''Segoe UI'', Roboto, sans-serif; max-width: 850px; margin: 0 auto; padding: 35px; border: 2px solid #cbd5e1; background: #ffffff; color: #1e293b;">
+  <div style="text-align: center; border-bottom: 3px solid #2563eb; padding-bottom: 12px; margin-bottom: 20px;">
+    <h1 style="margin: 0; font-size: 24px; color: #1e40af; font-weight: 800;">{{institution.name}}</h1>
+    <p style="margin: 3px 0 0; font-size: 13px; color: #64748b;">Annual Academic Performance & Progress Transcript</p>
+    <div style="margin-top: 10px; font-weight: 700; font-size: 15px; color: #0f172a;">{{examName}} &bull; Session {{academicYear}}</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #f8fafc; padding: 14px 18px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px; font-size: 13.5px;">
+    <div><strong>Student Name:</strong> {{student.name}}</div>
+    <div><strong>Admission No:</strong> {{student.admissionNo}}</div>
+    <div><strong>Class & Section:</strong> {{student.className}} ({{student.sectionName}})</div>
+    <div><strong>Roll Number:</strong> {{student.rollNo}}</div>
+    <div><strong>Guardian Name:</strong> {{student.guardianName}}</div>
+    <div><strong>Attendance Record:</strong> 96% Present</div>
+  </div>
+
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 13px;">
+    <thead>
+      <tr style="background: #1e40af; color: #ffffff; text-align: left;">
+        <th style="padding: 10px; border: 1px solid #1e40af;">Subject</th>
+        <th style="padding: 10px; border: 1px solid #1e40af; text-align: center;">Full Marks</th>
+        <th style="padding: 10px; border: 1px solid #1e40af; text-align: center;">Obtained</th>
+        <th style="padding: 10px; border: 1px solid #1e40af; text-align: center;">Grade</th>
+        <th style="padding: 10px; border: 1px solid #1e40af; text-align: center;">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; font-weight: 600;">Mathematics</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">100</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">88</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a; font-weight: bold;">A+</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">Passed</td>
+      </tr>
+      <tr style="background: #f8fafc;">
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; font-weight: 600;">English Language</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">100</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">84</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a; font-weight: bold;">A+</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">Passed</td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; font-weight: 600;">General Science</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">100</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">79</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center; color: #2563eb; font-weight: bold;">A</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">Passed</td>
+      </tr>
+      <tr style="background: #f8fafc;">
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; font-weight: 600;">Bengali / Literature</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">100</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">82</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a; font-weight: bold;">A+</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">Passed</td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; font-weight: 600;">Social Studies</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">100</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">86</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a; font-weight: bold;">A+</td>
+        <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: center;">Passed</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr style="background: #eff6ff; font-weight: bold;">
+        <td style="padding: 10px; border: 1px solid #cbd5e1;">Grand Total / Cumulative GPA</td>
+        <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: center;">500</td>
+        <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: center; color: #1d4ed8;">419 (83.8%)</td>
+        <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a;">GPA 4.90</td>
+        <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a;">PROMOTED</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div style="background: #f1f5f9; padding: 12px; border-radius: 6px; font-size: 13px; margin-bottom: 40px;">
+    <strong>Teacher Remarks:</strong> Outstanding academic enthusiasm, sharp problem-solving instincts, and disciplined study habits throughout the semester.
+  </div>
+
+  <div style="display: flex; justify-content: space-between; text-align: center; font-size: 12.5px; padding-top: 20px;">
+    <div style="width: 180px; border-top: 1px solid #64748b; padding-top: 5px;">Controller of Examinations</div>
+    <div style="width: 180px; border-top: 1px solid #64748b; padding-top: 5px;">Class Teacher</div>
+    <div style="width: 180px; border-top: 1px solid #64748b; padding-top: 5px;">Principal Signature</div>
+  </div>
+</div>',
+    '{"orientation":"portrait","variables":["student.name","student.admissionNo","student.rollNo","student.className","student.sectionName","student.guardianName","examName","academicYear","issueDate"]}'::jsonb
+  ),
+  (
+    '70000000-0000-0000-0000-000000000003',
+    'f2c10000-0000-0000-0000-000000000001',
+    'testimonial',
+    'Student Character Testimonial',
+    'Formal institutional character certificate certifying moral character, discipline, and extracurricular contributions.',
+    '<div class="doc-container testimonial-document" style="font-family: Georgia, serif; max-width: 820px; margin: 0 auto; padding: 45px; border: 6px double #334155; background: #fffcf8; color: #0f172a; position: relative;">
+  <div style="text-align: center; margin-bottom: 25px;">
+    <h1 style="margin: 0; font-size: 28px; text-transform: uppercase; color: #0f172a; letter-spacing: 2px;">{{institution.name}}</h1>
+    <p style="margin: 5px 0 0; font-style: italic; color: #475569; font-size: 14px;">Excellence in Academic Guidance & Character Formation</p>
+    <div style="margin: 20px auto 0; width: 280px; height: 3px; background: linear-gradient(90deg, transparent, #0f172a, transparent);"></div>
+    <h2 style="font-size: 20px; margin: 18px 0 0; text-transform: uppercase; letter-spacing: 3px; color: #b45309;">Testimonial</h2>
+  </div>
+
+  <div style="font-size: 15px; line-height: 2.3; text-align: justify; margin: 30px 0;">
+    This is to certify that <strong>{{student.name}}</strong>, daughter/son of <strong>{{student.guardianName}}</strong>, 
+    bearing Admission Number <strong>{{student.admissionNo}}</strong> and Class Roll <strong>{{student.rollNo}}</strong>, has been a regular student 
+    of <strong>Class {{student.className}}</strong>, Section <strong>{{student.sectionName}}</strong> at this institution during the academic period 
+    <strong>{{academicYear}}</strong>.
+    <br/>
+    To the best of our knowledge and institutional observation, the student bears exemplary moral conduct, sincere scholastic diligence, 
+    and respectful behavior toward peers and faculty members alike. The student took active part in institutional co-curricular initiatives 
+    and has not taken part in any activity subversive of law or school discipline.
+    <br/>
+    We wish the student every success, health, and distinction in future academic and personal life.
+  </div>
+
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 60px; font-size: 13px;">
+    <div>
+      <div><strong>Issue Date:</strong> {{issueDate}}</div>
+      <div><strong>Institutional Seal:</strong> Affixed</div>
+    </div>
+    <div style="text-align: center; width: 220px; border-top: 1px solid #0f172a; padding-top: 6px;">
+      <strong>Principal / Head of Institution</strong><br/>
+      {{institution.name}}
+    </div>
+  </div>
+</div>',
+    '{"orientation":"portrait","variables":["student.name","student.admissionNo","student.rollNo","student.className","student.sectionName","student.guardianName","academicYear","issueDate"]}'::jsonb
+  ),
+  (
+    '70000000-0000-0000-0000-000000000004',
+    'f2c10000-0000-0000-0000-000000000001',
+    'admit_card',
+    'Examination Hall Admit Card',
+    'Official examination admit card and hall ticket with student photo box, exam schedule, and candidate guidelines.',
+    '<div class="doc-container admit-card-document" style="font-family: -apple-system, BlinkMacSystemFont, ''Segoe UI'', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 30px; border: 2px solid #0f172a; background: #ffffff; color: #0f172a;">
+  <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f172a; padding-bottom: 15px; margin-bottom: 18px;">
+    <div>
+      <h2 style="margin: 0; font-size: 22px; color: #1e3a8a; font-weight: 800;">{{institution.name}}</h2>
+      <p style="margin: 2px 0 0; font-size: 12.5px; color: #475569;">Official Examination Hall Ticket & Admit Card</p>
+      <div style="margin-top: 6px; font-weight: 700; font-size: 14px; color: #b45309;">{{examName}} &bull; Session {{academicYear}}</div>
+    </div>
+    <div style="width: 100px; height: 110px; border: 2px dashed #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #64748b; text-align: center;">
+      Student Photo
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; font-size: 13.5px; margin-bottom: 20px; background: #f8fafc; padding: 12px 16px; border: 1px solid #e2e8f0; border-radius: 6px;">
+    <div><strong>Candidate Name:</strong> {{student.name}}</div>
+    <div><strong>Roll Number:</strong> {{student.rollNo}}</div>
+    <div><strong>Admission ID:</strong> {{student.admissionNo}}</div>
+    <div><strong>Class & Section:</strong> {{student.className}} - {{student.sectionName}}</div>
+    <div><strong>Exam Center:</strong> Main Campus Hall A</div>
+    <div><strong>Reporting Time:</strong> 09:30 AM</div>
+  </div>
+
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12.5px;">
+    <thead>
+      <tr style="background: #1e293b; color: #ffffff;">
+        <th style="padding: 8px; border: 1px solid #1e293b; text-align: left;">Date</th>
+        <th style="padding: 8px; border: 1px solid #1e293b; text-align: left;">Paper / Subject</th>
+        <th style="padding: 8px; border: 1px solid #1e293b; text-align: center;">Time</th>
+        <th style="padding: 8px; border: 1px solid #1e293b; text-align: center;">Invigilator Sign</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="padding: 8px; border: 1px solid #cbd5e1;">Day 1</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: 600;">Mathematics (Paper I)</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center;">10:00 AM - 01:00 PM</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1;"></td>
+      </tr>
+      <tr style="background: #f8fafc;">
+        <td style="padding: 8px; border: 1px solid #cbd5e1;">Day 2</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: 600;">English Language</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center;">10:00 AM - 01:00 PM</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1;"></td>
+      </tr>
+      <tr>
+        <td style="padding: 8px; border: 1px solid #cbd5e1;">Day 3</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: 600;">General Science</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center;">10:00 AM - 01:00 PM</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1;"></td>
+      </tr>
+      <tr style="background: #f8fafc;">
+        <td style="padding: 8px; border: 1px solid #cbd5e1;">Day 4</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: 600;">Social Studies</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center;">10:00 AM - 01:00 PM</td>
+        <td style="padding: 8px; border: 1px solid #cbd5e1;"></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div style="font-size: 11.5px; color: #475569; margin-bottom: 30px;">
+    <strong>Candidate Instructions:</strong> Electronic gadgets, mobile phones, or smartwatches are strictly prohibited in the exam hall. Candidates must arrive at least 30 minutes prior to exam start.
+  </div>
+
+  <div style="display: flex; justify-content: space-between; text-align: center; font-size: 12.5px;">
+    <div style="width: 180px; border-top: 1px solid #0f172a; padding-top: 4px;">Candidate Signature</div>
+    <div style="width: 180px; border-top: 1px solid #0f172a; padding-top: 4px;">Controller of Examinations</div>
+  </div>
+</div>',
+    '{"orientation":"portrait","variables":["student.name","student.admissionNo","student.rollNo","student.className","student.sectionName","examName","academicYear"]}'::jsonb
+  ),
+  (
+    '70000000-0000-0000-0000-000000000005',
+    'f2c10000-0000-0000-0000-000000000001',
+    'id_card',
+    'Printable Student Identity Card',
+    'Compact portrait institutional ID badge with photo frame, barcode placeholder, and emergency contact.',
+    '<div class="doc-container id-card-document" style="font-family: -apple-system, BlinkMacSystemFont, ''Segoe UI'', Roboto, sans-serif; width: 320px; margin: 0 auto; border: 2px solid #2563eb; border-radius: 12px; overflow: hidden; background: #ffffff; color: #0f172a; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+  <div style="background: #1e40af; color: #ffffff; text-align: center; padding: 14px 10px;">
+    <h3 style="margin: 0; font-size: 14px; font-weight: 800; text-transform: uppercase;">{{institution.name}}</h3>
+    <div style="font-size: 10px; opacity: 0.85; margin-top: 2px;">STUDENT IDENTITY CARD</div>
+  </div>
+
+  <div style="padding: 16px; text-align: center;">
+    <div style="width: 90px; height: 100px; margin: 0 auto 12px; border: 2px solid #cbd5e1; border-radius: 8px; background: #f8fafc; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #94a3b8;">
+      PHOTO
+    </div>
+
+    <h4 style="margin: 0 0 4px; font-size: 16px; font-weight: 700; color: #1e3a8a;">{{student.name}}</h4>
+    <div style="font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 12px;">Roll: {{student.rollNo}} &bull; Class {{student.className}} ({{student.sectionName}})</div>
+
+    <div style="text-align: left; font-size: 11.5px; line-height: 1.8; background: #f1f5f9; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px;">
+      <div><strong>ID No:</strong> {{student.admissionNo}}</div>
+      <div><strong>Guardian:</strong> {{student.guardianName}}</div>
+      <div><strong>Emergency Phone:</strong> {{student.guardianPhone}}</div>
+      <div><strong>Academic Session:</strong> {{academicYear}}</div>
+    </div>
+
+    <div style="border-top: 1px dashed #cbd5e1; padding-top: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #64748b;">
+      <span>Valid: 2026-2027</span>
+      <span style="border-bottom: 1px solid #64748b; padding-bottom: 1px;">Principal Signature</span>
+    </div>
+  </div>
+</div>',
+    '{"orientation":"portrait","variables":["student.name","student.admissionNo","student.rollNo","student.className","student.sectionName","student.guardianName","student.guardianPhone","academicYear"]}'::jsonb
+  )
+on conflict (id) do update set name = excluded.name, content = excluded.content, metadata = excluded.metadata;
+
 

@@ -427,3 +427,62 @@ export async function bulkImportAcademicRoster(req: Request, res: Response, clie
   res.status(201).json(summary);
 }
 
+// --- Document & Certificate Templates ---
+export async function listTemplates(req: Request, res: Response, client: PoolClient) {
+  const type = req.query.type as string | undefined;
+  const templates = await coreRepository.listTemplates(client, req.ctx!.institutionId, type);
+  res.json(templates);
+}
+
+export async function getTemplate(req: Request, res: Response, client: PoolClient) {
+  const template = await coreRepository.getTemplateById(client, req.ctx!.institutionId, req.params.id);
+  if (!template) {
+    return res.status(404).json({ error: 'Template not found' });
+  }
+  res.json(template);
+}
+
+export async function createTemplate(req: Request, res: Response, client: PoolClient) {
+  const template = await coreRepository.createTemplate(
+    client,
+    req.ctx!.institutionId,
+    req.body,
+    req.ctx?.membershipId
+  );
+  res.status(201).json(template);
+}
+
+export async function updateTemplate(req: Request, res: Response, client: PoolClient) {
+  const template = await coreRepository.updateTemplate(
+    client,
+    req.ctx!.institutionId,
+    req.params.id,
+    req.body,
+    req.ctx?.membershipId
+  );
+  res.json(template);
+}
+
+export async function deleteTemplate(req: Request, res: Response, client: PoolClient) {
+  const result = await coreRepository.deleteTemplate(
+    client,
+    req.ctx!.institutionId,
+    req.params.id,
+    req.ctx?.membershipId
+  );
+  res.json(result);
+}
+
+export async function renderTemplate(req: Request, res: Response, client: PoolClient) {
+  const { studentId, variables } = req.body || {};
+  const rendered = await coreRepository.renderTemplate(
+    client,
+    req.ctx!.institutionId,
+    req.params.id,
+    studentId,
+    variables
+  );
+  res.json(rendered);
+}
+
+

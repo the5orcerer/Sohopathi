@@ -27,9 +27,11 @@ import {
   Sliders,
   Upload,
   CheckCircle2,
+  FileText,
 } from 'lucide-react';
 import { Button, Badge, Modal, SearchBar, EmptyState, Student360Modal, CustomFieldsRenderer } from '../components/common';
 import { AcademicMigrationModal } from '../components/academic/AcademicMigrationModal';
+import { StudentDocumentModal } from '../components/students/StudentDocumentModal';
 
 export const StudentsPage: React.FC = () => {
   const { activeMembership, user } = useSession();
@@ -66,6 +68,9 @@ export const StudentsPage: React.FC = () => {
 
   // Migration Wizard Modal
   const [showMigrationModal, setShowMigrationModal] = useState(false);
+
+  // Document & Certificate Generation Modal
+  const [documentTargetStudent, setDocumentTargetStudent] = useState<StudentItem | null>(null);
 
   // Single Student Create Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -679,6 +684,16 @@ ADM-2026-103,Shadman Sakib,Male,07`
                     </td>
                     <td style={{ padding: '0.65rem 0.5rem', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'flex-end' }}>
+                        {/* ✅ Document Generator - TC, Marksheet, Certificate */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDocumentTargetStudent(st)}
+                          title="Generate Document / TC / Marksheet"
+                        >
+                          <FileText size={13} style={{ color: 'var(--brand-primary)' }} />
+                        </Button>
+
                         {/* ✅ Edit - Admin, Teacher এবং Student (শুধু নিজের প্রোফাইল) দেখতে পারে */}
                         {(canEdit && !isStudent) || (isStudent && st.id === ownStudentId) ? (
                           <Button
@@ -710,6 +725,13 @@ ADM-2026-103,Shadman Sakib,Male,07`
           </table>
         </div>
       )}
+
+      {/* Document & Certificate Generation Modal */}
+      <StudentDocumentModal
+        student={documentTargetStudent}
+        isOpen={!!documentTargetStudent}
+        onClose={() => setDocumentTargetStudent(null)}
+      />
 
       {/* Student 360 History Modal - সবাই দেখতে পারে */}
       <Student360Modal studentId={active360StudentId} onClose={() => setActive360StudentId(null)} />

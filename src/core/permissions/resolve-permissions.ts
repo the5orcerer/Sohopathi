@@ -1,5 +1,6 @@
 import { PoolClient } from 'pg';
 import { appCache } from '../cache';
+import { resolvePermissionDependencies } from './dependencies';
 
 export interface ResolvedContext {
   userId: string;
@@ -100,11 +101,13 @@ export async function resolveContext(
       [membershipId]
     );
 
-    const permissions = new Map<string, string>();
+    const rawPermissions = new Map<string, string>();
     for (const row of permRows) {
-      permissions.set(row.permission_key, row.scope || 'institution');
+      rawPermissions.set(row.permission_key, row.scope || 'institution');
     }
     await client.query('COMMIT');
+
+    const permissions = resolvePermissionDependencies(rawPermissions);
 
     const result: ResolvedContext = {
       userId,

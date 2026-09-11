@@ -1101,3 +1101,83 @@ export async function deleteAdmission(id: string): Promise<{ success: boolean }>
     method: 'DELETE',
   });
 }
+
+// ============================================================
+// DOCUMENT & CERTIFICATE TEMPLATES API
+// ============================================================
+
+export interface DocumentTemplateItem {
+  id: string;
+  institutionId?: string;
+  type: 'tc' | 'marksheet' | 'certificate' | 'testimonial' | 'admit_card' | 'id_card';
+  name: string;
+  description?: string;
+  content: string;
+  metadata?: {
+    orientation?: 'portrait' | 'landscape';
+    variables?: string[];
+    [key: string]: any;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchTemplates(type?: string): Promise<DocumentTemplateItem[]> {
+  const qs = type ? `?type=${type}` : '';
+  return fetchWithAuth<DocumentTemplateItem[]>(`/api/core/templates${qs}`);
+}
+
+export async function fetchTemplate(id: string): Promise<DocumentTemplateItem> {
+  return fetchWithAuth<DocumentTemplateItem>(`/api/core/templates/${id}`);
+}
+
+export async function createTemplate(data: {
+  type: string;
+  name: string;
+  description?: string;
+  content: string;
+  metadata?: any;
+}): Promise<DocumentTemplateItem> {
+  return fetchWithAuth<DocumentTemplateItem>('/api/core/templates', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateTemplate(
+  id: string,
+  data: {
+    type?: string;
+    name?: string;
+    description?: string;
+    content?: string;
+    metadata?: any;
+  }
+): Promise<DocumentTemplateItem> {
+  return fetchWithAuth<DocumentTemplateItem>(`/api/core/templates/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteTemplate(id: string): Promise<{ success: boolean }> {
+  return fetchWithAuth<{ success: boolean }>(`/api/core/templates/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function renderTemplate(
+  id: string,
+  payload: {
+    studentId?: string;
+    variables?: Record<string, string>;
+  }
+): Promise<{ template: DocumentTemplateItem; rendered: string; variables: Record<string, string> }> {
+  return fetchWithAuth<{ template: DocumentTemplateItem; rendered: string; variables: Record<string, string> }>(
+    `/api/core/templates/${id}/render`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}

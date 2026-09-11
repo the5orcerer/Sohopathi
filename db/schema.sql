@@ -624,6 +624,25 @@ create table if not exists public.sales_leads (
   created_at timestamptz default now()
 );
 
+create table if not exists public.template (
+  id uuid primary key default gen_random_uuid(),
+  institution_id uuid references public.institution(id) on delete cascade,
+  type text not null check (type in ('tc', 'marksheet', 'certificate', 'testimonial', 'admit_card', 'id_card')),
+  name text not null,
+  description text,
+  content text not null,
+  metadata jsonb default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists trg_template_updated_at on public.template;
+create trigger trg_template_updated_at
+  before update on public.template
+  for each row execute procedure public.set_updated_at();
+
+create index if not exists idx_template_inst_type on public.template (institution_id, type);
+
 -- ----------------------------------------------------------------------------
 -- 13. INDEXES
 -- ----------------------------------------------------------------------------
@@ -640,7 +659,7 @@ declare
     'vehicle','transport_driver','transport_route','transport_stop','transport_route_stop',
     'student_transport_assignment','class_schedule','employee_attendance',
     'custom_field_definition','notification','user_task','institution_setting',
-    'admission_application'
+    'admission_application','template'
   ];
 begin
   foreach t in array tenant_tables loop
@@ -687,7 +706,7 @@ declare
     'vehicle','transport_driver','transport_route','transport_stop','transport_route_stop',
     'student_transport_assignment','class_schedule','employee_attendance',
     'custom_field_definition','notification','user_task','institution_setting',
-    'admission_application'
+    'admission_application','template'
   ];
 begin
   foreach t in array tenant_tables loop

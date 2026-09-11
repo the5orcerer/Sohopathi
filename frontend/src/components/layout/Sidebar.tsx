@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSession } from '../../context/SessionContext';
 import BiddyapithDarkLogo from '../../assets/biddyapith-dark.png';
 import BiddyapithLightLogo from '../../assets/biddyapith-light.png';
@@ -10,6 +10,7 @@ import {
   GraduationCap,
   Layers,
   ChevronRight,
+  ChevronDown,
   X,
   Sliders,
   UserPlus,
@@ -19,6 +20,10 @@ import {
   ClipboardList,
   Settings,
   BarChart3,
+  FileText,
+  Shield,
+  Sparkles,
+  School,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -28,27 +33,20 @@ interface SidebarProps {
   onCloseMobile?: () => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  isMobile?: boolean;
 }
 
-const getNavIcon = (path: string) => {
-  switch (path) {
-    case '/': return <LayoutDashboard size={20} />;
-    case '/attendance': return <CalendarCheck size={20} />;
-    case '/admissions': return <UserPlus size={20} />;
-    case '/examinations': return <Award size={20} />;
-    case '/assignments': return <BookOpen size={20} />;
-    case '/notices': return <Bell size={20} />;
-    case '/students': return <GraduationCap size={20} />;
-    case '/academic': return <Layers size={20} />;
-    case '/reports': return <BarChart3 size={20} />;
-    case '/tasks': return <ClipboardList size={20} />;
-    case '/members': return <Users size={20} />;
-    case '/permission-matrix': return <Sliders size={20} />;
-    case '/activity-log': return <History size={20} />;
-    case '/settings': return <Settings size={20} />;
-    default: return <Users size={20} />;
-  }
-};
+interface NavCategory {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  items: {
+    label: string;
+    path: string;
+    icon: React.ReactNode;
+    requiredPermission?: string;
+  }[];
+}
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentPath,
@@ -56,23 +54,118 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile = false,
   onCloseMobile,
   isCollapsed = false,
+  isMobile = false,
 }) => {
-  const { navItems, user, activeMembership } = useSession();
-  
-  // থিম স্টেট যুক্ত করা হলো (ডিফল্ট Light Mode)
-  const isDarkMode = false;
+  const { navItems, user, activeMembership, theme } = useSession();
+  const isDarkMode = theme === 'dark';
+
+  // Master categorized navigation structure
+  const categories: NavCategory[] = [
+    {
+      id: 'overview',
+      label: 'Overview & Analytics',
+      icon: <Sparkles size={14} />,
+      items: [
+        { label: 'Dashboard', path: '/', icon: <LayoutDashboard size={18} /> },
+        { label: 'Reports & Analytics', path: '/reports', icon: <BarChart3 size={18} />, requiredPermission: 'students.read' },
+      ],
+    },
+    {
+      id: 'students',
+      label: 'Student Lifecycle',
+      icon: <GraduationCap size={14} />,
+      items: [
+        { label: 'Students Directory', path: '/students', icon: <GraduationCap size={18} />, requiredPermission: 'students.read' },
+        { label: 'Admissions Funnel', path: '/admissions', icon: <UserPlus size={18} />, requiredPermission: 'admissions.read' },
+      ],
+    },
+    {
+      id: 'academics',
+      label: 'Academic Engine',
+      icon: <School size={14} />,
+      items: [
+        { label: 'Academic Setup', path: '/academic', icon: <Layers size={18} />, requiredPermission: 'classes.manage' },
+        { label: 'Examinations & Marks', path: '/examinations', icon: <Award size={18} />, requiredPermission: 'marks.read' },
+        { label: 'Assignments', path: '/assignments', icon: <BookOpen size={18} />, requiredPermission: 'assignments.read' },
+        { label: 'Daily Attendance', path: '/attendance', icon: <CalendarCheck size={18} />, requiredPermission: 'attendance.read' },
+      ],
+    },
+    {
+      id: 'campus',
+      label: 'Documents & Campus',
+      icon: <FileText size={14} />,
+      items: [
+        { label: 'Document Templates', path: '/templates', icon: <FileText size={18} />, requiredPermission: 'templates.read' },
+        { label: 'Campus Notices', path: '/notices', icon: <Bell size={18} />, requiredPermission: 'notices.read' },
+        { label: 'Staff Tasks', path: '/tasks', icon: <ClipboardList size={18} />, requiredPermission: 'tasks.read' },
+      ],
+    },
+    {
+      id: 'admin',
+      label: 'Administration',
+      icon: <Shield size={14} />,
+      items: [
+        { label: 'Staff Members', path: '/members', icon: <Users size={18} />, requiredPermission: 'memberships.manage' },
+        { label: 'Permission Matrix', path: '/permission-matrix', icon: <Sliders size={18} />, requiredPermission: 'roles.manage' },
+        { label: 'Audit Logs', path: '/activity-log', icon: <History size={18} />, requiredPermission: 'audit_logs.read' },
+        { label: 'Institution Settings', path: '/settings', icon: <Settings size={18} />, requiredPermission: 'settings.manage' },
+      ],
+    },
+  ];
+
+  // Determine active category based on currentPath
+  const getActiveCategoryId = (): string => {
+    for (const cat of categories) {
+      if (cat.items.some((item) => item.path === currentPath)) {
+        return cat.id;
+      }
+    }
+    return 'overview';
+  };
+
+  // State to track which categories are open
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
+    return {
+      overview: true,
+      students: true,
+      academics: true,
+      campus: true,
+      admin: true,
+    };
+  });
+
+  // Ensure active category is open when path changes
+  useEffect(() => {
+    const activeCat = getActiveCategoryId();
+    setOpenCategories((prev) => ({ ...prev, [activeCat]: true }));
+  }, [currentPath]);
+
+  const toggleCategory = (catId: string) => {
+    setOpenCategories((prev) => ({ ...prev, [catId]: !prev[catId] }));
+  };
 
   const handleItemClick = (path: string) => {
     onNavigate(path);
-    if (onCloseMobile) onCloseMobile();
+    if (isMobile && onCloseMobile) {
+      onCloseMobile();
+    }
   };
 
-  const sidebarWidth = isCollapsed ? 64 : 240;
+  // Check if a path is permitted
+  const isItemPermitted = (item: { path: string; requiredPermission?: string }) => {
+    if (item.path === '/') return true;
+    if (item.path === '/templates') return true;
+    if (!item.requiredPermission) return true;
+    if (!navItems || navItems.length === 0) return true;
+    return navItems.some((n) => n.path === item.path);
+  };
+
+  const sidebarWidth = isMobile ? 270 : isCollapsed ? 64 : 250;
 
   return (
     <>
       {/* Mobile Backdrop Overlay */}
-      {isOpenMobile && (
+      {isMobile && isOpenMobile && (
         <div
           onClick={onCloseMobile}
           style={{
@@ -81,10 +174,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
+            background: 'rgba(15, 23, 42, 0.55)',
             backdropFilter: 'blur(4px)',
-            zIndex: 999,
-            animation: 'fadeIn 0.3s ease',
+            zIndex: 1040,
+            animation: 'fadeIn 0.2s ease',
           }}
         />
       )}
@@ -101,33 +194,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
           position: 'fixed',
           top: 0,
           left: 0,
-          zIndex: 1000,
-          transform: isOpenMobile ? 'translateX(0)' : 'translateX(0)',
-          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          boxShadow: isOpenMobile ? 'var(--shadow-xl)' : 'none',
+          zIndex: 1050,
+          transform: isMobile
+            ? isOpenMobile
+              ? 'translateX(0)'
+              : 'translateX(-100%)'
+            : 'translateX(0)',
+          transition: isMobile
+            ? 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+            : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          boxShadow: isMobile && isOpenMobile ? '0 20px 40px rgba(0,0,0,0.3)' : 'none',
           overflow: 'hidden',
         }}
       >
         {/* Brand Header */}
         <div
           style={{
-            height: '56px',
-            padding: isCollapsed ? '0 0.75rem' : '0 1.25rem',
+            height: '64px',
+            padding: !isMobile && isCollapsed ? '0 0.75rem' : '0 1.25rem',
             borderBottom: '1px solid var(--border-subtle)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: isCollapsed ? 'center' : 'space-between',
+            justifyContent: !isMobile && isCollapsed ? 'center' : 'space-between',
             flexShrink: 0,
             transition: 'padding 0.3s ease',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: isCollapsed ? 0 : '0.65rem' }}>
-            {/* লোগো ইমেজের বক্স - থিম অনুযায়ী ব্যাকগ্রাউন্ড বদলাবে */}
+          <div
+            onClick={() => handleItemClick('/')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: !isMobile && isCollapsed ? 0 : '0.65rem',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+          >
             <div
               style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: 'var(--radius-sm)',
+                width: '36px',
+                height: '36px',
+                borderRadius: '8px',
                 background: 'transparent',
                 display: 'flex',
                 alignItems: 'center',
@@ -135,34 +242,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 flexShrink: 0,
                 overflow: 'hidden',
                 border: '1px solid var(--border-subtle)',
-                boxShadow: isDarkMode ? '0 0 10px rgba(139, 92, 246, 0.2)' : 'none',
               }}
             >
-              {/* থিম অনুযায়ী লোগো বদলাবে */}
-              <img 
-                src={isDarkMode ? BiddyapithDarkLogo : BiddyapithLightLogo} 
+              <img
+                src={isDarkMode ? BiddyapithDarkLogo : BiddyapithLightLogo}
                 alt="Logo"
-                style={{ 
-                  width: '100%', 
+                style={{
+                  width: '100%',
                   height: '100%',
-                  objectFit: 'contain' 
-                }} 
+                  objectFit: 'contain',
+                }}
               />
             </div>
 
-            {!isCollapsed && (
+            {(isMobile || !isCollapsed) && (
               <div style={{ overflow: 'hidden', whiteSpace: 'nowrap' }}>
                 <div
                   style={{
                     fontWeight: 800,
-                    fontFamily: 'bold',
-                    fontSize: '1.25rem',
-            
+                    fontSize: '1.15rem',
+                    letterSpacing: '-0.02em',
                     textTransform: 'uppercase',
-                    // টেক্সটের রং থিম অনুযায়ী বদলাবে
-                    background: isDarkMode 
-                      ? 'linear-gradient(135deg, #a78bfa, #60a5fa)' // ডার্ক মোডে উজ্জ্বল বেগুনি
-                      : 'linear-gradient(135deg, var(--brand-primary), #60a5fa)', // লাইট মোডে আগের রং
+                    background: 'linear-gradient(135deg, var(--brand-primary), #60a5fa)',
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
                     backgroundClip: 'text',
@@ -170,23 +271,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   Biddyapith
                 </div>
-                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
+                <div
+                  style={{
+                    fontSize: '0.65rem',
+                    color: 'var(--text-muted)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    maxWidth: '150px',
+                  }}
+                >
                   {activeMembership?.institutionName || 'Education Platform'}
                 </div>
               </div>
             )}
           </div>
 
-          {/* Close button for mobile */}
-          {isOpenMobile && onCloseMobile && (
+          {/* Close button on mobile */}
+          {isMobile && onCloseMobile && (
             <button
               onClick={onCloseMobile}
               style={{
-                padding: '0.3rem',
+                padding: '0.4rem',
                 borderRadius: 'var(--radius-sm)',
                 border: 'none',
                 background: 'transparent',
-                color: 'var(--text-muted)',
+                color: 'var(--text-secondary)',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -199,373 +308,210 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* Dynamic Navigation Menu */}
+        {/* Categorized Navigation Container */}
         <div
+          className="sidebar-scrollable-content"
           style={{
             flex: 1,
-            padding: isCollapsed ? '0.5rem 0.25rem' : '0.75rem 0.75rem',
-            overflow: 'hidden',
-            transition: 'padding 0.3s ease',
+            padding: !isMobile && isCollapsed ? '0.5rem 0.25rem' : '0.75rem 0.65rem',
+            overflowY: 'auto',
+            overflowX: 'hidden',
             display: 'flex',
             flexDirection: 'column',
+            gap: '0.75rem',
           }}
         >
-          {/* Home / Dashboard Link */}
-          <button
-            onClick={() => handleItemClick('/')}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: isCollapsed ? 'center' : 'flex-start',
-              gap: isCollapsed ? 0 : '0.65rem',
-              padding: isCollapsed ? '0.6rem' : '0.6rem 0.85rem',
-              borderRadius: 'var(--radius-sm)',
-              marginBottom: '0',
-              background:
-                currentPath === '/'
-                  ? 'var(--brand-primary)'
-                  : 'transparent',
-              color:
-                currentPath === '/'
-                  ? '#ffffff'
-                  : 'var(--text-secondary)',
-              fontWeight: currentPath === '/' ? 600 : 400,
-              fontSize: '0.80rem',
-              border: 'none',
-              transition: 'all var(--transition-fast)',
-              textAlign: 'left',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              position: 'relative',
-            }}
-            onMouseEnter={(e) => {
-              if (currentPath !== '/') {
-                e.currentTarget.style.background =
-                  'var(--surface-hover)';
+          {categories.map((cat) => {
+            // Filter items user can access
+            const permittedItems = cat.items.filter(isItemPermitted);
+            if (permittedItems.length === 0) return null;
 
-                e.currentTarget.style.color =
-                  'var(--text-primary)';
+            const isOpen = openCategories[cat.id] ?? true;
+            const hasActiveItem = permittedItems.some((item) => item.path === currentPath);
 
-                const icon = e.currentTarget.querySelector(
-                  '.nav-icon'
-                ) as HTMLElement;
-
-                if (icon) {
-                  icon.style.color =
-                    'var(--text-primary)';
-                }
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (currentPath !== '/') {
-                e.currentTarget.style.background =
-                  'transparent';
-
-                e.currentTarget.style.color =
-                  'var(--text-secondary)';
-
-                const icon = e.currentTarget.querySelector(
-                  '.nav-icon'
-                ) as HTMLElement;
-
-                if (icon) {
-                  icon.style.color =
-                    'var(--text-secondary)';
-                }
-              }
-            }}
-            title={isCollapsed ? 'Dashboard' : ''}
-          >
-            {/* Dashboard Icon */}
-            <span
-              className="nav-icon"
-              style={{
-                color:
-                  currentPath === '/'
-                    ? '#ffffff'
-                    : 'var(--text-secondary)',
-                opacity:
-                  currentPath === '/'
-                    ? 1
-                    : 0.6,
-                flexShrink: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'color 0.2s ease',
-              }}
-            >
-              <LayoutDashboard size={20} />
-            </span>
-
-            {!isCollapsed && (
-              <>
-                {/* Dashboard Text */}
-                <span
+            // In collapsed desktop mode: render icons with dividers
+            if (!isMobile && isCollapsed) {
+              return (
+                <div
+                  key={cat.id}
                   style={{
-                    flex: 1,
-                    overflow: 'hidden',
-                    whiteSpace: 'nowrap',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.3rem',
+                    paddingBottom: '0.4rem',
+                    borderBottom: '1px solid var(--border-subtle)',
                   }}
                 >
-                  Dashboard
-                </span>
+                  {permittedItems.map((item) => {
+                    const isActive = currentPath === item.path;
+                    return (
+                      <button
+                        key={item.path}
+                        onClick={() => handleItemClick(item.path)}
+                        title={item.label}
+                        style={{
+                          width: '42px',
+                          height: '42px',
+                          margin: '0 auto',
+                          borderRadius: '8px',
+                          border: 'none',
+                          background: isActive ? 'var(--brand-primary)' : 'transparent',
+                          color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {item.icon}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            }
 
-                {/* Active Arrow */}
-                {currentPath === '/' && (
-                  <ChevronRight
-                    size={14}
-                    style={{
-                      opacity: 0.7,
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
-              </>
-            )}
-
-            {/* Active Indicator */}
-            {isCollapsed && currentPath === '/' && (
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  width: '3px',
-                  height: '20px',
-                  background: 'var(--brand-primary)',
-                  borderRadius: '0 2px 2px 0',
-                }}
-              />
-            )}
-          </button>
-
-          {/* Dynamic Nav Items */}
-          {navItems && navItems.length > 0 && (
-            <div
-              style={{
-                marginTop: '0',
-                overflow: 'hidden',
-                flex: 1,
-              }}
-            >
-              {!isCollapsed && (
-                <div
+            // Expanded Desktop & Mobile Accordion Category
+            return (
+              <div key={cat.id} style={{ display: 'flex', flexDirection: 'column' }}>
+                {/* Category Header */}
+                <button
+                  onClick={() => toggleCategory(cat.id)}
                   style={{
-                    fontSize: '0.50rem',
-                    fontWeight: 500,
-                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                    padding: '0.35rem 0.6rem',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: hasActiveItem ? 'var(--brand-primary)' : 'var(--text-muted)',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
                     textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    padding: '0',
-                    flexShrink: 0,
+                    letterSpacing: '0.06em',
+                    borderRadius: 'var(--radius-sm)',
+                    transition: 'all 0.15s ease',
                   }}
-                />
-              )}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    <span style={{ opacity: 0.8 }}>{cat.icon}</span>
+                    <span>{cat.label}</span>
+                  </div>
+                  <span style={{ opacity: 0.6 }}>
+                    {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </span>
+                </button>
 
-              {navItems.map((item) => {
-                const isActive =
-                  currentPath === item.path;
+                {/* Category Nav Items */}
+                {isOpen && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', marginTop: '0.2rem' }}>
+                    {permittedItems.map((item) => {
+                      const isActive = currentPath === item.path;
 
-                return (
-                  <button
-                    key={item.path}
-                    onClick={() =>
-                      handleItemClick(item.path)
-                    }
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isCollapsed
-                        ? 'center'
-                        : 'flex-start',
-
-                      gap: isCollapsed
-                        ? 0
-                        : '0.75rem',
-
-                      padding: isCollapsed
-                        ? '0.6rem'
-                        : '0.6rem 0.75rem',
-
-                      borderRadius:
-                        'var(--radius-sm)',
-
-                      margin: '0',
-
-                      background: isActive
-                        ? 'var(--brand-primary)'
-                        : 'transparent',
-
-                      color: isActive
-                        ? '#ffffff'
-                        : 'var(--text-secondary)',
-
-                      fontWeight: isActive
-                        ? 600
-                        : 400,
-
-                      fontSize: '0.80rem',
-
-                      border: 'none',
-
-                      transition:
-                        'all var(--transition-fast)',
-
-                      textAlign: 'left',
-
-                      cursor: 'pointer',
-
-                      fontFamily: 'inherit',
-
-                      position: 'relative',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background =
-                          'var(--surface-hover)';
-
-                        e.currentTarget.style.color =
-                          'var(--text-primary)';
-
-                        const icon =
-                          e.currentTarget.querySelector(
-                            '.nav-icon'
-                          ) as HTMLElement;
-
-                        if (icon) {
-                          icon.style.color =
-                            'var(--brand-primary)';
-                        }
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background =
-                          'transparent';
-
-                        e.currentTarget.style.color =
-                          'var(--text-secondary)';
-
-                        const icon =
-                          e.currentTarget.querySelector(
-                            '.nav-icon'
-                          ) as HTMLElement;
-
-                        if (icon) {
-                          icon.style.color =
-                            'var(--text-secondary)';
-                        }
-                      }
-                    }}
-                    title={
-                      isCollapsed
-                        ? item.label
-                        : ''
-                    }
-                  >
-                    {/* Navigation Icon */}
-                    <span
-                      className="nav-icon"
-                      style={{
-                        color: isActive
-                          ? '#ffffff'
-                          : 'var(--text-muted)',
-
-                        opacity: isActive
-                          ? 1
-                          : 0.6,
-
-                        flexShrink: 0,
-
-                        display: 'flex',
-
-                        alignItems: 'center',
-
-                        justifyContent: 'center',
-
-                        transition:
-                          'color 0.2s ease',
-                      }}
-                    >
-                      {getNavIcon(item.path)}
-                    </span>
-
-                    {!isCollapsed && (
-                      <>
-                        {/* Navigation Label */}
-                        <span
+                      return (
+                        <button
+                          key={item.path}
+                          onClick={() => handleItemClick(item.path)}
                           style={{
-                            flex: 1,
-                            overflow: 'hidden',
-                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            width: '100%',
+                            padding: '0.55rem 0.75rem',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background: isActive ? 'var(--brand-primary)' : 'transparent',
+                            color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                            fontWeight: isActive ? 600 : 450,
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isActive) {
+                              e.currentTarget.style.background = 'var(--surface-hover)';
+                              e.currentTarget.style.color = 'var(--text-primary)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isActive) {
+                              e.currentTarget.style.background = 'transparent';
+                              e.currentTarget.style.color = 'var(--text-secondary)';
+                            }
                           }}
                         >
-                          {item.label}
-                        </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
+                            <span
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                                opacity: isActive ? 1 : 0.75,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {item.icon}
+                            </span>
+                            <span
+                              style={{
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              {item.label}
+                            </span>
+                          </div>
 
-                        {/* Active Arrow */}
-                        {isActive && (
-                          <ChevronRight
-                            size={14}
-                            style={{
-                              opacity: 0.7,
-                              flexShrink: 0,
-                            }}
-                          />
-                        )}
-                      </>
-                    )}
-
-                    {/* Active Indicator */}
-                    {isCollapsed && isActive && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          top: '50%',
-                          transform:
-                            'translateY(-50%)',
-                          width: '3px',
-                          height: '24px',
-                          background:
-                            'var(--brand-primary)',
-                          borderRadius:
-                            '0 2px 2px 0',
-                        }}
-                      />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                          {isActive && (
+                            <ChevronRight
+                              size={14}
+                              style={{ opacity: 0.8, flexShrink: 0 }}
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        {/* User Role Footer */}
+        {/* User Footer Profile Strip */}
         <div
           style={{
-            padding: isCollapsed ? '0.75rem' : '0.85rem 1.25rem',
-            borderTop: '1px solid var(--border)',
-            background: 'var(--bg)',
+            padding: !isMobile && isCollapsed ? '0.75rem' : '0.85rem 1.15rem',
+            borderTop: '1px solid var(--border-subtle)',
+            background: 'var(--bg-secondary)',
             flexShrink: 0,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: isCollapsed ? 'center' : 'flex-start',
+            justifyContent: !isMobile && isCollapsed ? 'center' : 'flex-start',
             transition: 'padding 0.3s ease',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: isCollapsed ? 0 : '0.6rem', width: '100%' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: !isMobile && isCollapsed ? 0 : '0.65rem',
+              width: '100%',
+              minWidth: 0,
+            }}
+          >
             <div
               style={{
                 width: '32px',
                 height: '32px',
                 borderRadius: '50%',
                 background: 'var(--brand-primary)',
-                color: '#fff',
+                color: '#ffffff',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -576,25 +522,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               {user?.name?.charAt(0) || 'U'}
             </div>
-            {!isCollapsed && (
+            {(isMobile || !isCollapsed) && (
               <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                <div style={{ 
-                  fontSize: '0.8rem', 
-                  fontWeight: 500, 
-                  color: 'var(--text-primary)', 
-                  whiteSpace: 'nowrap', 
-                  overflow: 'hidden', 
-                  textOverflow: 'ellipsis' 
-                }}>
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
                   {user?.name || 'User'}
                 </div>
-                <div style={{ 
-                  fontSize: '0.65rem', 
-                  color: 'var(--text-muted)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}>
+                <div
+                  style={{
+                    fontSize: '0.68rem',
+                    color: 'var(--text-muted)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
                   {activeMembership?.roleName || 'Member'}
                 </div>
               </div>
@@ -603,29 +553,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </aside>
 
-      {/* Animation Styles */}
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; }
           to { opacity: 1; }
         }
-        .sidebar-tooltip {
-          position: fixed;
-          background: var(--bg-secondary);
-          color: var(--text-primary);
-          padding: 0.4rem 0.8rem;
-          border-radius: var(--radius-sm);
-          border: 1px solid var(--border-subtle);
-          box-shadow: var(--shadow-md);
-          font-size: 0.8rem;
-          white-space: nowrap;
-          z-index: 2000;
-          pointer-events: none;
-          opacity: 0;
-          transition: opacity 0.2s ease;
+        .sidebar-scrollable-content::-webkit-scrollbar {
+          width: 4px;
         }
-        .sidebar-tooltip.visible {
-          opacity: 1;
+        .sidebar-scrollable-content::-webkit-scrollbar-thumb {
+          background: var(--border-subtle);
+          border-radius: 4px;
         }
       `}</style>
     </>

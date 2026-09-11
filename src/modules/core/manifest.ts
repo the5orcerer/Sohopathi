@@ -27,6 +27,8 @@ export const coreManifest: ModuleManifest = {
     { key: 'students.read', description: 'View student directory and profiles', scopeOptions: ['institution', 'assigned_sections', 'self'] },
     { key: 'students.write', description: 'Create, enroll, and edit student records', scopeOptions: ['institution'] },
     { key: 'users.impersonate', description: 'Impersonate users within institution', scopeOptions: ['institution'] },
+    { key: 'templates.read', description: 'View document templates and generated certificates', scopeOptions: ['institution', 'assigned_sections', 'self'] },
+    { key: 'templates.manage', description: 'Create and edit document certificates and print templates', scopeOptions: ['institution'] },
   ],
 
   routes: [
@@ -379,6 +381,47 @@ export const coreManifest: ModuleManifest = {
       requiredPermission: 'classes.manage',
       handler: routes.bulkImportAcademicRoster,
     },
+
+    // Document & Certificate Templates
+    { method: 'GET', path: '/templates', requiredPermission: 'templates.read', handler: routes.listTemplates },
+    { method: 'GET', path: '/templates/:id', requiredPermission: 'templates.read', handler: routes.getTemplate },
+    {
+      method: 'POST',
+      path: '/templates',
+      requiredPermission: 'templates.manage',
+      validation: {
+        body: z.object({
+          type: z.enum(['tc', 'marksheet', 'certificate', 'testimonial', 'admit_card', 'id_card']),
+          name: z.string().min(1),
+          description: z.string().optional(),
+          content: z.string().min(1),
+          metadata: z.any().optional(),
+        }),
+      },
+      handler: routes.createTemplate,
+    },
+    {
+      method: 'PUT',
+      path: '/templates/:id',
+      requiredPermission: 'templates.manage',
+      validation: {
+        body: z.object({
+          type: z.enum(['tc', 'marksheet', 'certificate', 'testimonial', 'admit_card', 'id_card']).optional(),
+          name: z.string().min(1).optional(),
+          description: z.string().optional(),
+          content: z.string().min(1).optional(),
+          metadata: z.any().optional(),
+        }),
+      },
+      handler: routes.updateTemplate,
+    },
+    { method: 'DELETE', path: '/templates/:id', requiredPermission: 'templates.manage', handler: routes.deleteTemplate },
+    {
+      method: 'POST',
+      path: '/templates/:id/render',
+      requiredPermission: 'templates.read',
+      handler: routes.renderTemplate,
+    },
   ],
 
   widgets: [],
@@ -386,6 +429,7 @@ export const coreManifest: ModuleManifest = {
   navItem: [
     { label: 'Students', path: '/students', requiredPermission: 'students.read', sortOrder: 1 },
     { label: 'Academic & Timetable', path: '/academic', requiredPermission: 'classes.manage', sortOrder: 2 },
+    { label: 'Templates', path: '/templates', requiredPermission: 'templates.read', sortOrder: 5 },
     { label: 'Tasks', path: '/tasks', requiredPermission: 'tasks.read', sortOrder: 6 },
     { label: 'Reports', path: '/reports', requiredPermission: 'students.read', sortOrder: 7 },
     { label: 'Members', path: '/members', requiredPermission: 'memberships.manage', sortOrder: 8 },

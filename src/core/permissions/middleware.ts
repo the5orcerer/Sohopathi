@@ -5,6 +5,7 @@ import { pool, withTenantContext } from '../db';
 import { supabaseAuthProvider } from '../auth/supabase-auth-provider';
 import { resolveContext, ResolvedContext } from './resolve-permissions';
 import { extractTenantFromRequest } from '../tenant-utils';
+import { hasSufficientScope } from './dependencies';
 
 declare global {
   namespace Express {
@@ -82,10 +83,8 @@ export function requirePermission(permissionKey: string, requiredScope?: string)
       return res.status(403).json({ error: `missing permission: ${permissionKey}`, code: 'FORBIDDEN' });
     }
 
-    if (requiredScope && grantedScope !== 'institution') {
-      if (grantedScope !== requiredScope) {
-        return res.status(403).json({ error: `insufficient scope for ${matchedKey}`, code: 'FORBIDDEN' });
-      }
+    if (requiredScope && !hasSufficientScope(grantedScope, requiredScope)) {
+      return res.status(403).json({ error: `insufficient scope for ${matchedKey}`, code: 'FORBIDDEN' });
     }
 
     req.grantedScope = grantedScope;

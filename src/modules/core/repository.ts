@@ -2180,4 +2180,200 @@ export const coreRepository = {
       enrollmentsCreated,
     };
   },
+
+  // --- Document & Certificate Templates ---
+  async listTemplates(
+    client: PoolClient,
+    institutionId: string,
+    type?: string
+  ) {
+    let query = `
+      select id, institution_id as "institutionId", type, name, description, content, metadata,
+             created_at as "createdAt", updated_at as "updatedAt"
+      from template
+      where (institution_id = $1 or institution_id is null)
+    `;
+    const params: any[] = [institutionId];
+    if (type) {
+      params.push(type);
+      query += ` and type = $2`;
+    }
+    query += ` order by updated_at desc, name asc`;
+    const { rows } = await client.query(query, params);
+    return rows;
+  },
+
+  async getTemplateById(
+    client: PoolClient,
+    institutionId: string,
+    id: string
+  ) {
+    const { rows } = await client.query(
+      `select id, institution_id as "institutionId", type, name, description, content, metadata,
+              created_at as "createdAt", updated_at as "updatedAt"
+       from template
+       where id = $1 and (institution_id = $2 or institution_id is null)`,
+      [id, institutionId]
+    );
+    return rows[0] || null;
+  },
+
+  async createTemplate(
+    client: PoolClient,
+    institutionId: string,
+    data: {
+      type: string;
+      name: string;
+      description?: string;
+      content: string;
+      metadata?: any;
+    },
+    actorMembershipId?: string
+  ) {
+    const { rows } = await client.query(
+      `insert into template (institution_id, type, name, description, content, metadata)
+       values ($1, $2, $3, $4, $5, $6)
+       returning id, institution_id as "institutionId", type, name, description, content, metadata,
+                 created_at as "createdAt", updated_at as "updatedAt"`,
+      [institutionId, data.type, data.name, data.description || null, data.content, JSON.stringify(data.metadata || {})]
+    );
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'create_template',
+      entityType: 'template',
+      entityId: rows[0].id,
+      after: rows[0],
+    });
+
+    return rows[0];
+  },
+
+  async updateTemplate(
+    client: PoolClient,
+    institutionId: string,
+    id: string,
+    data: {
+      type?: string;
+      name?: string;
+      description?: string;
+      content?: string;
+      metadata?: any;
+    },
+    actorMembershipId?: string
+  ) {
+    const existing = await this.getTemplateById(client, institutionId, id);
+    if (!existing) throw new Error('Template not found');
+
+    const type = data.type || existing.type;
+    const name = data.name || existing.name;
+    const description = data.description !== undefined ? data.description : existing.description;
+    const content = data.content || existing.content;
+    const metadata = data.metadata || existing.metadata;
+
+    const { rows } = await client.query(
+      `update template
+       set type = $1, name = $2, description = $3, content = $4, metadata = $5, updated_at = now()
+       where id = $6 and institution_id = $7
+       returning id, institution_id as "institutionId", type, name, description, content, metadata,
+                 created_at as "createdAt", updated_at as "updatedAt"`,
+      [type, name, description, content, JSON.stringify(metadata), id, institutionId]
+    );
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'update_template',
+      entityType: 'template',
+      entityId: id,
+      before: existing,
+      after: rows[0],
+    });
+
+    return rows[0];
+  },
+
+  async deleteTemplate(
+    client: PoolClient,
+    institutionId: string,
+    id: string,
+    actorMembershipId?: string
+  ) {
+    const existing = await this.getTemplateById(client, institutionId, id);
+    if (!existing) throw new Error('Template not found');
+
+    await client.query(`delete from template where id = $1 and institution_id = $2`, [id, institutionId]);
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'delete_template',
+      entityType: 'template',
+      entityId: id,
+      before: existing,
+    });
+
+    return { success: true };
+  },
+
+  async renderTemplate(
+    client: PoolClient,
+    institutionId: string,
+    templateId: string,
+    studentId?: string,
+    customVariables: Record<string, string> = {}
+  ) {
+    const template = await this.getTemplateById(client, institutionId, templateId);
+    if (!template) throw new Error('Template not found');
+
+    const { rows: [inst] } = await client.query(
+      `select id, name, subdomain from institution where id = $1`,
+      [institutionId]
+    );
+
+    let studentData: any = {};
+    if (studentId) {
+      const students = await this.listStudents(client, institutionId);
+      const matched = students.find((s) => s.id === studentId);
+      if (matched) {
+        studentData = matched;
+      }
+    }
+
+    const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const defaults: Record<string, string> = {
+      'institution.name': inst?.name || 'Educational Institution',
+      'institution.subdomain': inst?.subdomain || 'school',
+      'student.name': studentData.name || 'Sample Student',
+      'student.admissionNo': studentData.admissionNo || 'ADM-2026-SAMPLE',
+      'student.rollNo': studentData.rollNo || '01',
+      'student.className': studentData.className || 'Grade 10',
+      'student.sectionName': studentData.sectionName || 'Section A',
+      'student.gender': studentData.gender || 'Unspecified',
+      'student.dateOfBirth': studentData.dateOfBirth ? new Date(studentData.dateOfBirth).toLocaleDateString() : 'January 1, 2010',
+      'student.guardianName': studentData.guardianName || 'Guardian Name',
+      'student.guardianPhone': studentData.guardianPhone || '+880 1700-000000',
+      'issueDate': today,
+      'certificateNo': `CERT-${Date.now().toString().slice(-6)}`,
+      'academicYear': '2026-2027',
+      'conductRemarks': 'Exemplary conduct and sound moral character',
+      'reasonForLeaving': 'Successful completion of academic term / Parental relocation',
+      'examName': 'Annual Board / Term Examination',
+    };
+
+    const mergedVariables = { ...defaults, ...customVariables };
+
+    let rendered = template.content;
+    for (const [key, val] of Object.entries(mergedVariables)) {
+      const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
+      rendered = rendered.replace(regex, val || '');
+    }
+
+    return {
+      template,
+      rendered,
+      variables: mergedVariables,
+    };
+  },
 };

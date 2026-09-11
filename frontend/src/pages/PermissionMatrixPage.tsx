@@ -96,13 +96,54 @@ export const PermissionMatrixPage: React.FC = () => {
     return groups;
   }, [permissions]);
 
+  const PERMISSION_DEPENDENCIES: Record<string, string[]> = {
+    'students.write': ['students.read'],
+    'classes.manage': ['academic_years.manage'],
+    'sections.manage': ['classes.manage'],
+    'subjects.manage': ['classes.manage'],
+    'teachers.assign': ['classes.manage', 'subjects.manage'],
+    'schedules.manage': ['schedules.read', 'classes.manage'],
+    'tasks.manage': ['tasks.read'],
+    'attendance.create': ['attendance.read'],
+    'attendance.employee.read': ['attendance.read'],
+    'attendance.employee.create': ['attendance.employee.read', 'attendance.read'],
+    'exams.manage': ['classes.manage'],
+    'marks.create': ['marks.read'],
+    'marks.approve': ['marks.read', 'marks.create'],
+    'assignments.create': ['assignments.read'],
+    'assignments.update': ['assignments.read'],
+    'assignments.delete': ['assignments.read'],
+    'assignments.grade': ['assignments.read'],
+    'assignments.submit': ['assignments.read'],
+    'notices.write': ['notices.read'],
+    'admissions.write': ['admissions.read'],
+    'admissions.approve': ['admissions.read', 'admissions.write'],
+    'transport.manage': ['transport.read'],
+    'templates.manage': ['templates.read'],
+  };
+
   const handleScopeChange = (permKey: string, scope: string | null) => {
     setRoleGrants((prev) => {
       const next = { ...prev };
       if (!scope) {
         delete next[permKey];
+        // Cascade remove permissions that depend on this one
+        Object.entries(PERMISSION_DEPENDENCIES).forEach(([dependentKey, prereqs]) => {
+          if (prereqs.includes(permKey)) {
+            delete next[dependentKey];
+          }
+        });
       } else {
         next[permKey] = scope;
+        // Auto-grant prerequisite permissions
+        const prereqs = PERMISSION_DEPENDENCIES[permKey];
+        if (prereqs) {
+          prereqs.forEach((reqKey) => {
+            if (!next[reqKey]) {
+              next[reqKey] = scope;
+            }
+          });
+        }
       }
       return next;
     });
@@ -417,6 +458,13 @@ export const PermissionMatrixPage: React.FC = () => {
                                 <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
                                   {p.description}
                                 </div>
+                                {PERMISSION_DEPENDENCIES[p.key] && (
+                                  <div style={{ marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    <span style={{ fontSize: '0.68rem', color: '#2563eb', background: 'rgba(37, 99, 235, 0.08)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 500 }}>
+                                      Depends on: {PERMISSION_DEPENDENCIES[p.key].join(', ')}
+                                    </span>
+                                  </div>
+                                )}
                               </td>
                               <td style={{ padding: '0.65rem 0.5rem', verticalAlign: 'middle' }}>
                                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
