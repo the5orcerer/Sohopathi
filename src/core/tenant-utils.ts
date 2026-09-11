@@ -50,6 +50,17 @@ export function extractSubdomainFromHostname(rawHost: string): string | null {
     return null;
   }
 
+  // Local development domain: biddyapith.local
+  const biddyapithLocal = 'biddyapith.local';
+  if (host.endsWith(biddyapithLocal)) {
+    if (host === biddyapithLocal || host === `www.${biddyapithLocal}`) {
+      return null;
+    }
+    const prefix = host.slice(0, -(biddyapithLocal.length + 1));
+    const sub = prefix.split('.').pop() || prefix;
+    return RESERVED_SUBDOMAINS.has(sub) ? null : sub;
+  }
+
   // Primary production domain: biddyapith.tech
   const biddyapithDomain = 'biddyapith.tech';
   if (host.endsWith(biddyapithDomain)) {
@@ -61,8 +72,8 @@ export function extractSubdomainFromHostname(rawHost: string): string | null {
     return RESERVED_SUBDOMAINS.has(sub) ? null : sub;
   }
 
-  // Vercel deployment domain: sohopathi-frontend.vercel.app
-  const vercelDomain = 'sohopathi-frontend.vercel.app';
+  // Vercel deployment domain: biddyapith-frontend.vercel.app
+  const vercelDomain = 'biddyapith-frontend.vercel.app';
   if (host.endsWith(vercelDomain)) {
     if (host === vercelDomain || host === `www.${vercelDomain}`) {
       return null;

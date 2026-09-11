@@ -46,9 +46,9 @@ const STORAGE_KEY_IMPERSONATION = 'Biddyapith_impersonation_backup';
 
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const hostTenant = getTenantSubdomain();
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY_TOKEN) || localStorage.getItem('sohopathi_auth_token'));
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY_TOKEN) || localStorage.getItem('biddyapith_auth_token'));
   const [institutionId, setInstitutionId] = useState<string | null>(
-    () => localStorage.getItem(STORAGE_KEY_INST_ID) || localStorage.getItem('sohopathi_inst_id') || 'f2c10000-0000-0000-0000-000000000001'
+    () => localStorage.getItem(STORAGE_KEY_INST_ID) || localStorage.getItem('biddyapith_inst_id') || 'f2c10000-0000-0000-0000-000000000001'
   );
   const [user, setUser] = useState<User | null>(null);
   const [activeMembership, setActiveMembership] = useState<ActiveMembership | null>(null);

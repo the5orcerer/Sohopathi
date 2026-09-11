@@ -20,9 +20,18 @@ describe('Tenant Subdomain Extraction', () => {
     });
 
     it('extracts orgname from vercel deployment subdomains', () => {
-      expect(extractSubdomainFromHostname('dhakamodel.sohopathi-frontend.vercel.app')).toBe('dhakamodel');
-      expect(extractSubdomainFromHostname('sohopathi-frontend.vercel.app')).toBeNull();
-      expect(extractSubdomainFromHostname('www.sohopathi-frontend.vercel.app')).toBeNull();
+      expect(extractSubdomainFromHostname('dhakamodel.biddyapith-frontend.vercel.app')).toBe('dhakamodel');
+      expect(extractSubdomainFromHostname('biddyapith-frontend.vercel.app')).toBeNull();
+      expect(extractSubdomainFromHostname('www.biddyapith-frontend.vercel.app')).toBeNull();
+    });
+
+    it('extracts orgname from biddyapith.local subdomains', () => {
+      expect(extractSubdomainFromHostname('dhakamodel.biddyapith.local')).toBe('dhakamodel');
+      expect(extractSubdomainFromHostname('cgs.biddyapith.local:3000')).toBe('cgs');
+      expect(extractSubdomainFromHostname('biddyapith.local')).toBeNull();
+      expect(extractSubdomainFromHostname('www.biddyapith.local')).toBeNull();
+      expect(extractSubdomainFromHostname('app.biddyapith.local')).toBeNull();
+      expect(extractSubdomainFromHostname('api.biddyapith.local')).toBeNull();
     });
 
     it('handles local development environments', () => {

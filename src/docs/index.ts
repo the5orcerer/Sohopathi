@@ -10,7 +10,7 @@ function renderSwaggerHtml(spec: any): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sohopathi API Documentation (Private)</title>
+  <title>Biddyapith API Documentation (Private)</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui.css" />
   <link rel="icon" type="image/png" href="https://img.icons8.com/color/96/graduation-cap.png" />
   <style>

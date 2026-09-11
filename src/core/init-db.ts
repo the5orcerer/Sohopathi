@@ -39,11 +39,13 @@ export async function initializeDatabase(reset = true) {
       $$;
     `);
 
-    // 2. Read and apply canonical schema if available
-    const schemaPath = path.join(__dirname, '../../instruction_set/education-platform-schema.sql');
+    // 2. Read and apply canonical schema from db/schema.sql
+    const primarySchemaPath = path.join(__dirname, '../../db/schema.sql');
+    const fallbackSchemaPath = path.join(__dirname, '../../instruction_set/education-platform-schema.sql');
+    const schemaPath = fs.existsSync(primarySchemaPath) ? primarySchemaPath : fallbackSchemaPath;
     if (fs.existsSync(schemaPath)) {
       const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-      logger.info('Applying canonical database schema...');
+      logger.info(`Applying canonical database schema from ${schemaPath}...`);
       await client.query(schemaSql);
     }
 

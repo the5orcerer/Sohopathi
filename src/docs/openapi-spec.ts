@@ -1,31 +1,26 @@
 export const openapiSpec = {
   openapi: '3.0.3',
   info: {
-    title: 'Sohopathi Education Platform API',
+    title: 'Biddyapith Education Platform API',
     version: '1.0.0',
     description: `
-### Sohopathi Multi-Tenant School Management Platform API
+### Biddyapith Multi-Tenant School Management Platform API
 
-Private, permission-driven backend API supporting dynamic modules, role-based access control (RBAC), multi-tenancy with PostgreSQL RLS, file storage, and real-time school operations.
+Private, permission-driven backend API supporting dynamic modules, role-based access control (RBAC), multi-tenancy with PostgreSQL RLS, local S3/R2 storage, and real-time school operations.
 
 ---
 
 ### Authentication & Authorization Guide
 1. **Bearer Token Authentication**:
-   - Provide header: \`Authorization: Bearer <token>\`
+   - Provide header: \`Authorization: Bearer <jwt-token>\`
    - In production: Valid Supabase Auth JWT token
-   - In development/testing: Mock persona tokens are accepted:
-     - \`mock-token-admin-1\`: Principal / Super Admin
-     - \`mock-token-teacher-1\`: Teacher persona
-     - \`mock-token-student-1\`: Student persona
-     - \`mock-token-guardian-1\`: Guardian persona
-     - \`mock-token-<uuid>\`: Direct user profile UUID
+   - In local development: Cryptographically signed JWT tokens issued via \`/api/auth/login\`
 2. **Tenant Context Resolution**:
-   - For all tenant-scoped endpoints, supply header: \`x-institution-id: <institution-uuid>\`
+   - For all tenant-scoped endpoints, supply header: \`x-institution-id: <institution-uuid>\` or access via tenant subdomain (e.g. \`dhakamodel.biddyapith.local\`).
    - Validates that the authenticated user holds an active membership with the requested institution.
     `,
     contact: {
-      name: 'Sohopathi Core Team',
+      name: 'Biddyapith Core Team',
     },
   },
   servers: [
@@ -51,6 +46,7 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
     { name: 'Notices', description: 'Institutional notice board and audience-targeted announcements' },
     { name: 'Assignments', description: 'Homework, coursework, file attachments, student submissions, and grading' },
     { name: 'Admissions', description: 'Inquiries, admission applications lifecycle, and 1-click student enrollment' },
+    { name: 'Marketing & Inquiries', description: 'Public landing page demo requests and lead generation' },
     { name: 'Storage & Health', description: 'File uploads, storage management, and service health checks' },
   ],
   components: {
@@ -59,7 +55,7 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
         type: 'http',
         scheme: 'bearer',
         bearerFormat: 'JWT',
-        description: 'Bearer token. E.g. Supabase JWT or mock persona token (e.g. `mock-token-admin-1`).',
+        description: 'Bearer token. Standard cryptographic JWT token.',
       },
       InstitutionId: {
         type: 'apiKey',
@@ -2373,6 +2369,138 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
           },
         },
         responses: { 201: { description: 'Student admitted and enrolled successfully' } },
+      },
+    },
+    '/api/leads': {
+      post: {
+        tags: ['Marketing & Inquiries'],
+        summary: 'Submit Website Sales / Demo Lead',
+        description: 'Public unauthenticated endpoint for prospective school inquiries.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string', example: 'Principal Ahmed' },
+                  institutionName: { type: 'string', example: 'Chittagong Grammar School' },
+                  email: { type: 'string', format: 'email', example: 'ahmed@cgs.edu.bd' },
+                  phone: { type: 'string', example: '+880 1819 000000' },
+                  role: { type: 'string', example: 'Principal / Administrator' },
+                  studentCount: { type: 'string', example: '500 - 1,500 Students' },
+                  plan: { type: 'string', example: 'Standard' },
+                  message: { type: 'string', example: 'Interested in demo for high school campus' },
+                  source: { type: 'string', example: 'website_landing' },
+                },
+                required: ['name', 'institutionName', 'email', 'phone'],
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Sales lead received and logged' },
+          400: { description: 'Validation error' },
+        },
+      },
+    },
+    '/api/attendance/employees': {
+      get: {
+        tags: ['Attendance & Marks'],
+        summary: 'List Employee Attendance Records',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        parameters: [
+          { name: 'date', in: 'query', schema: { type: 'string', format: 'date' } },
+          { name: 'startDate', in: 'query', schema: { type: 'string', format: 'date' } },
+          { name: 'endDate', in: 'query', schema: { type: 'string', format: 'date' } },
+          { name: 'membershipId', in: 'query', schema: { type: 'string', format: 'uuid' } },
+        ],
+        responses: { 200: { description: 'List of staff attendance records' } },
+      },
+      post: {
+        tags: ['Attendance & Marks'],
+        summary: 'Batch Record Employee Attendance',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  records: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        membershipId: { type: 'string', format: 'uuid' },
+                        date: { type: 'string', format: 'date' },
+                        status: { type: 'string', enum: ['present', 'absent', 'late', 'half_day', 'leave'] },
+                        checkInTime: { type: 'string', example: '08:45' },
+                        checkOutTime: { type: 'string', example: '16:30' },
+                        notes: { type: 'string' },
+                      },
+                      required: ['membershipId', 'date', 'status'],
+                    },
+                  },
+                },
+                required: ['records'],
+              },
+            },
+          },
+        },
+        responses: { 200: { description: 'Employee attendance recorded' } },
+      },
+    },
+    '/api/attendance/employees/summary': {
+      get: {
+        tags: ['Attendance & Marks'],
+        summary: 'Employee Attendance Summary & Metrics',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        parameters: [
+          { name: 'date', in: 'query', schema: { type: 'string', format: 'date' } },
+          { name: 'startDate', in: 'query', schema: { type: 'string', format: 'date' } },
+          { name: 'endDate', in: 'query', schema: { type: 'string', format: 'date' } },
+        ],
+        responses: { 200: { description: 'Employee attendance summary' } },
+      },
+    },
+    '/api/auth/impersonate': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Impersonate Member Account (Admin Only)',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  targetUserId: { type: 'string', format: 'uuid' },
+                  targetMembershipId: { type: 'string', format: 'uuid' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: 'Impersonation token and active context' } },
+      },
+    },
+    '/api/auth/stop-impersonate': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Stop Active Impersonation',
+        security: [{ BearerAuth: [] }],
+        responses: { 200: { description: 'Reverted back to administrator session' } },
+      },
+    },
+    '/api/auth/resolve': {
+      get: {
+        tags: ['Auth'],
+        summary: 'Public Subdomain Resolution',
+        parameters: [{ name: 'subdomain', in: 'query', schema: { type: 'string' } }],
+        responses: { 200: { description: 'Institution identity metadata' } },
       },
     },
   },

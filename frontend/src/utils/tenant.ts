@@ -69,6 +69,17 @@ export function getTenantSubdomain(hostname?: string): string | null {
     return null;
   }
 
+  // Local development domain: biddyapith.local
+  const biddyapithLocal = 'biddyapith.local';
+  if (host.endsWith(biddyapithLocal)) {
+    if (host === biddyapithLocal || host === `www.${biddyapithLocal}`) {
+      return null;
+    }
+    const prefix = host.slice(0, -(biddyapithLocal.length + 1));
+    const sub = prefix.split('.').pop() || prefix;
+    return RESERVED_SUBDOMAINS.has(sub) ? null : sub;
+  }
+
   // Production domain: biddyapith.tech
   const biddyapithDomain = 'biddyapith.tech';
   if (host.endsWith(biddyapithDomain)) {
@@ -80,8 +91,8 @@ export function getTenantSubdomain(hostname?: string): string | null {
     return RESERVED_SUBDOMAINS.has(sub) ? null : sub;
   }
 
-  // Vercel deployment domain: sohopathi-frontend.vercel.app
-  const vercelDomain = 'sohopathi-frontend.vercel.app';
+  // Vercel deployment domain: biddyapith-frontend.vercel.app
+  const vercelDomain = 'biddyapith-frontend.vercel.app';
   if (host.endsWith(vercelDomain)) {
     if (host === vercelDomain || host === `www.${vercelDomain}`) {
       return null;
@@ -108,9 +119,13 @@ export function buildTenantUrl(subdomain: string, path: string = ''): string {
   const cleanSub = subdomain.trim().toLowerCase();
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
 
-  // If running locally, preserve host/port format if preferred
+  // If running locally, preserve host/port format
   if (typeof window !== 'undefined') {
     const host = window.location.hostname.toLowerCase();
+    if (host.endsWith('biddyapith.local')) {
+      const port = window.location.port ? `:${window.location.port}` : '';
+      return `${window.location.protocol}//${cleanSub}.biddyapith.local${port}${cleanPath}`;
+    }
     if (host === 'localhost' || host === '127.0.0.1') {
       const port = window.location.port ? `:${window.location.port}` : '';
       return `${window.location.protocol}//${cleanSub}.localhost${port}${cleanPath}`;

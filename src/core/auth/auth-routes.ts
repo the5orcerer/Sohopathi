@@ -3,6 +3,8 @@ import { withTenantContext } from '../db';
 import { authenticate, loadContext } from '../permissions/middleware';
 import { randomUUID } from 'crypto';
 import { extractTenantFromRequest } from '../tenant-utils';
+import { signJwt } from './jwt-utils';
+import { env } from '../env';
 
 export const authRouter = Router();
 
@@ -224,7 +226,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             roleName: memberships[0].role_name || 'Member',
           };
 
-      const token = `mock-token-${userRow.id}`;
+      const token = signJwt({ sub: userRow.id, email: userRow.email }, env.JWT_SECRET);
 
       return {
         token,
@@ -327,7 +329,14 @@ authRouter.post('/impersonate', authenticate, loadContext, async (req: Request, 
       );
       const callerProfile = callerProfiles[0] || { name: 'Admin', email: '' };
 
-      const token = `mock-token-${target.profile_id}`;
+      const token = signJwt(
+        {
+          sub: target.profile_id,
+          email: target.email,
+          impersonatedBy: callerCtx.userId,
+        },
+        env.JWT_SECRET
+      );
 
       return {
         token,
@@ -517,7 +526,7 @@ authRouter.post('/signup', async (req: Request, res: Response) => {
         [targetInstId]
       );
 
-      const token = `mock-token-${user.id}`;
+      const token = signJwt({ sub: user.id, email: user.email }, env.JWT_SECRET);
 
       return {
         token,

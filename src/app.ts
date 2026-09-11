@@ -3,6 +3,8 @@ import * as Sentry from '@sentry/node';
 import express, { Request, Response, Router } from 'express';
 import path from 'path';
 import fs from 'fs';
+import http from 'http';
+import { isDevelopment } from './core/env';
 import { errorHandler } from './core/errors';
 import { registerModule } from './core/registry/module-registry';
 import { onboardingManifest } from './modules/onboarding/manifest';
@@ -73,6 +75,95 @@ function mountStorage(app: express.Application) {
   });
 }
 
+function mountDomainRouting(app: express.Application) {
+  const homeDistPath = path.resolve(__dirname, '../home/dist');
+  const frontendDistPath = path.resolve(__dirname, '../frontend/dist');
+
+  const proxyToDevServer = (port: number) => {
+    return (req: Request, res: Response, fallback: () => void) => {
+      const proxyReq = http.request(
+        {
+          hostname: '127.0.0.1',
+          port,
+          path: req.url,
+          method: req.method,
+          headers: { ...req.headers, host: `localhost:${port}` },
+        },
+        (proxyRes) => {
+          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+          proxyRes.pipe(res, { end: true });
+        }
+      );
+      proxyReq.on('error', () => {
+        fallback();
+      });
+      req.pipe(proxyReq, { end: true });
+    };
+  };
+
+  app.use((req: Request, res: Response, next) => {
+    if (
+      req.path.startsWith('/api') ||
+      req.path.startsWith('/health') ||
+      req.path.startsWith('/storage-uploads') ||
+      req.path.startsWith('/docs') ||
+      req.path.startsWith('/debug-sentry')
+    ) {
+      return next();
+    }
+
+    const rawHost = req.headers.host || '';
+    const host = rawHost.split(':')[0].toLowerCase();
+
+    const isHomeDomain =
+      host === 'www.biddyapith.tech' ||
+      host === 'biddyapith.tech' ||
+      host === 'www.biddyapith.local' ||
+      host === 'biddyapith.local';
+
+    const isFrontendDomain =
+      host === 'app.biddyapith.tech' ||
+      (host.endsWith('.biddyapith.tech') && host !== 'api.biddyapith.tech' && host !== 'www.biddyapith.tech') ||
+      host === 'app.biddyapith.local' ||
+      (host.endsWith('.biddyapith.local') && host !== 'api.biddyapith.local' && host !== 'www.biddyapith.local');
+
+    const serveFrontend = () => {
+      if (fs.existsSync(frontendDistPath)) {
+        express.static(frontendDistPath)(req, res, () => {
+          res.sendFile(path.join(frontendDistPath, 'index.html'));
+        });
+      } else {
+        next();
+      }
+    };
+
+    const serveHome = () => {
+      if (fs.existsSync(homeDistPath)) {
+        express.static(homeDistPath)(req, res, () => {
+          res.sendFile(path.join(homeDistPath, 'index.html'));
+        });
+      } else {
+        serveFrontend();
+      }
+    };
+
+    if (isDevelopment) {
+      if (isFrontendDomain || req.path.startsWith('/app')) {
+        return proxyToDevServer(5173)(req, res, serveFrontend);
+      }
+      if (isHomeDomain || host === 'localhost' || host === '127.0.0.1') {
+        return proxyToDevServer(5174)(req, res, serveHome);
+      }
+    }
+
+    if (isFrontendDomain || req.path.startsWith('/app')) {
+      return serveFrontend();
+    }
+
+    return serveHome();
+  });
+}
+
 export function createApp(): express.Application {
   const app = express();
   enableCors(app);
@@ -138,23 +229,8 @@ export function bootApp(): express.Application {
 
   app.use(router);
 
-  // Serve production frontend build if dist directory exists
-  const frontendDistPath = path.resolve(__dirname, '../frontend/dist');
-  if (fs.existsSync(frontendDistPath)) {
-    app.use(express.static(frontendDistPath));
-    app.get('*', (req: Request, res: Response, next) => {
-      if (
-        req.path.startsWith('/api') ||
-        req.path.startsWith('/health') ||
-        req.path.startsWith('/storage-uploads') ||
-        req.path.startsWith('/docs') ||
-        req.path.startsWith('/debug-sentry')
-      ) {
-        return next();
-      }
-      res.sendFile(path.join(frontendDistPath, 'index.html'));
-    });
-  }
+  // Serve web application routes (Domain-aware: Home Landing vs Frontend Portal)
+  mountDomainRouting(app);
 
   Sentry.setupExpressErrorHandler(app);
   app.use(errorHandler);

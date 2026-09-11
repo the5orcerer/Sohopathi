@@ -123,6 +123,7 @@ describe('Student Authentication, Provisioning & Admissions Integration Tests', 
     expect(studentData.username).toBe('nafis.iqbal');
 
     // Attempt login with student username & default password changeme
+    await new Promise((r) => setTimeout(r, 100));
     const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -238,6 +239,7 @@ describe('Student Authentication, Provisioning & Admissions Integration Tests', 
     expect(admitData.application.status).toBe('admitted');
 
     // 5. Verify the newly admitted student can immediately login
+    await new Promise((r) => setTimeout(r, 200));
     const studentLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

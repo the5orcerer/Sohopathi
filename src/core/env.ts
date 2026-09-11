@@ -7,7 +7,8 @@ try {
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  DATABASE_URL: z.string().default('postgresql://postgres:postgres@localhost:5433/education_platform'),
+  DATABASE_URL: z.string().default('postgresql://postgres:postgres@localhost:5433/biddyapith_dev'),
+  JWT_SECRET: z.string().default('biddyapith-secure-jwt-secret-local-dev-2026'),
   SUPABASE_URL: z.string().default('http://localhost:54321'),
   SUPABASE_SERVICE_ROLE_KEY: z.string().default('test-service-role-key'),
   STORAGE_PROVIDER: z.enum(['local', 's3']).optional(),
@@ -18,7 +19,7 @@ const envSchema = z.object({
   PORT: z.string().transform((val) => parseInt(val, 10)).default('3000'),
   DOCS_ENABLED: z.string().transform((val) => val === 'true' || val === '1').default('true'),
   DOCS_USER: z.string().default('admin'),
-  DOCS_PASSWORD: z.string().default('sohopathi_docs_secret_2024'),
+  DOCS_PASSWORD: z.string().default('biddyapith_docs_secret_2024'),
   SENTRY_DSN: z.string().optional(),
   SENTRY_ENVIRONMENT: z.string().default(process.env.NODE_ENV || 'development'),
   SENTRY_TRACES_SAMPLE_RATE: z.string().transform((v) => parseFloat(v)).default('1.0'),

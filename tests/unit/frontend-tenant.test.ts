@@ -19,9 +19,18 @@ describe('Frontend Tenant Subdomain Resolution', () => {
     });
 
     it('detects tenant on vercel deployment subdomains', () => {
-      expect(getTenantSubdomain('dhakamodel.sohopathi-frontend.vercel.app')).toBe('dhakamodel');
-      expect(getTenantSubdomain('sohopathi-frontend.vercel.app')).toBeNull();
-      expect(getTenantSubdomain('www.sohopathi-frontend.vercel.app')).toBeNull();
+      expect(getTenantSubdomain('dhakamodel.biddyapith-frontend.vercel.app')).toBe('dhakamodel');
+      expect(getTenantSubdomain('biddyapith-frontend.vercel.app')).toBeNull();
+      expect(getTenantSubdomain('www.biddyapith-frontend.vercel.app')).toBeNull();
+    });
+
+    it('detects tenant on biddyapith.local subdomains', () => {
+      expect(getTenantSubdomain('dhakamodel.biddyapith.local')).toBe('dhakamodel');
+      expect(getTenantSubdomain('cgs.biddyapith.local:3000')).toBe('cgs');
+      expect(getTenantSubdomain('biddyapith.local')).toBeNull();
+      expect(getTenantSubdomain('www.biddyapith.local')).toBeNull();
+      expect(getTenantSubdomain('app.biddyapith.local')).toBeNull();
+      expect(getTenantSubdomain('api.biddyapith.local')).toBeNull();
     });
 
     it('returns null for dev / local environments (prompting login field)', () => {

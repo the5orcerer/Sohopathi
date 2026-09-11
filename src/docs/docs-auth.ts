@@ -13,7 +13,7 @@ export function docsAuthMiddleware(req: Request, res: Response, next: NextFuncti
 
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Basic ')) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Sohopathi Private API Documentation"');
+    res.setHeader('WWW-Authenticate', 'Basic realm="Biddyapith Private API Documentation"');
     res.status(401).json({
       error: 'Authentication required to access private API documentation',
       code: 'UNAUTHORIZED',
@@ -27,7 +27,7 @@ export function docsAuthMiddleware(req: Request, res: Response, next: NextFuncti
     const colonIndex = decoded.indexOf(':');
 
     if (colonIndex === -1) {
-      res.setHeader('WWW-Authenticate', 'Basic realm="Sohopathi Private API Documentation"');
+      res.setHeader('WWW-Authenticate', 'Basic realm="Biddyapith Private API Documentation"');
       res.status(401).json({ error: 'Invalid documentation credentials format', code: 'UNAUTHORIZED' });
       return;
     }
@@ -36,17 +36,17 @@ export function docsAuthMiddleware(req: Request, res: Response, next: NextFuncti
     const password = decoded.substring(colonIndex + 1);
 
     const validUser = env.DOCS_USER || 'admin';
-    const validPassword = env.DOCS_PASSWORD || 'sohopathi_docs_secret_2024';
+    const validPassword = env.DOCS_PASSWORD || 'biddyapith_docs_secret_2024';
 
     if (username !== validUser || password !== validPassword) {
-      res.setHeader('WWW-Authenticate', 'Basic realm="Sohopathi Private API Documentation"');
+      res.setHeader('WWW-Authenticate', 'Basic realm="Biddyapith Private API Documentation"');
       res.status(401).json({ error: 'Invalid documentation credentials', code: 'UNAUTHORIZED' });
       return;
     }
 
     next();
   } catch (err) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Sohopathi Private API Documentation"');
+    res.setHeader('WWW-Authenticate', 'Basic realm="Biddyapith Private API Documentation"');
     res.status(401).json({ error: 'Failed to authenticate documentation request', code: 'UNAUTHORIZED' });
   }
 }

@@ -871,11 +871,15 @@ const getLoginUrl = (): string => {
   }
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
+    const port = window.location.port ? `:${window.location.port}` : '';
     if (host.includes("biddyapith.tech")) {
       return "https://app.biddyapith.tech";
     }
+    if (host.includes("biddyapith.local")) {
+      return `http://app.biddyapith.local${port || ':3000'}`;
+    }
     if (host === "localhost" || host === "127.0.0.1") {
-      return "http://localhost:5173";
+      return window.location.port === "5174" ? "http://localhost:5173" : "/app";
     }
   }
   return "https://app.biddyapith.tech";

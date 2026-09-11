@@ -26,6 +26,7 @@ export const coreManifest: ModuleManifest = {
     { key: 'settings.manage', description: 'Configure institution profile, branding, and feature toggles', scopeOptions: ['institution'] },
     { key: 'students.read', description: 'View student directory and profiles', scopeOptions: ['institution', 'assigned_sections', 'self'] },
     { key: 'students.write', description: 'Create, enroll, and edit student records', scopeOptions: ['institution'] },
+    { key: 'users.impersonate', description: 'Impersonate users within institution', scopeOptions: ['institution'] },
   ],
 
   routes: [
@@ -386,6 +387,7 @@ export const coreManifest: ModuleManifest = {
     { label: 'Students', path: '/students', requiredPermission: 'students.read', sortOrder: 1 },
     { label: 'Academic & Timetable', path: '/academic', requiredPermission: 'classes.manage', sortOrder: 2 },
     { label: 'Tasks', path: '/tasks', requiredPermission: 'tasks.read', sortOrder: 6 },
+    { label: 'Reports', path: '/reports', requiredPermission: 'students.read', sortOrder: 7 },
     { label: 'Members', path: '/members', requiredPermission: 'memberships.manage', sortOrder: 8 },
     { label: 'Permission Matrix', path: '/permission-matrix', requiredPermission: 'roles.manage', sortOrder: 9 },
     { label: 'Activity Log', path: '/activity-log', requiredPermission: 'audit_logs.read', sortOrder: 10 },
