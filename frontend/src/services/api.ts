@@ -923,7 +923,11 @@ export async function createAssignment(data: {
   subjectId: string;
   title: string;
   description?: string;
+  instructions?: string;
   dueDate?: string;
+  maxMarks?: number;
+  status?: 'draft' | 'published' | 'closed';
+  allowLateSubmissions?: boolean;
 }): Promise<Assignment> {
   return fetchWithAuth<Assignment>('/api/assignments', {
     method: 'POST',
@@ -933,7 +937,15 @@ export async function createAssignment(data: {
 
 export async function updateAssignment(
   id: string,
-  data: { title?: string; description?: string; dueDate?: string }
+  data: {
+    title?: string;
+    description?: string;
+    instructions?: string;
+    dueDate?: string;
+    maxMarks?: number;
+    status?: 'draft' | 'published' | 'closed';
+    allowLateSubmissions?: boolean;
+  }
 ): Promise<Assignment> {
   return fetchWithAuth<Assignment>(`/api/assignments/${id}`, {
     method: 'PATCH',
@@ -949,11 +961,29 @@ export async function deleteAssignment(id: string): Promise<{ success: boolean }
 
 export async function submitAssignment(
   assignmentId: string,
-  data: { fileKey?: string; fileUrl?: string; submissionNotes?: string }
+  data: {
+    fileKey?: string;
+    fileUrl?: string;
+    fileName?: string;
+    fileSize?: number;
+    mimeType?: string;
+    submissionNotes?: string;
+  }
 ): Promise<any> {
   return fetchWithAuth(`/api/assignments/${assignmentId}/submit`, {
     method: 'POST',
     body: JSON.stringify(data),
+  });
+}
+
+export async function reopenAssignmentSubmission(
+  assignmentId: string,
+  submissionId: string,
+  reason: string
+): Promise<any> {
+  return fetchWithAuth(`/api/assignments/${assignmentId}/submissions/${submissionId}/reopen`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
   });
 }
 
@@ -967,7 +997,10 @@ export async function remindPendingAssignmentStudents(assignmentId: string): Pro
   });
 }
 
-export async function gradeSubmission(submissionId: string, data: { grade: string; feedback?: string }): Promise<any> {
+export async function gradeSubmission(
+  submissionId: string,
+  data: { grade: string; marksObtained?: number; feedback?: string }
+): Promise<any> {
   return fetchWithAuth(`/api/assignments/grade`, {
     method: 'POST',
     body: JSON.stringify({ submissionId, ...data }),

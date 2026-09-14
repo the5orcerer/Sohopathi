@@ -15,6 +15,7 @@ export const assignmentsManifest: ModuleManifest = {
     { key: 'assignments.delete', description: 'Delete an assignment', scopeOptions: ['assigned_sections'] },
     { key: 'assignments.submit', description: 'Submit work', scopeOptions: ['self'] },
     { key: 'assignments.submission.read', description: 'View assignment submissions', scopeOptions: ['institution', 'assigned_sections'] },
+    { key: 'assignments.submission.reopen', description: 'Reopen a submitted assignment for revision', scopeOptions: ['assigned_sections', 'institution'] },
     { key: 'assignments.grade', description: 'Grade a submission', scopeOptions: ['assigned_sections'] },
   ],
 
@@ -31,14 +32,45 @@ export const assignmentsManifest: ModuleManifest = {
           subjectId: z.string().uuid(),
           title: z.string().min(1),
           description: z.string().optional(),
+          instructions: z.string().optional(),
           dueDate: z.string().optional(),
+          maxMarks: z.number().min(1).optional(),
+          status: z.enum(['draft', 'published', 'closed']).optional(),
+          allowLateSubmissions: z.boolean().optional(),
         }),
       },
       handler: routes.createAssignment,
     },
-    { method: 'PATCH', path: '/:id', requiredPermission: 'assignments.update', handler: routes.updateAssignment },
+    {
+      method: 'PATCH',
+      path: '/:id',
+      requiredPermission: 'assignments.update',
+      validation: {
+        body: z.object({
+          title: z.string().min(1).optional(),
+          description: z.string().optional(),
+          instructions: z.string().optional(),
+          dueDate: z.string().optional(),
+          maxMarks: z.number().min(1).optional(),
+          status: z.enum(['draft', 'published', 'closed']).optional(),
+          allowLateSubmissions: z.boolean().optional(),
+        }),
+      },
+      handler: routes.updateAssignment,
+    },
     { method: 'DELETE', path: '/:id', requiredPermission: 'assignments.delete', handler: routes.deleteAssignment },
     { method: 'GET', path: '/:id/submissions', requiredPermission: 'assignments.submission.read', handler: routes.listSubmissions },
+    {
+      method: 'POST',
+      path: '/:id/submissions/:submissionId/reopen',
+      requiredPermission: 'assignments.submission.reopen',
+      validation: {
+        body: z.object({
+          reason: z.string().min(1).max(1000),
+        }),
+      },
+      handler: routes.reopenSubmission,
+    },
     { method: 'POST', path: '/:id/remind-pending', requiredPermission: 'assignments.create', handler: routes.remindPendingStudents },
     {
       method: 'POST',
@@ -72,6 +104,9 @@ export const assignmentsManifest: ModuleManifest = {
         body: z.object({
           fileKey: z.string().optional(),
           fileUrl: z.string().optional(),
+          fileName: z.string().optional(),
+          fileSize: z.number().optional(),
+          mimeType: z.string().optional(),
           submissionNotes: z.string().optional(),
           studentId: z.string().uuid().optional(),
         }).optional(),
@@ -85,8 +120,9 @@ export const assignmentsManifest: ModuleManifest = {
       validation: {
         body: z.object({
           submissionId: z.string().uuid(),
-          grade: z.string().min(1),
+          grade: z.string().optional(),
           feedback: z.string().optional(),
+          marksObtained: z.number().min(0).optional(),
         }),
       },
       handler: routes.gradeSubmission,
@@ -120,7 +156,7 @@ export const assignmentsManifest: ModuleManifest = {
   navItem: { label: 'Assignments', path: '/assignments', requiredPermission: 'assignments.read', sortOrder: 5 },
 
   events: {
-    publishes: ['assignment.created', 'assignment.submitted', 'assignment.graded'],
+    publishes: ['assignment.created', 'assignment.submitted', 'assignment.graded', 'assignment.reopened'],
     subscribes: [],
   },
 

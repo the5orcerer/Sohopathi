@@ -481,7 +481,11 @@ create table if not exists public.assignment (
   subject_id uuid not null references public.subject(id) on delete cascade,
   title text not null,
   description text,
-  due_date date,
+  instructions text,
+  due_date timestamptz,
+  max_marks numeric not null default 100,
+  status text not null default 'published' check (status in ('draft', 'published', 'closed')),
+  allow_late_submissions boolean not null default false,
   created_by_membership_id uuid references public.membership(id),
   created_at timestamptz not null default now()
 );
@@ -500,8 +504,18 @@ create table if not exists public.assignment_submission (
   assignment_id uuid not null references public.assignment(id) on delete cascade,
   student_id uuid not null references public.student(id) on delete cascade,
   file_key text,
+  file_url text,
+  file_name text,
+  file_size bigint,
+  mime_type text,
+  submission_notes text,
   submitted_at timestamptz not null default now(),
-  status text not null default 'submitted',
+  status text not null default 'submitted' check (status in ('not_submitted', 'submitted', 'marked', 'reopened')),
+  marks_obtained numeric,
+  is_late boolean not null default false,
+  reopened_at timestamptz,
+  reopened_by_membership_id uuid references public.membership(id),
+  reopen_reason text,
   unique (assignment_id, student_id)
 );
 
@@ -511,7 +525,9 @@ create table if not exists public.assignment_grade (
   submission_id uuid not null references public.assignment_submission(id) on delete cascade unique,
   grade text,
   feedback text,
-  graded_by_membership_id uuid references public.membership(id)
+  marks_obtained numeric,
+  graded_by_membership_id uuid references public.membership(id),
+  created_at timestamptz not null default now()
 );
 
 -- ----------------------------------------------------------------------------

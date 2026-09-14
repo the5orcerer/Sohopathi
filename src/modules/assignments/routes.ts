@@ -125,7 +125,7 @@ export async function addAttachment(req: Request, res: Response, client: PoolCli
 
 export async function submitAssignment(req: Request, res: Response, client: PoolClient) {
   const assignmentId = req.params.id;
-  const { fileKey, fileUrl, submissionNotes } = req.body;
+  const { fileKey, fileUrl, fileName, fileSize, mimeType, submissionNotes } = req.body;
 
   let studentId = req.body.studentId;
   if (req.grantedScope === 'self' || !studentId) {
@@ -150,14 +150,51 @@ export async function submitAssignment(req: Request, res: Response, client: Pool
     });
   }
 
-  const submission = await assignmentRepository.submitAssignment(
+  try {
+    const submission = await assignmentRepository.submitAssignment(
+      client,
+      req.ctx!.institutionId,
+      assignmentId,
+      studentId,
+      { fileKey, fileUrl, fileName, fileSize, mimeType, submissionNotes }
+    );
+    res.status(201).json(submission);
+  } catch (err: any) {
+    if (err.message?.startsWith('SUBMISSION_LOCKED')) {
+      return res.status(409).json({ error: err.message, code: 'SUBMISSION_LOCKED' });
+    }
+    if (err.message?.startsWith('DEADLINE_PASSED')) {
+      return res.status(400).json({ error: err.message, code: 'DEADLINE_PASSED' });
+    }
+    if (err.message?.includes('Cannot submit work for draft')) {
+      return res.status(400).json({ error: err.message, code: 'INVALID_STATE' });
+    }
+    throw err;
+  }
+}
+
+export async function reopenSubmission(req: Request, res: Response, client: PoolClient) {
+  const assignmentId = req.params.id;
+  const submissionId = req.params.submissionId;
+  const { reason } = req.body;
+  const grantedScope = req.grantedScope;
+
+  if (grantedScope === 'assigned_sections') {
+    const isAllowed = await assignmentRepository.isTeacherSubmission(client, req.ctx!.membershipId, submissionId);
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'You do not have permission to reopen this submission', code: 'FORBIDDEN' });
+    }
+  }
+
+  const reopened = await assignmentRepository.reopenSubmission(
     client,
     req.ctx!.institutionId,
     assignmentId,
-    studentId,
-    { fileKey, fileUrl, submissionNotes }
+    submissionId,
+    req.ctx!.membershipId,
+    reason
   );
-  res.status(201).json(submission);
+  res.json(reopened);
 }
 
 export async function listSubmissions(req: Request, res: Response, client: PoolClient) {
@@ -197,7 +234,7 @@ export async function remindPendingStudents(req: Request, res: Response, client:
 
 export async function gradeSubmission(req: Request, res: Response, client: PoolClient) {
   const grantedScope = req.grantedScope;
-  const { submissionId, grade, feedback } = req.body;
+  const { submissionId, grade, feedback, marksObtained } = req.body;
 
   if (grantedScope === 'assigned_sections') {
     const isAllowed = await assignmentRepository.isTeacherSubmission(client, req.ctx!.membershipId, submissionId);
@@ -206,11 +243,12 @@ export async function gradeSubmission(req: Request, res: Response, client: PoolC
     }
   }
 
-  await assignmentRepository.gradeSubmission(client, req.ctx!.institutionId, submissionId, req.ctx!.membershipId, {
+  const result = await assignmentRepository.gradeSubmission(client, req.ctx!.institutionId, submissionId, req.ctx!.membershipId, {
     grade,
     feedback,
+    marksObtained,
   });
-  res.status(200).json({ success: true });
+  res.status(200).json({ success: true, ...result });
 }
 
 export async function getAssignmentStats(req: Request, res: Response, client: PoolClient) {
