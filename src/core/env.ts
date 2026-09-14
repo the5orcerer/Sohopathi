@@ -5,12 +5,34 @@ try {
   dotenv.config();
 } catch {}
 
+const sanitizeHttpUrl = (val: unknown): string | undefined => {
+  if (typeof val !== 'string') return undefined;
+  const trimmed = val.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return trimmed;
+    }
+  } catch {}
+  return undefined;
+};
+
+const sanitizeString = (val: unknown, fallback: string): string => {
+  if (typeof val !== 'string') return fallback;
+  const trimmed = val.trim();
+  return trimmed || fallback;
+};
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   DATABASE_URL: z.string().default('postgresql://postgres:postgres@localhost:5433/biddyapith_dev'),
   JWT_SECRET: z.string().default('biddyapith-secure-jwt-secret-local-dev-2026'),
-  SUPABASE_URL: z.string().default('http://localhost:54321'),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().default('test-service-role-key'),
+  SUPABASE_URL: z.preprocess(sanitizeHttpUrl, z.string().default('http://localhost:54321')),
+  SUPABASE_SERVICE_ROLE_KEY: z.preprocess(
+    (v) => sanitizeString(v, 'test-service-role-key'),
+    z.string().default('test-service-role-key')
+  ),
   STORAGE_PROVIDER: z.enum(['local', 's3']).optional(),
   STORAGE_ENDPOINT: z.string().optional().default('http://localhost:9000'),
   STORAGE_ACCESS_KEY_ID: z.string().optional().default('test-access-key'),

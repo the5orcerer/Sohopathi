@@ -1,9 +1,37 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AuthProvider } from './auth-provider';
 import { env } from '../env';
 import { verifyJwt } from './jwt-utils';
 
-const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+let supabaseClient: SupabaseClient | null = null;
+
+function getSupabaseClient(): SupabaseClient | null {
+  if (supabaseClient) return supabaseClient;
+
+  const url = env.SUPABASE_URL?.trim();
+  const key = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  // If URL or key is missing or is dummy/local fallback, skip Supabase instantiation
+  if (!url || !key || url.includes('localhost:54321')) {
+    return null;
+  }
+
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return null;
+  }
+
+  try {
+    supabaseClient = createClient(url, key, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+    return supabaseClient;
+  } catch {
+    return null;
+  }
+}
 
 export const supabaseAuthProvider: AuthProvider = {
   async verifyToken(token: string) {
@@ -16,9 +44,10 @@ export const supabaseAuthProvider: AuthProvider = {
     }
 
     // 2. Secondary: If token was not signed by local secret, verify against Supabase Auth (e.g. production)
-    if (env.SUPABASE_URL && !env.SUPABASE_URL.includes('localhost:54321')) {
+    const client = getSupabaseClient();
+    if (client) {
       try {
-        const { data, error } = await supabase.auth.getUser(token);
+        const { data, error } = await client.auth.getUser(token);
         if (!error && data.user) {
           return { userId: data.user.id };
         }
