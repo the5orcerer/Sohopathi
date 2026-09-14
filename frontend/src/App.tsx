@@ -15,11 +15,62 @@ import { AdmissionsPage } from './pages/AdmissionsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { InstitutionSettingsPage } from './pages/InstitutionSettingsPage';
 import { LoginPage } from './pages/LoginPage';
-import { AnalyticsDashboard } from './components/dashboard/AnalyticsDashboard';
+import { DashboardGrid } from './components/dashboard/DashboardGrid';
+import { ScopeChip } from './components/common/ScopeChip';
+import { SchoolPulseBanner } from './components/dashboard/SchoolPulseBanner';
 import { TemplatesPage } from './pages/TemplatesPage';
 import { DocumentTemplateBuilder } from './pages/DocumentTemplateBuilder';
 import { RequestsPage } from './pages/RequestsPage';
 import { BillingPage } from './pages/BillingPage';
+
+// Universal Dashboard
+const DashboardView: React.FC<{ onNavigate: (path: string) => void }> = ({ onNavigate }) => {
+  const { user, activeMembership, institutionName, dashboardWidgets } = useSession();
+
+  const getScope = () => {
+    const role = activeMembership?.roleName?.toLowerCase() || '';
+    if (role.includes('admin')) return 'institution';
+    if (role.includes('coordinator')) return 'institution';
+    if (role.includes('teacher')) return 'assigned_sections';
+    return 'self';
+  };
+
+  return (
+    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {/* Dashboard Header */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
+          paddingBottom: '0.5rem',
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        <div>
+          <h1 style={{ fontSize: '1.4rem', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.01em', margin: '0 0 0.2rem 0' }}>
+            Welcome, {user?.name || 'User'}
+          </h1>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+            {institutionName} &bull; {activeMembership?.roleName || 'Member'}
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <ScopeChip scope={getScope()} label={activeMembership?.roleName} />
+        </div>
+      </div>
+
+      {/* School Pulse KPI Cards & Operational Shortcuts */}
+      <SchoolPulseBanner onNavigate={onNavigate} />
+
+      {/* Universal Dashboard Grid - Permission-based filtering */}
+      <DashboardGrid widgets={dashboardWidgets} />
+    </div>
+  );
+};
 
 const MainAppContent: React.FC = () => {
   const { isAuthenticated, loading, activeMembership } = useSession();
@@ -57,7 +108,7 @@ const MainAppContent: React.FC = () => {
 
   const renderPage = () => {
     switch (currentPath) {
-      case '/': return <AnalyticsDashboard onNavigate={handleNavigate} />;
+      case '/': return <DashboardView onNavigate={handleNavigate} />;
       case '/templates': return <TemplatesPage onNavigate={handleNavigate} />;
       case '/templates/builder': return <DocumentTemplateBuilder onNavigate={handleNavigate} />;
       case '/attendance': return <AttendancePage />;
@@ -70,7 +121,7 @@ const MainAppContent: React.FC = () => {
       case '/students': {
         const role = (activeMembership?.roleName || '').toLowerCase();
         if (role.includes('guardian') || role.includes('student')) {
-          return <AnalyticsDashboard onNavigate={handleNavigate} />;
+          return <DashboardView onNavigate={handleNavigate} />;
         }
         return <StudentsPage />;
       }
@@ -86,7 +137,7 @@ const MainAppContent: React.FC = () => {
       case '/activity-log':
       case '/activity-logs': return <ActivityLogPage onNavigateHome={() => handleNavigate('/')} />;
       case '/settings': return <InstitutionSettingsPage />;
-      default: return <AnalyticsDashboard onNavigate={handleNavigate} />;
+      default: return <DashboardView onNavigate={handleNavigate} />;
     }
   };
 

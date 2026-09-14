@@ -21,14 +21,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1024);
-
-  // Responsive breakpoint tracking and auto-closing mobile nav
+  // Close mobile nav on window resize to desktop
   React.useEffect(() => {
     const handleResize = () => {
-      const mobile = window.innerWidth < 1024;
-      setIsMobile(mobile);
-      if (!mobile && mobileNavOpen) {
+      if (window.innerWidth >= 1024 && mobileNavOpen) {
         setMobileNavOpen(false);
       }
     };
@@ -40,10 +36,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     setIsSidebarCollapsed(!isSidebarCollapsed);
   };
 
-  const sidebarWidth = isMobile ? 0 : isSidebarCollapsed ? 64 : 240;
+  const sidebarWidth = isSidebarCollapsed ? 64 : 240;
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--bg)', overflowX: 'hidden' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--bg)' }}>
       {/* Sidebar */}
       <Sidebar
         currentPath={currentPath}
@@ -52,7 +48,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         onCloseMobile={() => setMobileNavOpen(false)}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={toggleSidebar}
-        isMobile={isMobile}
       />
 
       {/* Main Content Area */}
@@ -64,8 +59,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           flexDirection: 'column', 
           minWidth: 0,
           marginLeft: `${sidebarWidth}px`,
-          width: isMobile ? '100%' : `calc(100% - ${sidebarWidth}px)`,
-          transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
         {/* Top Header */}
@@ -134,12 +128,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         <main
           style={{
             flex: 1,
-            padding: isMobile ? '1rem 0.85rem' : '1.5rem',
+            padding: '1.5rem',
             maxWidth: '1400px',
             width: '100%',
             margin: '0 auto',
             background: 'var(--bg)',
-            boxSizing: 'border-box',
           }}
         >
           {children}

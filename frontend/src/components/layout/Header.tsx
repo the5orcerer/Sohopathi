@@ -61,11 +61,10 @@ export const Header: React.FC<HeaderProps> = ({
       >
         {/* Left section */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {/* Collapse Toggle Button (Desktop only) */}
+          {/* Collapse Toggle Button */}
           {onToggleSidebar && (
             <button
               onClick={onToggleSidebar}
-              className="desktop-collapse-btn"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -99,11 +98,12 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenMobileNav}
             style={{
+              display: 'none',
               alignItems: 'center',
               justifyContent: 'center',
               padding: '0.4rem',
               borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
+              border: 'none',
               background: 'transparent',
               color: 'var(--text-primary)',
               cursor: 'pointer',
@@ -121,20 +121,9 @@ export const Header: React.FC<HeaderProps> = ({
             <Menu size={22} />
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
-            <Building2 size={18} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />
-            <span 
-              className="header-institution-name"
-              style={{ 
-                fontWeight: 600, 
-                fontSize: '0.95rem', 
-                color: 'var(--text-primary)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                maxWidth: '220px',
-              }}
-            >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Building2 size={18} style={{ color: 'var(--brand-primary)' }} />
+            <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
               {institutionName || 'Biddyapith'}
             </span>
           </div>
@@ -143,16 +132,15 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Center: Search */}
         <button
           onClick={onOpenCommandPalette}
-          className="header-search-btn"
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '0.5rem',
-            padding: '0.55rem 0.9rem',
+            padding: '0.6rem 1.1rem',
             borderRadius: 'var(--radius-sm)',
             border: '1px solid var(--border-subtle)',
-            background: 'var(--surface-sunken)',
-            color: 'var(--text-secondary)',
+            background: 'var(--bg-primary)',
+            color: 'var(--text-muted)',
             cursor: 'pointer',
             flex: '1',
             maxWidth: '420px',
@@ -170,9 +158,8 @@ export const Header: React.FC<HeaderProps> = ({
           }}
         >
           <Search size={16} />
-          <span className="header-search-text" style={{ flex: 1, textAlign: 'left' }}>Search or type a command...</span>
+          <span style={{ flex: 1, textAlign: 'left' }}>Search or type a command...</span>
           <kbd
-            className="header-search-text"
             style={{
               fontSize: '0.65rem',
               padding: '0.1rem 0.4rem',
@@ -346,25 +333,11 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </header>
 
-      {/* Responsive Styles for Header */}
+      {/* Responsive Styles for mobile menu button */}
       <style>{`
-        .mobile-menu-btn {
-          display: none;
-        }
-        @media (max-width: 1023px) {
+        @media (max-width: 768px) {
           .mobile-menu-btn {
             display: flex !important;
-          }
-          .desktop-collapse-btn {
-            display: none !important;
-          }
-        }
-        @media (max-width: 640px) {
-          .header-search-text {
-            display: none !important;
-          }
-          .header-institution-name {
-            max-width: 130px !important;
           }
         }
       `}</style>
