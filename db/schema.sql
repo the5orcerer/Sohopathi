@@ -114,6 +114,7 @@ create table if not exists public.institution (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   subdomain text unique not null,
+  institute_code text unique,
   branding jsonb,
   status text not null default 'active',
   created_at timestamptz not null default now()

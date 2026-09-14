@@ -1,12 +1,15 @@
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
 import { invalidateContextCache } from '../../core/permissions/resolve-permissions';
+import { invalidateFeatureCache } from '../../core/permissions/feature-guard';
+import { assertContentLength, CONTENT_LIMITS } from '../../core/validation/content-limits';
 import { dispatchNotificationAndTask } from './notification-task-service';
 
 export interface Institution {
   id: string;
   name: string;
   subdomain: string;
+  instituteCode?: string;
   branding: any;
   status: string;
   createdAt: string;
@@ -366,19 +369,27 @@ export const coreRepository = {
     return rows;
   },
 
-  async listRoles(client: PoolClient, institutionId: string): Promise<Role[]> {
-    const { rows } = await client.query(
-      `select 
+  async listRoles(
+    client: PoolClient,
+    institutionId: string,
+    options?: { excludeNonEmployeeRoles?: boolean }
+  ): Promise<Role[]> {
+    let query = `select 
         r.id,
         r.institution_id as "institutionId",
         r.name,
         r.is_system as "isSystem",
         (select count(*)::int from membership m where m.role_id = r.id and m.institution_id = $1) as "memberCount"
        from role r
-       where (r.institution_id = $1 or r.institution_id is null)
-       order by r.institution_id nulls first, r.name asc`,
-      [institutionId]
-    );
+       where (r.institution_id = $1 or r.institution_id is null)`;
+    const params: any[] = [institutionId];
+
+    if (options?.excludeNonEmployeeRoles) {
+      query += ` and lower(r.name) not in ('student', 'guardian')`;
+    }
+
+    query += ` order by r.institution_id nulls first, r.name asc`;
+    const { rows } = await client.query(query, params);
     return rows;
   },
 
@@ -544,16 +555,19 @@ export const coreRepository = {
     );
 
     const { rows: roleRows } = await client.query(`select name from role where id = $1`, [data.roleId]);
+    if (roleRows.length > 0 && ['guardian', 'student'].includes(roleRows[0].name.toLowerCase())) {
+      throw new Error('Guardians and students cannot be invited as staff members. Use student/guardian management instead.');
+    }
 
     const member: Member = {
       id: memberRows[0].id,
       userId,
-      name: data.name,
+      name: data.name.trim(),
       email,
-      phone: data.phone || null,
+      phone: data.phone || '',
       username,
       roleId: data.roleId,
-      roleName: roleRows[0]?.name || 'Staff',
+      roleName: roleRows[0]?.name || 'Member',
       status: 'active',
       inviteStatus: 'invited',
       customFields: data.customFields || {},
@@ -563,7 +577,7 @@ export const coreRepository = {
     await logAudit(client, {
       institutionId,
       actorMembershipId,
-      action: 'invite_member',
+      action: 'invite',
       entityType: 'membership',
       entityId: member.id,
       after: member,
@@ -589,6 +603,13 @@ export const coreRepository = {
     );
     if (beforeRows.length === 0) throw new Error('Member not found');
     const existing = beforeRows[0];
+
+    if (data.roleId) {
+      const { rows: roleRows } = await client.query(`select name from role where id = $1`, [data.roleId]);
+      if (roleRows.length > 0 && ['guardian', 'student'].includes(roleRows[0].name.toLowerCase())) {
+        throw new Error('Staff members cannot be assigned the Guardian or Student role.');
+      }
+    }
 
     if (data.name || data.phone !== undefined || data.email || data.customFields) {
       await client.query(
@@ -1820,15 +1841,8 @@ export const coreRepository = {
       dueDate?: string;
     }
   ): Promise<any> {
-    if (!data.title?.trim()) {
-      throw new Error('Task title is required');
-    }
-    if (data.title.trim().length > 120) {
-      throw new Error('Task title cannot exceed 120 characters');
-    }
-    if (data.description && data.description.trim().length > 2000) {
-      throw new Error('Task description cannot exceed 2000 characters');
-    }
+    assertContentLength(data.title, 'title', CONTENT_LIMITS.TITLE_MAX, true);
+    assertContentLength(data.description, 'taskDescription', CONTENT_LIMITS.TASK_DESCRIPTION_MAX);
 
     const assignees = Array.from(new Set([
       ...(data.assigneeMembershipIds || []),
@@ -1997,7 +2011,30 @@ export const coreRepository = {
     data: { name?: string; instituteCode?: string; branding?: any; settings?: Record<string, any> },
     actorMembershipId?: string
   ): Promise<any> {
+    // 1. Subdomain is infrastructure-managed and strictly immutable via application settings (Blueprint Section 39)
+    if ((data as any).subdomain !== undefined) {
+      const { rows: currSub } = await client.query(`select subdomain from institution where id = $1`, [institutionId]);
+      if (currSub.length > 0 && currSub[0].subdomain !== (data as any).subdomain) {
+        throw new Error('Subdomain is infrastructure-managed and cannot be modified via institutional settings.');
+      }
+    }
+
     const effectiveInstituteCode = data.instituteCode ?? data.settings?.instituteCode;
+
+    // 2. Validate content limits and EIIN code jurisdictional uniqueness
+    if (data.name) {
+      assertContentLength(data.name, 'name', CONTENT_LIMITS.NAME_MAX, true);
+    }
+    if (effectiveInstituteCode !== undefined && effectiveInstituteCode.trim() !== '') {
+      assertContentLength(effectiveInstituteCode, 'instituteCode', CONTENT_LIMITS.CODE_MAX);
+      const { rows: dupRows } = await client.query(
+        `select id from institution where lower(institute_code) = lower($1) and id != $2 limit 1`,
+        [effectiveInstituteCode.trim(), institutionId]
+      );
+      if (dupRows.length > 0) {
+        throw new Error(`Institute Code (EIIN) "${effectiveInstituteCode.trim()}" is already in use by another institution.`);
+      }
+    }
 
     if (data.name || data.branding || effectiveInstituteCode !== undefined) {
       await client.query(
@@ -2024,6 +2061,9 @@ export const coreRepository = {
              updated_at = now()`,
         [institutionId, JSON.stringify(data.settings)]
       );
+
+      // Invalidate feature availability cache
+      invalidateFeatureCache(institutionId);
     }
 
     await logAudit(client, {

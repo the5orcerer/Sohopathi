@@ -61,13 +61,48 @@ export async function loadContext(req: Request, res: Response, next: NextFunctio
   }
 }
 
+import { getFeatureForPermission, isFeatureAvailable, requireFeature } from './feature-guard';
+
+export { requireFeature };
+
 export function requirePermission(permissionKey: string, requiredScope?: string) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     if (!permissionKey) {
       return next();
     }
 
     const keys = permissionKey.split(',').map((k) => k.trim());
+
+    // 1. Two-tier verification: Feature availability check must precede permission evaluation (Blueprint Section 41)
+    const institutionId = req.ctx?.institutionId;
+    if (institutionId) {
+      for (const key of keys) {
+        const featureKey = getFeatureForPermission(key);
+        if (featureKey) {
+          const client = await pool.connect();
+          try {
+            const check = await isFeatureAvailable(
+              client,
+              institutionId,
+              featureKey,
+              req.ctx?.roleName,
+              req.ctx?.userId
+            );
+            if (!check.available) {
+              return res.status(403).json({
+                error: check.reason || `Feature '${featureKey}' is disabled for this institution`,
+                code: 'FEATURE_DISABLED',
+              });
+            }
+          } finally {
+            client.release();
+          }
+          break;
+        }
+      }
+    }
+
+    // 2. Permission evaluation
     let matchedKey: string | undefined;
     let grantedScope: string | undefined;
 
@@ -83,6 +118,7 @@ export function requirePermission(permissionKey: string, requiredScope?: string)
       return res.status(403).json({ error: `missing permission: ${permissionKey}`, code: 'FORBIDDEN' });
     }
 
+    // 3. Multi-tier scope evaluation
     if (requiredScope && !hasSufficientScope(grantedScope, requiredScope)) {
       return res.status(403).json({ error: `insufficient scope for ${matchedKey}`, code: 'FORBIDDEN' });
     }

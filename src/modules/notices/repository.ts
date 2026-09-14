@@ -1,5 +1,6 @@
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
+import { assertContentLength, CONTENT_LIMITS } from '../../core/validation/content-limits';
 
 export interface Notice {
   id: string;
@@ -48,18 +49,8 @@ export const noticeRepository = {
     const cleanTitle = data.title?.trim();
     const cleanBody = data.body?.trim();
 
-    if (!cleanTitle) {
-      throw new Error('Notice title is required');
-    }
-    if (cleanTitle.length > 120) {
-      throw new Error('Notice title cannot exceed 120 characters');
-    }
-    if (!cleanBody) {
-      throw new Error('Notice content is required');
-    }
-    if (cleanBody.length > 2000) {
-      throw new Error('Notice content cannot exceed 2000 characters');
-    }
+    assertContentLength(cleanTitle, 'title', CONTENT_LIMITS.TITLE_MAX, true);
+    assertContentLength(cleanBody, 'noticeBody', CONTENT_LIMITS.NOTICE_BODY_MAX, true);
 
     const { rows } = await client.query(
       `insert into notice (

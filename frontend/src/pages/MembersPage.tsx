@@ -78,11 +78,14 @@ export const MembersPage: React.FC = () => {
         fetchRoles(),
         fetchCustomFields('member').catch(() => []),
       ]);
+      const employeeRoles = (rolesData || []).filter(
+        (r) => !r.name.toLowerCase().includes('guardian') && !r.name.toLowerCase().includes('student')
+      );
       setMembers(membersData);
-      setRoles(rolesData);
+      setRoles(employeeRoles);
       setCustomFields(fieldsData || []);
-      if (rolesData.length > 0 && !inviteRoleId) {
-        setInviteRoleId(rolesData[0].id);
+      if (employeeRoles.length > 0 && !inviteRoleId) {
+        setInviteRoleId(employeeRoles[0].id);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load staff roster');

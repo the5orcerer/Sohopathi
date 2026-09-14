@@ -242,6 +242,7 @@ export const InstitutionSettingsPage: React.FC = () => {
               <input
                 type="text"
                 required
+                maxLength={150}
                 disabled={!canManageSettings}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -256,6 +257,7 @@ export const InstitutionSettingsPage: React.FC = () => {
               </label>
               <input
                 type="text"
+                maxLength={50}
                 disabled={!canManageSettings}
                 placeholder="e.g. 108542 or Official EIIN"
                 value={instituteCode}
