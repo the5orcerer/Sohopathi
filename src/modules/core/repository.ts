@@ -284,6 +284,7 @@ export interface AuditLogEntry {
   entityId: string;
   before: Record<string, any> | null;
   after: Record<string, any> | null;
+  reason?: string | null;
   createdAt: string;
 }
 
@@ -1562,6 +1563,7 @@ export const coreRepository = {
         al.entity_id as "entityId",
         al.before,
         al.after,
+        al.reason,
         al.created_at as "createdAt"
       ${baseQuery}
       order by al.created_at desc

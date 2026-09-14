@@ -35,6 +35,11 @@ export const attendanceManifest: ModuleManifest = {
               sectionId: z.string().uuid(),
               date: z.string(),
               status: z.string(),
+              sessionType: z.string().optional(),
+              periodNumber: z.number().int().min(1).optional(),
+              subjectId: z.string().uuid().optional().nullable(),
+              remarks: z.string().optional().nullable(),
+              reason: z.string().optional().nullable(),
             })
           ),
         }),
@@ -58,6 +63,7 @@ export const attendanceManifest: ModuleManifest = {
               checkInTime: z.string().optional(),
               checkOutTime: z.string().optional(),
               notes: z.string().optional(),
+              reason: z.string().optional().nullable(),
             })
           ),
         }),

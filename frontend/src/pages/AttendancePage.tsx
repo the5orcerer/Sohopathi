@@ -53,6 +53,9 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [selectedSectionId, setSelectedSectionId] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [sessionType, setSessionType] = useState<string>('daily');
+  const [periodNumber, setPeriodNumber] = useState<number>(1);
+  const [auditReason, setAuditReason] = useState<string>('');
   const [sheetStudents, setSheetStudents] = useState<AttendanceSheetItem[]>([]);
   const [loadingStudents, setLoadingStudents] = useState<boolean>(true);
   const [savingStudents, setSavingStudents] = useState<boolean>(false);
@@ -72,6 +75,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
   const [savingEmployees, setSavingEmployees] = useState<boolean>(false);
   const [employeeSavedSuccess, setEmployeeSavedSuccess] = useState<boolean>(false);
   const [employeeError, setEmployeeError] = useState<string | null>(null);
+  const [employeeAuditReason, setEmployeeAuditReason] = useState<string>('');
 
   // Employee Filters & Pagination
   const [employeeSearch, setEmployeeSearch] = useState<string>('');
@@ -149,13 +153,18 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
   }, []);
 
   // Load student attendance sheet
-  const loadStudentSheet = async (sectionId: string, date: string) => {
+  const loadStudentSheet = async (
+    sectionId: string,
+    date: string,
+    sType: string = sessionType,
+    pNum: number = periodNumber
+  ) => {
     if (!sectionId) return;
     try {
       setLoadingStudents(true);
       setStudentError(null);
       setStudentSavedSuccess(false);
-      const data = await fetchAttendanceSheet(sectionId, date);
+      const data = await fetchAttendanceSheet(sectionId, date, sType, pNum);
       setSheetStudents(data);
     } catch (err: any) {
       setStudentError(err.message || 'Failed to load student attendance records');
@@ -166,9 +175,9 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
 
   useEffect(() => {
     if (selectedSectionId) {
-      loadStudentSheet(selectedSectionId, selectedDate);
+      loadStudentSheet(selectedSectionId, selectedDate, sessionType, periodNumber);
     }
-  }, [selectedSectionId, selectedDate]);
+  }, [selectedSectionId, selectedDate, sessionType, periodNumber]);
 
   // Load employee attendance records
   const loadEmployeeData = async (date: string) => {
@@ -214,9 +223,13 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
         sectionId: selectedSectionId,
         date: selectedDate,
         status: s.status || 'present',
+        sessionType,
+        periodNumber,
+        reason: auditReason.trim() || undefined,
       }));
       await markAttendanceBatch(records);
       setStudentSavedSuccess(true);
+      setAuditReason('');
       setTimeout(() => setStudentSavedSuccess(false), 4000);
     } catch (err: any) {
       setStudentError(err.message || 'Failed to save student attendance');
@@ -229,6 +242,8 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
     const activeSection = sections.find((s) => s.id === selectedSectionId);
     const rows = sheetStudents.map((s) => ({
       Date: selectedDate,
+      SessionType: sessionType,
+      Period: periodNumber,
       Class: activeSection?.className || '',
       Section: activeSection?.name || '',
       RollNo: s.rollNo,
@@ -236,7 +251,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
       StudentName: s.name,
       Status: (s.status || 'present').toUpperCase(),
     }));
-    exportToCsv(`student-attendance-${selectedDate}.csv`, rows);
+    exportToCsv(`student-attendance-${selectedDate}-${sessionType}-p${periodNumber}.csv`, rows);
   };
 
   // Employee Attendance Handlers
@@ -274,9 +289,11 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
         checkInTime: rec.checkInTime || undefined,
         checkOutTime: rec.checkOutTime || undefined,
         notes: rec.notes || undefined,
+        reason: employeeAuditReason.trim() || undefined,
       }));
       await markEmployeeAttendanceBatch(records);
       setEmployeeSavedSuccess(true);
+      setEmployeeAuditReason('');
       setTimeout(() => setEmployeeSavedSuccess(false), 4000);
     } catch (err: any) {
       setEmployeeError(err.message || 'Failed to save employee attendance');
@@ -464,6 +481,95 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
                   ))}
                 </select>
               </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Model:</span>
+                <select
+                  value={sessionType}
+                  onChange={(e) => {
+                    setSessionType(e.target.value);
+                    if (e.target.value === 'daily') setPeriodNumber(1);
+                  }}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <option value="daily">Daily Attendance</option>
+                  <option value="period">Period-wise</option>
+                  <option value="start_end">Morning / Afternoon</option>
+                </select>
+              </div>
+
+              {sessionType === 'period' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Period:</span>
+                  <select
+                    value={periodNumber}
+                    onChange={(e) => setPeriodNumber(parseInt(e.target.value, 10))}
+                    style={{
+                      padding: '0.4rem 0.6rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--surface-sunken)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((p) => (
+                      <option key={p} value={p}>
+                        Period {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {sessionType === 'start_end' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Session:</span>
+                  <select
+                    value={periodNumber}
+                    onChange={(e) => setPeriodNumber(parseInt(e.target.value, 10))}
+                    style={{
+                      padding: '0.4rem 0.6rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--surface-sunken)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    <option value={1}>Morning Check-in</option>
+                    <option value={2}>Afternoon Check-out</option>
+                  </select>
+                </div>
+              )}
+
+              {canTakeAttendance && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input
+                    type="text"
+                    placeholder="Audit reason (if modifying)..."
+                    value={auditReason}
+                    onChange={(e) => setAuditReason(e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.6rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--surface-sunken)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.85rem',
+                      width: '200px',
+                    }}
+                    title="Required by audit policy when modifying previously saved attendance"
+                  />
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -772,6 +878,25 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
                   <option value="late">Late</option>
                   <option value="on_leave">On Leave</option>
                 </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input
+                  type="text"
+                  placeholder="Audit reason (if modifying)..."
+                  value={employeeAuditReason}
+                  onChange={(e) => setEmployeeAuditReason(e.target.value)}
+                  style={{
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                    width: '200px',
+                  }}
+                  title="Required by audit policy when modifying previously saved employee attendance"
+                />
               </div>
             </div>
 

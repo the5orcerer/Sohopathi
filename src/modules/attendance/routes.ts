@@ -39,6 +39,8 @@ export async function getAttendanceSheet(req: Request, res: Response, client: Po
   const grantedScope = req.grantedScope;
   const sectionId = req.query.sectionId as string;
   const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
+  const sessionType = (req.query.sessionType as string) || 'daily';
+  const periodNumber = req.query.periodNumber ? parseInt(req.query.periodNumber as string, 10) : 1;
 
   if (!sectionId) {
     return res.status(400).json({ error: 'sectionId query parameter is required', code: 'VALIDATION_ERROR' });
@@ -51,7 +53,14 @@ export async function getAttendanceSheet(req: Request, res: Response, client: Po
     }
   }
 
-  const sheet = await attendanceRepository.getAttendanceSheet(client, req.ctx!.institutionId, sectionId, date);
+  const sheet = await attendanceRepository.getAttendanceSheet(
+    client,
+    req.ctx!.institutionId,
+    sectionId,
+    date,
+    sessionType,
+    periodNumber
+  );
   res.json(sheet);
 }
 
@@ -60,6 +69,9 @@ export async function listAttendance(req: Request, res: Response, client: PoolCl
   let sectionId = req.query.sectionId as string | undefined;
   const date = req.query.date as string | undefined;
   let studentId = req.query.studentId as string | undefined;
+  const sessionType = req.query.sessionType as string | undefined;
+  const periodNumber = req.query.periodNumber ? parseInt(req.query.periodNumber as string, 10) : undefined;
+  const subjectId = req.query.subjectId as string | undefined;
 
   let allowedSectionIds: string[] | undefined;
 
@@ -80,6 +92,9 @@ export async function listAttendance(req: Request, res: Response, client: PoolCl
     sectionId,
     date,
     studentId,
+    sessionType,
+    periodNumber,
+    subjectId,
     allowedSectionIds,
   });
   res.json(records);
@@ -87,7 +102,7 @@ export async function listAttendance(req: Request, res: Response, client: PoolCl
 
 export async function markAttendance(req: Request, res: Response, client: PoolClient) {
   const grantedScope = req.grantedScope;
-  const { records } = req.body; // array of { studentId, sectionId, date, status }
+  const { records } = req.body; // array of { studentId, sectionId, date, status, sessionType, periodNumber, subjectId, remarks, reason }
 
   if (!Array.isArray(records) || records.length === 0) {
     return res.status(400).json({ error: 'records must be a non-empty array', code: 'VALIDATION_ERROR' });
@@ -98,6 +113,20 @@ export async function markAttendance(req: Request, res: Response, client: PoolCl
     for (const r of records) {
       if (!allowedSectionIds.includes(r.sectionId)) {
         return res.status(403).json({ error: `insufficient scope for section ${r.sectionId}`, code: 'FORBIDDEN' });
+      }
+      if (r.subjectId) {
+        const isAssigned = await attendanceRepository.isTeacherAssignedToSubjectSection(
+          client,
+          req.ctx!.membershipId,
+          r.sectionId,
+          r.subjectId
+        );
+        if (!isAssigned) {
+          return res.status(403).json({
+            error: `Teacher is not assigned to teach subject ${r.subjectId} in section ${r.sectionId}`,
+            code: 'FORBIDDEN',
+          });
+        }
       }
     }
   }

@@ -686,8 +686,15 @@ export async function fetchEnrollments(sectionId?: string): Promise<EnrollmentIt
 // ATTENDANCE
 // ============================================================
 
-export async function fetchAttendanceSheet(sectionId: string, date: string): Promise<AttendanceSheetItem[]> {
-  return fetchWithAuth<AttendanceSheetItem[]>(`/api/attendance/sheet?sectionId=${sectionId}&date=${date}`);
+export async function fetchAttendanceSheet(
+  sectionId: string,
+  date: string,
+  sessionType: string = 'daily',
+  periodNumber: number = 1
+): Promise<AttendanceSheetItem[]> {
+  return fetchWithAuth<AttendanceSheetItem[]>(
+    `/api/attendance/sheet?sectionId=${sectionId}&date=${date}&sessionType=${sessionType}&periodNumber=${periodNumber}`
+  );
 }
 
 export async function markAttendanceBatch(records: Array<{
@@ -695,6 +702,11 @@ export async function markAttendanceBatch(records: Array<{
   sectionId: string;
   date: string;
   status: string;
+  sessionType?: string;
+  periodNumber?: number;
+  subjectId?: string;
+  remarks?: string;
+  reason?: string;
 }>): Promise<any> {
   return fetchWithAuth('/api/attendance', {
     method: 'POST',
@@ -732,6 +744,7 @@ export async function markEmployeeAttendanceBatch(records: Array<{
   checkInTime?: string;
   checkOutTime?: string;
   notes?: string;
+  reason?: string;
 }>): Promise<any> {
   return fetchWithAuth('/api/attendance/employees', {
     method: 'POST',

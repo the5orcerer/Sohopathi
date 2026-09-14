@@ -113,7 +113,9 @@ const MainAppContent: React.FC = () => {
       case '/templates/builder': return <DocumentTemplateBuilder onNavigate={handleNavigate} />;
       case '/attendance': return <AttendancePage />;
       case '/employee-attendance':
-      case '/attendance/employee': return <AttendancePage initialTab="employees" />;
+      case '/attendance/employee':
+      case '/employees/attendance':
+      case '/employee/attendance': return <AttendancePage initialTab="employees" />;
       case '/admissions': return <AdmissionsPage />;
       case '/examinations': return <ExaminationsPage onNavigateHome={() => handleNavigate('/')} />;
       case '/assignments': return <AssignmentsPage onNavigateHome={() => handleNavigate('/')} />;

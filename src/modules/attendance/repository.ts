@@ -1,5 +1,6 @@
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
+import { assertContentLength, CONTENT_LIMITS } from '../../core/validation/content-limits';
 import { dispatchNotificationAndTask } from '../core/notification-task-service';
 
 export interface AttendanceRecord {
@@ -10,6 +11,10 @@ export interface AttendanceRecord {
   date: string;
   status: string;
   recordedByMembershipId: string | null;
+  sessionType?: string;
+  periodNumber?: number;
+  subjectId?: string | null;
+  remarks?: string | null;
 }
 
 export interface AttendanceSheetItem {
@@ -19,6 +24,10 @@ export interface AttendanceSheetItem {
   rollNo: string | null;
   status: string | null;
   attendanceId: string | null;
+  sessionType?: string;
+  periodNumber?: number;
+  subjectId?: string | null;
+  remarks?: string | null;
 }
 
 export interface AttendanceSummary {
@@ -156,28 +165,112 @@ export const attendanceRepository = {
     client: PoolClient,
     institutionId: string,
     recordedByMembershipId: string,
-    records: { studentId: string; sectionId: string; date: string; status: string }[]
+    records: {
+      studentId: string;
+      sectionId: string;
+      date: string;
+      status: string;
+      sessionType?: string;
+      periodNumber?: number;
+      subjectId?: string;
+      remarks?: string;
+      reason?: string;
+    }[]
   ): Promise<AttendanceRecord[]> {
     const results: AttendanceRecord[] = [];
+    let updatedCount = 0;
+
     for (const r of records) {
-      const { rows } = await client.query(
-        `insert into attendance (institution_id, student_id, section_id, date, status, recorded_by_membership_id)
-         values ($1, $2, $3, $4, $5, $6)
-         on conflict (student_id, date) do update set status = excluded.status, section_id = excluded.section_id, recorded_by_membership_id = excluded.recorded_by_membership_id
-         returning id, institution_id as "institutionId", student_id as "studentId", section_id as "sectionId", date, status, recorded_by_membership_id as "recordedByMembershipId"`,
-        [institutionId, r.studentId, r.sectionId, r.date, r.status, recordedByMembershipId]
+      const sessionType = r.sessionType || 'daily';
+      const periodNumber = r.periodNumber ?? 1;
+
+      if (r.reason) {
+        assertContentLength(r.reason, 'reason', CONTENT_LIMITS.REASON_MAX);
+      }
+      if (r.remarks) {
+        assertContentLength(r.remarks, 'remarks', CONTENT_LIMITS.SHORT_DESCRIPTION_MAX);
+      }
+
+      // Check for prior record to detect edits (Blueprint Section 27: Attendance Editing)
+      const { rows: priorRows } = await client.query(
+        `select id, status from attendance where student_id = $1 and date = $2 and coalesce(session_type, 'daily') = $3 and coalesce(period_number, 1) = $4 limit 1`,
+        [r.studentId, r.date, sessionType, periodNumber]
       );
+
+      const isEdit = priorRows.length > 0 && priorRows[0].status !== r.status;
+
+      let rows: any[];
+      try {
+        const insertRes = await client.query(
+          `insert into attendance (
+             institution_id, student_id, section_id, date, status, recorded_by_membership_id,
+             session_type, period_number, subject_id, remarks
+           )
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           on conflict (student_id, date, session_type, period_number) do update set
+             status = excluded.status,
+             section_id = excluded.section_id,
+             recorded_by_membership_id = excluded.recorded_by_membership_id,
+             subject_id = coalesce(excluded.subject_id, attendance.subject_id),
+             remarks = coalesce(excluded.remarks, attendance.remarks)
+           returning id, institution_id as "institutionId", student_id as "studentId", section_id as "sectionId",
+                     date, status, recorded_by_membership_id as "recordedByMembershipId",
+                     session_type as "sessionType", period_number as "periodNumber", subject_id as "subjectId", remarks`,
+          [
+            institutionId,
+            r.studentId,
+            r.sectionId,
+            r.date,
+            r.status,
+            recordedByMembershipId,
+            sessionType,
+            periodNumber,
+            r.subjectId || null,
+            r.remarks || null,
+          ]
+        );
+        rows = insertRes.rows;
+      } catch (err: any) {
+        // Fallback gracefully for environments with legacy unique (student_id, date) constraint
+        const fallbackRes = await client.query(
+          `insert into attendance (institution_id, student_id, section_id, date, status, recorded_by_membership_id)
+           values ($1, $2, $3, $4, $5, $6)
+           on conflict (student_id, date) do update set
+             status = excluded.status,
+             section_id = excluded.section_id,
+             recorded_by_membership_id = excluded.recorded_by_membership_id
+           returning id, institution_id as "institutionId", student_id as "studentId", section_id as "sectionId",
+                     date, status, recorded_by_membership_id as "recordedByMembershipId"`,
+          [institutionId, r.studentId, r.sectionId, r.date, r.status, recordedByMembershipId]
+        );
+        rows = fallbackRes.rows;
+      }
+
       results.push(rows[0]);
+
+      if (isEdit) {
+        updatedCount++;
+        await logAudit(client, {
+          institutionId,
+          actorMembershipId: recordedByMembershipId,
+          action: 'update_attendance',
+          entityType: 'attendance',
+          entityId: rows[0].id,
+          before: { status: priorRows[0].status },
+          after: { status: r.status, reason: r.reason || 'Attendance modified' },
+          reason: r.reason || 'Attendance status adjusted',
+        });
+      }
     }
 
-    if (results.length > 0) {
+    if (results.length > 0 && updatedCount === 0) {
       await logAudit(client, {
         institutionId,
         actorMembershipId: recordedByMembershipId,
         action: 'mark_attendance',
         entityType: 'attendance',
         entityId: results[0].id,
-        after: { count: results.length },
+        after: { count: results.length, date: records[0]?.date, sessionType: records[0]?.sessionType || 'daily' },
       });
     }
 
@@ -188,7 +281,9 @@ export const attendanceRepository = {
     client: PoolClient,
     institutionId: string,
     sectionId: string,
-    date: string
+    date: string,
+    sessionType = 'daily',
+    periodNumber = 1
   ): Promise<AttendanceSheetItem[]> {
     const { rows } = await client.query(
       `select 
@@ -197,13 +292,17 @@ export const attendanceRepository = {
         s.name,
         e.roll_no as "rollNo",
         a.status,
-        a.id as "attendanceId"
+        a.id as "attendanceId",
+        coalesce(a.session_type, $3) as "sessionType",
+        coalesce(a.period_number, $4) as "periodNumber",
+        a.subject_id as "subjectId",
+        a.remarks
        from enrollment e
        join student s on s.id = e.student_id
-       left join attendance a on a.student_id = s.id and a.date = $2
+       left join attendance a on a.student_id = s.id and a.date = $2 and coalesce(a.session_type, 'daily') = $3 and coalesce(a.period_number, 1) = $4
        where e.section_id = $1 and e.status = 'active'
        order by e.roll_no asc, s.name asc`,
-      [sectionId, date]
+      [sectionId, date, sessionType, periodNumber]
     );
     return rows;
   },
@@ -211,9 +310,17 @@ export const attendanceRepository = {
   async listAttendance(
     client: PoolClient,
     institutionId: string,
-    filters: { sectionId?: string; date?: string; studentId?: string; allowedSectionIds?: string[] }
+    filters: {
+      sectionId?: string;
+      date?: string;
+      studentId?: string;
+      allowedSectionIds?: string[];
+      sessionType?: string;
+      periodNumber?: number;
+      subjectId?: string;
+    }
   ): Promise<AttendanceRecord[]> {
-    let query = `select id, institution_id as "institutionId", student_id as "studentId", section_id as "sectionId", date, status, recorded_by_membership_id as "recordedByMembershipId" from attendance where institution_id = $1`;
+    let query = `select id, institution_id as "institutionId", student_id as "studentId", section_id as "sectionId", date, status, recorded_by_membership_id as "recordedByMembershipId", session_type as "sessionType", period_number as "periodNumber", subject_id as "subjectId", remarks from attendance where institution_id = $1`;
     const params: any[] = [institutionId];
 
     if (filters.sectionId) {
@@ -233,6 +340,21 @@ export const attendanceRepository = {
     if (filters.studentId) {
       params.push(filters.studentId);
       query += ` and student_id = $${params.length}`;
+    }
+
+    if (filters.sessionType) {
+      params.push(filters.sessionType);
+      query += ` and session_type = $${params.length}`;
+    }
+
+    if (filters.periodNumber !== undefined) {
+      params.push(filters.periodNumber);
+      query += ` and period_number = $${params.length}`;
+    }
+
+    if (filters.subjectId) {
+      params.push(filters.subjectId);
+      query += ` and subject_id = $${params.length}`;
     }
 
     query += ` order by date desc`;
@@ -775,6 +897,26 @@ export const attendanceRepository = {
     return { success: true, studentNotificationCount: count };
   },
 
+  async isTeacherAssignedToSubjectSection(
+    client: PoolClient,
+    teacherMembershipId: string,
+    sectionId: string,
+    subjectId: string
+  ): Promise<boolean> {
+    const { rows } = await client.query(
+      `select 1
+       from class_subject_teacher cst
+       where cst.section_id = $2 and cst.subject_id = $3 and cst.teacher_membership_id = $1
+       union
+       select 1
+       from membership_scope ms
+       where ms.membership_id = $1 and ms.scope_type in ('institution', 'section')
+       limit 1`,
+      [teacherMembershipId, sectionId, subjectId]
+    );
+    return rows.length > 0;
+  },
+
   // --- Marks Recording ---
   async isTeacherAllowedForStudentSubject(
     client: PoolClient,
@@ -1040,10 +1182,27 @@ export const attendanceRepository = {
       checkInTime?: string;
       checkOutTime?: string;
       notes?: string;
+      reason?: string;
     }>
   ): Promise<any[]> {
     const results: any[] = [];
+    let updatedCount = 0;
+
     for (const r of records) {
+      if (r.notes) {
+        assertContentLength(r.notes, 'notes', CONTENT_LIMITS.SHORT_DESCRIPTION_MAX);
+      }
+      if (r.reason) {
+        assertContentLength(r.reason, 'reason', CONTENT_LIMITS.REASON_MAX);
+      }
+
+      // Check for prior record to track changes and audit logging
+      const { rows: priorRows } = await client.query(
+        `select id, status from public.employee_attendance where institution_id = $1 and membership_id = $2 and date = $3`,
+        [institutionId, r.membershipId, r.date]
+      );
+      const isEdit = priorRows.length > 0 && priorRows[0].status !== r.status;
+
       const { rows } = await client.query(
         `insert into public.employee_attendance (
            institution_id, membership_id, date, status, check_in_time, check_out_time, notes, recorded_by_membership_id, updated_at
@@ -1068,9 +1227,24 @@ export const attendanceRepository = {
         ]
       );
       results.push(rows[0]);
+
+      if (isEdit) {
+        updatedCount++;
+        const editReason = r.reason || r.notes || 'Employee attendance modified';
+        await logAudit(client, {
+          institutionId,
+          actorMembershipId: recordedByMembershipId,
+          action: 'update_employee_attendance',
+          entityType: 'employee_attendance',
+          entityId: rows[0].id,
+          before: { status: priorRows[0].status },
+          after: { status: r.status, reason: editReason },
+          reason: editReason,
+        });
+      }
     }
 
-    if (results.length > 0) {
+    if (results.length > 0 && updatedCount === 0) {
       await logAudit(client, {
         institutionId,
         actorMembershipId: recordedByMembershipId,

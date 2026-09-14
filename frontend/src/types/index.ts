@@ -327,6 +327,7 @@ export interface AuditLogEntry {
   entityId: string;
   before: Record<string, any> | null;
   after: Record<string, any> | null;
+  reason?: string | null;
   createdAt: string;
 }
 

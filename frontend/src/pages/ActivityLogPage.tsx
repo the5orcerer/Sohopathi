@@ -107,6 +107,13 @@ const ChangeLogViewer: React.FC<{ log: AuditLogEntry }> = ({ log }) => {
         </div>
       </div>
 
+      {(log.reason || log.after?.reason) && (
+        <div style={{ padding: '0.45rem 0.75rem', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--text-primary)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <strong style={{ color: 'var(--primary)' }}>Reason:</strong>
+          <span>{log.reason || log.after?.reason}</span>
+        </div>
+      )}
+
       {diffs.length === 0 ? (
         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>
           No individual field modifications recorded in payload.

@@ -218,6 +218,7 @@ create table if not exists public.audit_log (
   entity_id uuid not null,
   before jsonb,
   after jsonb,
+  reason text,
   created_at timestamptz not null default now()
 );
 
@@ -329,7 +330,11 @@ create table if not exists public.attendance (
   date date not null,
   status text not null,
   recorded_by_membership_id uuid references public.membership(id),
-  unique (student_id, date)
+  session_type text not null default 'daily',
+  period_number int not null default 1,
+  subject_id uuid references public.subject(id) on delete set null,
+  remarks text,
+  unique (student_id, date, session_type, period_number)
 );
 
 create table if not exists public.employee_attendance (
