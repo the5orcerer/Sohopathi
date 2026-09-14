@@ -112,7 +112,7 @@ export const FinancePage: React.FC<{ onNavigateHome: () => void }> = ({ onNaviga
               {
                 key: 'amount',
                 header: 'Amount',
-                render: (inv) => <span style={{ fontWeight: 700 }}>৳{inv.amount.toLocaleString()}</span>,
+                render: (inv) => <span style={{ fontWeight: 700 }}>৳{(inv.amount ?? inv.totalAmount ?? 0).toLocaleString()}</span>,
               },
               {
                 key: 'dueDate',

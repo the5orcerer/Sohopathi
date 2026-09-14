@@ -29,6 +29,10 @@ export const coreManifest: ModuleManifest = {
     { key: 'users.impersonate', description: 'Impersonate users within institution', scopeOptions: ['institution'] },
     { key: 'templates.read', description: 'View document templates and generated certificates', scopeOptions: ['institution', 'assigned_sections', 'self'] },
     { key: 'templates.manage', description: 'Create and edit document certificates and print templates', scopeOptions: ['institution'] },
+    { key: 'reports.read', description: 'View institution analytics, attendance, and academic reports', scopeOptions: ['institution', 'assigned_sections'] },
+    { key: 'requests.create', description: 'Submit leave, break, or schedule change requests to manager', scopeOptions: ['institution', 'assigned_sections', 'self'] },
+    { key: 'requests.manage', description: 'Review and approve team and student requests', scopeOptions: ['institution', 'assigned_sections'] },
+    { key: 'classrooms.manage', description: 'Manage physical classrooms, capacities, and facilities', scopeOptions: ['institution'] },
   ],
 
   routes: [
@@ -343,11 +347,12 @@ export const coreManifest: ModuleManifest = {
       requiredPermission: 'tasks.manage',
       validation: {
         body: z.object({
-          assigneeMembershipId: z.string().uuid(),
-          title: z.string().min(1),
-          description: z.string().optional(),
+          assigneeMembershipId: z.string().uuid().optional(),
+          assigneeMembershipIds: z.array(z.string().uuid()).optional(),
+          title: z.string().min(1).max(120),
+          description: z.string().max(2000).optional().nullable(),
           priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
-          dueDate: z.string().optional(),
+          dueDate: z.string().optional().nullable(),
         }),
       },
       handler: routes.createTask,
@@ -422,6 +427,177 @@ export const coreManifest: ModuleManifest = {
       requiredPermission: 'templates.read',
       handler: routes.renderTemplate,
     },
+
+    // Physical Classrooms
+    { method: 'GET', path: '/classrooms', requiredPermission: '', handler: routes.listClassrooms },
+    {
+      method: 'POST',
+      path: '/classrooms',
+      requiredPermission: 'classrooms.manage',
+      validation: {
+        body: z.object({
+          roomNumber: z.string().min(1),
+          name: z.string().optional(),
+          building: z.string().optional(),
+          floor: z.string().optional(),
+          capacity: z.number().optional(),
+          facilities: z.array(z.string()).optional(),
+        }),
+      },
+      handler: routes.createClassroom,
+    },
+    {
+      method: 'PATCH',
+      path: '/classrooms/:id',
+      requiredPermission: 'classrooms.manage',
+      handler: routes.updateClassroom,
+    },
+    { method: 'DELETE', path: '/classrooms/:id', requiredPermission: 'classrooms.manage', handler: routes.deleteClassroom },
+
+    // Class Live Telemetry & Overview
+    { method: 'GET', path: '/classes/:id/overview', requiredPermission: 'schedules.read', handler: routes.getClassOverview },
+
+    // Live Dashboard Schedule & Telemetry
+    { method: 'GET', path: '/schedules/live-periods', requiredPermission: 'schedules.read', handler: routes.getLivePeriods },
+    { method: 'GET', path: '/live-periods', requiredPermission: 'schedules.read', handler: routes.getLivePeriods },
+
+    // Timetable Period Substitutions & Teacher History
+    {
+      method: 'POST',
+      path: '/schedules/:id/substitute',
+      requiredPermission: 'schedules.manage',
+      validation: {
+        body: z.object({
+          date: z.string().min(1),
+          substituteTeacherMembershipId: z.string().uuid().optional().nullable(),
+          status: z.enum(['substituted', 'cancelled', 'rescheduled']).optional(),
+          reason: z.string().optional(),
+          roomId: z.string().uuid().optional(),
+        }),
+      },
+      handler: routes.recordPeriodSubstitution,
+    },
+    { method: 'GET', path: '/teachers/:id/history', requiredPermission: 'teachers.assign', handler: routes.getTeacherHistory },
+
+    // Requests & Approvals Engine
+    { method: 'GET', path: '/requests', requiredPermission: 'requests.create', handler: routes.listRequests },
+    {
+      method: 'POST',
+      path: '/requests',
+      requiredPermission: 'requests.create',
+      validation: {
+        body: z.object({
+          category: z.enum(['leave', 'break', 'schedule_change', 'resource', 'general']),
+          title: z.string().min(1),
+          description: z.string().optional(),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          metadata: z.any().optional(),
+        }),
+      },
+      handler: routes.createRequest,
+    },
+    {
+      method: 'PATCH',
+      path: '/requests/:id/status',
+      requiredPermission: 'requests.manage',
+      validation: {
+        body: z.object({
+          status: z.enum(['approved', 'rejected', 'cancelled']),
+          reviewerNotes: z.string().optional(),
+        }),
+      },
+      handler: routes.updateRequestStatus,
+    },
+    {
+      method: 'POST',
+      path: '/requests/bulk-status',
+      requiredPermission: 'requests.manage',
+      validation: {
+        body: z.object({
+          requestIds: z.array(z.string().uuid()),
+          status: z.enum(['approved', 'rejected']),
+          notes: z.string().optional(),
+        }),
+      },
+      handler: routes.bulkUpdateRequestStatus,
+    },
+
+    // Universal Bulk Operations
+    {
+      method: 'POST',
+      path: '/members/bulk-assign-manager',
+      requiredPermission: 'memberships.manage',
+      validation: {
+        body: z.object({
+          membershipIds: z.array(z.string().uuid()),
+          managerMembershipId: z.string().uuid(),
+        }),
+      },
+      handler: routes.bulkAssignManager,
+    },
+    {
+      method: 'POST',
+      path: '/members/bulk-update-role',
+      requiredPermission: 'roles.manage',
+      validation: {
+        body: z.object({
+          membershipIds: z.array(z.string().uuid()),
+          roleId: z.string().uuid(),
+        }),
+      },
+      handler: routes.bulkUpdateMemberRole,
+    },
+    {
+      method: 'POST',
+      path: '/students/bulk-update-status',
+      requiredPermission: 'students.write',
+      validation: {
+        body: z.object({
+          studentIds: z.array(z.string().uuid()),
+          status: z.string().min(1),
+        }),
+      },
+      handler: routes.bulkUpdateStudentStatus,
+    },
+    {
+      method: 'POST',
+      path: '/students/bulk-transfer-section',
+      requiredPermission: 'students.write',
+      validation: {
+        body: z.object({
+          studentIds: z.array(z.string().uuid()),
+          classId: z.string().uuid(),
+          sectionId: z.string().uuid(),
+        }),
+      },
+      handler: routes.bulkTransferStudentSection,
+    },
+    {
+      method: 'POST',
+      path: '/requests/:id/remind',
+      requiredPermission: 'requests.create',
+      handler: routes.remindManager,
+    },
+    {
+      method: 'POST',
+      path: '/dispatch-reminder',
+      requiredPermission: '',
+      validation: {
+        body: z.object({
+          recipientMembershipIds: z.array(z.string().uuid()).optional(),
+          recipientUserIds: z.array(z.string().uuid()).optional(),
+          title: z.string().min(1),
+          body: z.string().min(1),
+          type: z.string().optional(),
+          priority: z.enum(['low', 'medium', 'high']).optional(),
+          dueDate: z.string().optional(),
+          metadata: z.record(z.any()).optional(),
+          createTask: z.boolean().optional(),
+        }),
+      },
+      handler: routes.dispatchReminder,
+    },
   ],
 
   widgets: [],
@@ -431,10 +607,11 @@ export const coreManifest: ModuleManifest = {
     { label: 'Academic & Timetable', path: '/academic', requiredPermission: 'classes.manage', sortOrder: 2 },
     { label: 'Templates', path: '/templates', requiredPermission: 'templates.read', sortOrder: 5 },
     { label: 'Tasks', path: '/tasks', requiredPermission: 'tasks.read', sortOrder: 6 },
-    { label: 'Reports', path: '/reports', requiredPermission: 'students.read', sortOrder: 7 },
-    { label: 'Members', path: '/members', requiredPermission: 'memberships.manage', sortOrder: 8 },
-    { label: 'Permission Matrix', path: '/permission-matrix', requiredPermission: 'roles.manage', sortOrder: 9 },
-    { label: 'Activity Log', path: '/activity-log', requiredPermission: 'audit_logs.read', sortOrder: 10 },
-    { label: 'Settings', path: '/settings', requiredPermission: 'settings.manage', sortOrder: 11 },
+    { label: 'Requests', path: '/requests', requiredPermission: 'requests.create', sortOrder: 7 },
+    { label: 'Reports', path: '/reports', requiredPermission: 'reports.read', sortOrder: 8 },
+    { label: 'Members', path: '/members', requiredPermission: 'memberships.manage', sortOrder: 9 },
+    { label: 'Permission Matrix', path: '/permission-matrix', requiredPermission: 'roles.manage', sortOrder: 10 },
+    { label: 'Activity Log', path: '/activity-log', requiredPermission: 'audit_logs.read', sortOrder: 11 },
+    { label: 'Settings', path: '/settings', requiredPermission: 'settings.manage', sortOrder: 12 },
   ],
 };

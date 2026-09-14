@@ -25,7 +25,11 @@ import {
 import { Button, Badge, Modal } from '../components/common';
 import { useSession } from '../context/SessionContext';
 
-export const TemplatesPage: React.FC = () => {
+interface TemplatesPageProps {
+  onNavigate?: (path: string) => void;
+}
+
+export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
   const { activeMembership, institutionName } = useSession();
   const canManage = activeMembership?.roleName?.toLowerCase().includes('admin');
 
@@ -231,14 +235,26 @@ export const TemplatesPage: React.FC = () => {
         </div>
 
         {canManage && (
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleOpenCreate}
-            icon={<Plus size={15} />}
-          >
-            Create New Template
-          </Button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {onNavigate && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onNavigate('/templates/builder')}
+                icon={<Sparkles size={15} />}
+              >
+                Open Template Builder
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleOpenCreate}
+              icon={<Plus size={15} />}
+            >
+              Quick Create
+            </Button>
+          </div>
         )}
       </div>
 

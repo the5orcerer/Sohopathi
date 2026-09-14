@@ -9,12 +9,20 @@ export async function listNotices(req: Request, res: Response, client: PoolClien
 }
 
 export async function createNotice(req: Request, res: Response, client: PoolClient) {
-  const { title, body, audienceScope } = req.body;
+  const { title, body, audienceScope, targetRoles, targetClassIds, targetSectionIds, audienceFilters } = req.body;
   const notice = await noticeRepository.create(
     client,
     req.ctx!.institutionId,
     req.ctx!.membershipId,
-    { title, body, audienceScope: audienceScope ?? 'institution' }
+    {
+      title,
+      body,
+      audienceScope: audienceScope ?? 'institution',
+      targetRoles,
+      targetClassIds,
+      targetSectionIds,
+      audienceFilters,
+    }
   );
   res.status(201).json(notice);
 }

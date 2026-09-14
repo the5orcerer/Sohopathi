@@ -13,15 +13,27 @@ import {
   fetchStudents,
   fetchMarks,
   recordMarks,
+  fetchExamRooms,
+  createExamRoom,
+  deleteExamRoom,
+  fetchExamProgress,
+  notifyPendingExamTeachers,
+  publishExam,
+  fetchMembers,
+  fetchClasses,
 } from '../services/api';
 import type {
   ExamItem,
   ExamPaperItem,
+  ExamRoomItem,
+  ExamProgressData,
   AcademicYear,
+  ClassItem,
   SectionItem,
   SubjectItem,
   StudentItem,
   MarkItem,
+  Member,
 } from '../types';
 import { Button, Badge, Modal, EmptyState } from '../components/common';
 import {
@@ -34,6 +46,12 @@ import {
   FileText,
   GraduationCap,
   Loader2,
+  Bell,
+  Users,
+  Building,
+  CheckCircle,
+  AlertTriangle,
+  Printer,
 } from 'lucide-react';
 
 export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
@@ -48,23 +66,46 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
   // Permissions
   const canManage = isAdmin || isTeacher;
 
-  const [activeTab, setActiveTab] = useState<'sessions' | 'scoring' | 'report'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'rooms' | 'scoring' | 'progress' | 'report'>('sessions');
 
   // Academic dependencies
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [subjects, setSubjects] = useState<SubjectItem[]>([]);
   const [exams, setExams] = useState<ExamItem[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
 
-  // Selected for Papers & Scoring
+  // Selected for Papers & Scoring & Tracking
   const [selectedExamId, setSelectedExamId] = useState<string>('');
   const [selectedSectionId, setSelectedSectionId] = useState<string>('');
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
   const [examPapers, setExamPapers] = useState<ExamPaperItem[]>([]);
 
+  // Rooms & Seating State
+  const [rooms, setRooms] = useState<ExamRoomItem[]>([]);
+  const [loadingRooms, setLoadingRooms] = useState<boolean>(false);
+  const [showAddRoomModal, setShowAddRoomModal] = useState<boolean>(false);
+  const [roomForm, setRoomForm] = useState({
+    roomNumber: '',
+    capacity: 40,
+    rollRangeStart: 1,
+    rollRangeEnd: 30,
+    guardMembershipIds: [] as string[],
+    remarks: '',
+  });
+
+  // Progress & Missing Marks Tracker State
+  const [progressData, setProgressData] = useState<ExamProgressData | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState<boolean>(false);
+  const [notifyingTeachers, setNotifyingTeachers] = useState<boolean>(false);
+  const [notifyFeedback, setNotifyFeedback] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState<boolean>(false);
+  const [publishFeedback, setPublishFeedback] = useState<string | null>(null);
+
   // Scoring Sheet State
   const [students, setStudents] = useState<StudentItem[]>([]);
-  const [marksSheet, setMarksSheet] = useState<Record<string, { marksObtained: number | string; maxMarks: number; grade: string }>>({});
+  const [marksSheet, setMarksSheet] = useState<Record<string, { marksObtained: number | string; maxMarks: number; grade: string; remarks?: string }>>({});
   const [savingMarks, setSavingMarks] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
 
@@ -76,9 +117,22 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
   // Modals
   const [showCreateExamModal, setShowCreateExamModal] = useState<boolean>(false);
   const [showAddPaperModal, setShowAddPaperModal] = useState<boolean>(false);
-  const [examForm, setExamForm] = useState({ academicYearId: '', name: '', term: '', startDate: '', endDate: '' });
+  const [examForm, setExamForm] = useState({
+    academicYearId: '',
+    name: '',
+    term: '',
+    startDate: '',
+    endDate: '',
+    examType: 'term' as 'term' | 'class_test',
+    examControllerMembershipId: '',
+    classId: '',
+    sectionId: '',
+    syllabusRemarks: '',
+  });
   const [paperForm, setPaperForm] = useState({
     subjectId: '',
+    teacherMembershipId: '',
+    syllabus: '',
     examDate: '',
     startTime: '09:00',
     endTime: '12:00',
@@ -92,16 +146,20 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
 
   const loadDependencies = async () => {
     try {
-      const [ay, sec, sub, ex] = await Promise.all([
+      const [ay, cls, sec, sub, ex, mem] = await Promise.all([
         fetchAcademicYears(),
+        fetchClasses(),
         fetchSections(),
         fetchSubjects(),
         fetchExams(),
+        fetchMembers(),
       ]);
       setAcademicYears(ay);
+      setClasses(cls);
       setSections(sec);
       setSubjects(sub);
       setExams(ex);
+      setMembers(mem);
       if (ay.length > 0) setExamForm((prev) => ({ ...prev, academicYearId: ay[0].id }));
       if (ex.length > 0 && !selectedExamId) setSelectedExamId(ex[0].id);
     } catch (err) {
@@ -179,7 +237,18 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
       setExams([created, ...exams]);
       setSelectedExamId(created.id);
       setShowCreateExamModal(false);
-      setExamForm({ academicYearId: academicYears[0]?.id || '', name: '', term: '', startDate: '', endDate: '' });
+      setExamForm({
+        academicYearId: academicYears[0]?.id || '',
+        name: '',
+        term: '',
+        startDate: '',
+        endDate: '',
+        examType: 'term',
+        examControllerMembershipId: '',
+        classId: '',
+        sectionId: '',
+        syllabusRemarks: '',
+      });
     } catch (err: any) {
       alert(err.message || 'Failed to create exam');
     }
@@ -207,6 +276,113 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
     }
   };
 
+  // Load Exam Rooms
+  const loadRooms = async (examId: string) => {
+    if (!examId) return;
+    try {
+      setLoadingRooms(true);
+      const data = await fetchExamRooms(examId);
+      setRooms(data);
+    } catch (err) {
+      console.error('Failed to load exam rooms:', err);
+    } finally {
+      setLoadingRooms(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedExamId && activeTab === 'rooms') {
+      loadRooms(selectedExamId);
+    }
+  }, [selectedExamId, activeTab]);
+
+  // Load Exam Progress
+  const loadProgress = async (examId: string) => {
+    if (!examId) return;
+    try {
+      setLoadingProgress(true);
+      const data = await fetchExamProgress(examId);
+      setProgressData(data);
+    } catch (err) {
+      console.error('Failed to load exam progress:', err);
+    } finally {
+      setLoadingProgress(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedExamId && activeTab === 'progress') {
+      loadProgress(selectedExamId);
+    }
+  }, [selectedExamId, activeTab]);
+
+  const handleCreateRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedExamId) return;
+    try {
+      await createExamRoom(selectedExamId, {
+        roomNumber: roomForm.roomNumber,
+        capacity: Number(roomForm.capacity),
+        rollRangeStart: Number(roomForm.rollRangeStart),
+        rollRangeEnd: Number(roomForm.rollRangeEnd),
+        guardMembershipIds: roomForm.guardMembershipIds,
+        remarks: roomForm.remarks,
+      });
+      setShowAddRoomModal(false);
+      setRoomForm({ roomNumber: '', capacity: 40, rollRangeStart: 1, rollRangeEnd: 30, guardMembershipIds: [], remarks: '' });
+      loadRooms(selectedExamId);
+    } catch (err: any) {
+      alert(err.message || 'Failed to create room assignment');
+    }
+  };
+
+  const handleDeleteRoom = async (roomId: string) => {
+    if (!selectedExamId) return;
+    if (confirm('Remove this room allocation?')) {
+      try {
+        await deleteExamRoom(selectedExamId, roomId);
+        loadRooms(selectedExamId);
+      } catch (err: any) {
+        alert(err.message || 'Failed to delete room assignment');
+      }
+    }
+  };
+
+  const handleNotifyPendingTeachers = async () => {
+    if (!selectedExamId) return;
+    try {
+      setNotifyingTeachers(true);
+      setNotifyFeedback(null);
+      const res = await notifyPendingExamTeachers(selectedExamId);
+      setNotifyFeedback(res.message);
+      setTimeout(() => setNotifyFeedback(null), 6000);
+      loadProgress(selectedExamId);
+    } catch (err: any) {
+      alert(err.message || 'Failed to dispatch teacher notifications');
+    } finally {
+      setNotifyingTeachers(false);
+    }
+  };
+
+  const handlePublishExam = async () => {
+    if (!selectedExamId) return;
+    if (confirm('Publish exam results? Once published, marks are locked against modifications by regular teachers, and student notifications are dispatched.')) {
+      try {
+        setPublishing(true);
+        setPublishFeedback(null);
+        const res = await publishExam(selectedExamId);
+        setPublishFeedback(res.message);
+        setTimeout(() => setPublishFeedback(null), 6000);
+        setExams((prev) => prev.map((e) => (e.id === selectedExamId ? { ...e, isPublished: true } : e)));
+        loadProgress(selectedExamId);
+      } catch (err: any) {
+        alert(err.message || 'Failed to publish exam');
+      } finally {
+        setPublishing(false);
+      }
+    }
+  };
+
   const handleSaveMarks = async () => {
     if (!selectedExamId || !selectedSubjectId) return;
     try {
@@ -222,6 +398,7 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
           marksObtained: Number(data.marksObtained),
           maxMarks: data.maxMarks,
           grade: data.grade || undefined,
+          remarks: data.remarks || undefined,
         }));
 
       if (payload.length === 0) {
@@ -489,24 +666,83 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
           </button>
 
           {canManage && (
-            <button
-              onClick={() => setActiveTab('scoring')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                padding: '0.5rem 0.9rem',
-                borderRadius: 'var(--radius-sm)',
-                border: 'none',
-                background: activeTab === 'scoring' ? 'var(--brand-primary)' : 'transparent',
-                color: activeTab === 'scoring' ? '#fff' : 'var(--text-secondary)',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              <FileText size={15} /> Marks Entry Sheet
-            </button>
+            <>
+              <button
+                onClick={() => setActiveTab('rooms')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.5rem 0.9rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: 'none',
+                  background: activeTab === 'rooms' ? 'var(--brand-primary)' : 'transparent',
+                  color: activeTab === 'rooms' ? '#fff' : 'var(--text-secondary)',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <Building size={15} /> Room & Seating
+              </button>
+
+              <button
+                onClick={() => setActiveTab('scoring')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.5rem 0.9rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: 'none',
+                  background: activeTab === 'scoring' ? 'var(--brand-primary)' : 'transparent',
+                  color: activeTab === 'scoring' ? '#fff' : 'var(--text-secondary)',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <FileText size={15} /> Marks Entry Sheet
+              </button>
+
+              <button
+                onClick={() => setActiveTab('progress')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.5rem 0.9rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: 'none',
+                  background: activeTab === 'progress' ? 'var(--brand-primary)' : 'transparent',
+                  color: activeTab === 'progress' ? '#fff' : 'var(--text-secondary)',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <AlertTriangle size={15} /> Missing Marks & Tracking
+              </button>
+
+              <button
+                onClick={() => setActiveTab('report')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.5rem 0.9rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: 'none',
+                  background: activeTab === 'report' ? 'var(--brand-primary)' : 'transparent',
+                  color: activeTab === 'report' ? '#fff' : 'var(--text-secondary)',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <Printer size={15} /> Marksheets & Transcripts
+              </button>
+            </>
           )}
         </div>
 
@@ -779,9 +1015,441 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
           </div>
         )}
 
+        {/* TAB 3: ROOM & SEATING ALLOCATION */}
+        {activeTab === 'rooms' && canManage && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Top Toolbar */}
+            <div className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Exam Session:</label>
+                <select
+                  value={selectedExamId}
+                  onChange={(e) => setSelectedExamId(e.target.value)}
+                  style={{ padding: '0.45rem 0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem', fontWeight: 600 }}
+                >
+                  <option value="">Select Exam Session...</option>
+                  {exams.map((ex) => (
+                    <option key={ex.id} value={ex.id}>{ex.name}</option>
+                  ))}
+                </select>
+                <Badge tone="info">{rooms.length} Rooms Allocated</Badge>
+              </div>
+
+              {selectedExamId && (
+                <Button variant="primary" size="sm" onClick={() => setShowAddRoomModal(true)} icon={<Plus size={14} />}>
+                  Add Room Allocation
+                </Button>
+              )}
+            </div>
+
+            {/* Room Allocation Grid */}
+            {!selectedExamId ? (
+              <EmptyState title="Select an Exam Session" description="Choose an exam session above to view or configure room and seating allocations." />
+            ) : loadingRooms ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading room assignments...</div>
+            ) : rooms.length === 0 ? (
+              <EmptyState
+                title="No rooms assigned yet"
+                description="Click 'Add Room Allocation' to assign examination halls (e.g. Room 704 with Rolls 1–30 and invigilator guards)."
+              />
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
+                {rooms.map((rm) => (
+                  <div
+                    key={rm.id}
+                    className="glass-panel"
+                    style={{
+                      padding: '1.25rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.75rem',
+                      borderLeft: '4px solid var(--brand-primary)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {rm.roomNumber}
+                        </h3>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Capacity: {rm.capacity || 40} Seats
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteRoom(rm.id)}
+                        icon={<Trash2 size={14} style={{ color: 'var(--status-danger)' }} />}
+                        title="Delete Room Allocation"
+                      />
+                    </div>
+
+                    {/* Roll Range Badge */}
+                    <div style={{ padding: '0.45rem 0.75rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Roll Range:</span>
+                      <Badge tone="primary" style={{ fontWeight: 700 }}>
+                        {rm.rollRangeStart && rm.rollRangeEnd ? `Rolls ${rm.rollRangeStart} – ${rm.rollRangeEnd}` : 'Open Seating'}
+                      </Badge>
+                    </div>
+
+                    {/* Invigilator Guards */}
+                    <div>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        <Users size={12} /> Assigned Invigilator Guards:
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                        {rm.guardNames && rm.guardNames.length > 0 ? (
+                          rm.guardNames.map((gName, idx) => (
+                            <Badge key={idx} tone="neutral" style={{ fontSize: '0.72rem' }}>
+                              {gName}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No guards designated</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {rm.remarks && (
+                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        {rm.remarks}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 4: MISSING MARKS & PROGRESS TRACKER */}
+        {activeTab === 'progress' && canManage && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {/* Header / Selector */}
+            <div className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Exam Session:</label>
+                <select
+                  value={selectedExamId}
+                  onChange={(e) => setSelectedExamId(e.target.value)}
+                  style={{ padding: '0.45rem 0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem', fontWeight: 600 }}
+                >
+                  <option value="">Select Exam Session...</option>
+                  {exams.map((ex) => (
+                    <option key={ex.id} value={ex.id}>{ex.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleNotifyPendingTeachers}
+                  disabled={notifyingTeachers || !selectedExamId}
+                  icon={notifyingTeachers ? <Loader2 size={14} className="animate-spin" /> : <Bell size={14} />}
+                >
+                  {notifyingTeachers ? 'Dispatching...' : 'Notify Pending Teachers / Create Task'}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handlePublishExam}
+                  disabled={publishing || !selectedExamId || progressData?.isPublished}
+                  icon={publishing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                >
+                  {progressData?.isPublished ? 'Results Published (Locked)' : 'Publish & Release Results'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Notification & Publish Banners */}
+            {notifyFeedback && (
+              <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid var(--primary)', color: 'var(--primary)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <CheckCircle2 size={16} /> {notifyFeedback}
+              </div>
+            )}
+            {publishFeedback && (
+              <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid var(--status-success)', color: 'var(--status-success)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <CheckCircle2 size={16} /> {publishFeedback}
+              </div>
+            )}
+
+            {/* Overall Progress Statistics Card */}
+            {!selectedExamId ? (
+              <EmptyState title="Select an Exam Session" description="Choose an exam session above to review marks entry completion and missing submissions." />
+            ) : loadingProgress ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Calculating real-time marks progress...</div>
+            ) : (
+              <>
+                <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>
+                        {progressData?.examName || 'Exam Session'}
+                      </h3>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {progressData?.totalEligibleStudents || 0} Total Eligible Candidates &bull; {progressData?.papers?.length || 0} Scheduled Subject Papers
+                      </span>
+                    </div>
+                    <Badge tone={progressData?.isPublished ? 'success' : 'warning'}>
+                      {progressData?.isPublished ? 'PUBLISHED & LOCKED' : 'IN PROGRESS (OPEN)'}
+                    </Badge>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+                      <span>Overall Marks Entry Completion</span>
+                      <span>{progressData?.overallCompletionPercentage || 0}%</span>
+                    </div>
+                    <div style={{ height: '10px', background: 'var(--surface-sunken)', borderRadius: '5px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${progressData?.overallCompletionPercentage || 0}%`,
+                          background: (progressData?.overallCompletionPercentage || 0) === 100 ? 'var(--status-success)' : 'var(--brand-primary)',
+                          transition: 'width 0.4s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Per-Paper Missing Marks Breakdown Table */}
+                <div className="table-container glass-panel" style={{ padding: '1rem' }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.75rem' }}>
+                    Subject Papers & Missing Evaluator Submissions
+                  </div>
+                  <table style={{ width: '100%', fontSize: '0.88rem', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                        <th style={{ padding: '0.6rem' }}>Subject Paper</th>
+                        <th style={{ padding: '0.6rem' }}>Assigned Evaluator / Teacher</th>
+                        <th style={{ padding: '0.6rem' }}>Entered / Total</th>
+                        <th style={{ padding: '0.6rem' }}>Status</th>
+                        <th style={{ padding: '0.6rem' }}>Missing Student Rolls</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {progressData?.papers?.map((p) => (
+                        <tr key={p.paperId} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '0.6rem', fontWeight: 600 }}>{p.subjectName}</td>
+                          <td style={{ padding: '0.6rem' }}>{p.teacherName || 'Not Designated'}</td>
+                          <td style={{ padding: '0.6rem' }}>
+                            <strong>{p.enteredMarks}</strong> / {p.totalEligible}
+                          </td>
+                          <td style={{ padding: '0.6rem' }}>
+                            <Badge tone={p.isComplete ? 'success' : 'danger'}>
+                              {p.isComplete ? 'COMPLETE' : `${p.missingCount} MISSING`}
+                            </Badge>
+                          </td>
+                          <td style={{ padding: '0.6rem' }}>
+                            {p.missingStudents && p.missingStudents.length > 0 ? (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                                {p.missingStudents.slice(0, 10).map((st) => (
+                                  <Badge key={st.studentId} tone="neutral" style={{ fontSize: '0.7rem' }}>
+                                    Roll {st.rollNumber || '—'}
+                                  </Badge>
+                                ))}
+                                {p.missingStudents.length > 10 && (
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                    +{p.missingStudents.length - 10} more
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ color: 'var(--status-success)', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                <CheckCircle size={13} /> All Marks Recorded
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* TAB 5: OFFICIAL TRANSCRIPTS & MARKSHEETS */}
+        {activeTab === 'report' && canManage && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {/* Filter / Student Selector */}
+            <div className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Exam Session</label>
+                  <select
+                    value={selectedExamId}
+                    onChange={(e) => setSelectedExamId(e.target.value)}
+                    style={{ padding: '0.45rem 0.6rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                  >
+                    <option value="">Select Exam...</option>
+                    {exams.map((ex) => (
+                      <option key={ex.id} value={ex.id}>{ex.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Section</label>
+                  <select
+                    value={selectedSectionId}
+                    onChange={(e) => {
+                      setSelectedSectionId(e.target.value);
+                      fetchStudents({ sectionId: e.target.value }).then(setStudents).catch(console.error);
+                    }}
+                    style={{ padding: '0.45rem 0.6rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                  >
+                    <option value="">Select Section...</option>
+                    {sections.map((sec) => (
+                      <option key={sec.id} value={sec.id}>{sec.className} — {sec.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Student</label>
+                  <select
+                    value={ownStudentId || ''}
+                    onChange={(e) => {
+                      const sId = e.target.value;
+                      setOwnStudentId(sId);
+                      if (sId && selectedExamId) {
+                        fetchMarks({ examId: selectedExamId, studentId: sId }).then(setOwnMarks).catch(console.error);
+                      }
+                    }}
+                    style={{ padding: '0.45rem 0.6rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                  >
+                    <option value="">Select Candidate...</option>
+                    {students.map((st) => (
+                      <option key={st.id} value={st.id}>Roll {st.rollNo || '—'}: {st.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {ownStudentId && ownMarks.length > 0 && (
+                <Button variant="primary" size="sm" onClick={() => window.print()} icon={<Printer size={15} />}>
+                  Print Official Marksheet (PDF)
+                </Button>
+              )}
+            </div>
+
+            {/* Marksheet Document Canvas */}
+            {!ownStudentId || ownMarks.length === 0 ? (
+              <EmptyState title="Select Exam & Student" description="Select an examination session, section, and candidate student to generate their official transcript." />
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0' }}>
+                <div
+                  style={{
+                    width: '210mm',
+                    minHeight: '260mm',
+                    background: '#ffffff',
+                    color: '#0f172a',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                    padding: '20mm 15mm 20mm 15mm',
+                    boxSizing: 'border-box',
+                    fontFamily: 'Helvetica, Arial, sans-serif',
+                    position: 'relative',
+                  }}
+                >
+                  {/* Marksheet Content */}
+                  <div style={{ textAlign: 'center', borderBottom: '2px solid #0f172a', paddingBottom: '14px', marginBottom: '16px' }}>
+                    <h1 style={{ margin: 0, fontSize: '24px', textTransform: 'uppercase' }}>Dhaka Model International Academy</h1>
+                    <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>House 42, Road 11, Dhanmondi, Dhaka 1209</p>
+                    <div style={{ display: 'inline-block', marginTop: '8px', padding: '3px 14px', background: '#f1f5f9', borderRadius: '12px', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase' }}>
+                      Official Academic Transcript &bull; {exams.find(e => e.id === selectedExamId)?.name}
+                    </div>
+                  </div>
+
+                  {/* Student Details */}
+                  <table style={{ width: '100%', marginBottom: '16px', fontSize: '13px', borderCollapse: 'collapse' }}>
+                    <tr>
+                      <td style={{ padding: '4px 0', fontWeight: 600, color: '#475569', width: '20%' }}>Student Name:</td>
+                      <td style={{ padding: '4px 0', fontWeight: 700, width: '30%' }}>{students.find(s => s.id === ownStudentId)?.name}</td>
+                      <td style={{ padding: '4px 0', fontWeight: 600, color: '#475569', width: '20%' }}>Roll Number:</td>
+                      <td style={{ padding: '4px 0', fontWeight: 700, width: '30%' }}>{students.find(s => s.id === ownStudentId)?.rollNo || '—'}</td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '4px 0', fontWeight: 600, color: '#475569' }}>Admission No:</td>
+                      <td style={{ padding: '4px 0' }}>{students.find(s => s.id === ownStudentId)?.admissionNo}</td>
+                      <td style={{ padding: '4px 0', fontWeight: 600, color: '#475569' }}>Date of Issue:</td>
+                      <td style={{ padding: '4px 0' }}>{new Date().toLocaleDateString()}</td>
+                    </tr>
+                  </table>
+
+                  {/* Marks Table */}
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '25px', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ background: '#0f172a', color: '#fff', textAlign: 'left' }}>
+                        <th style={{ padding: '8px 10px', border: '1px solid #0f172a' }}>Subject</th>
+                        <th style={{ padding: '8px 10px', border: '1px solid #0f172a', textAlign: 'center' }}>Max Marks</th>
+                        <th style={{ padding: '8px 10px', border: '1px solid #0f172a', textAlign: 'center' }}>Marks Obtained</th>
+                        <th style={{ padding: '8px 10px', border: '1px solid #0f172a', textAlign: 'center' }}>Grade</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ownMarks.map((m) => (
+                        <tr key={m.id} style={{ borderBottom: '1px solid #cbd5e1' }}>
+                          <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', fontWeight: 600 }}>{m.subjectName}</td>
+                          <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', textAlign: 'center' }}>{m.maxMarks}</td>
+                          <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700 }}>{m.marksObtained ?? '—'}</td>
+                          <td style={{ padding: '8px 10px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700, color: m.grade === 'F' ? '#ef4444' : '#16a34a' }}>
+                            {m.grade || '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {/* Signatures */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '60px', padding: '0 10px' }}>
+                    <div style={{ textAlign: 'center', width: '150px' }}>
+                      <div style={{ borderTop: '1px solid #000', paddingTop: '4px', fontSize: '12px', fontWeight: 600 }}>
+                        Exam Controller
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'center', width: '100px' }}>
+                      <div style={{ width: '50px', height: '50px', margin: '0 auto', border: '2px dashed #0284c7', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', fontWeight: 'bold', color: '#0284c7' }}>
+                        OFFICIAL SEAL
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'center', width: '150px' }}>
+                      <div style={{ borderTop: '1px solid #000', paddingTop: '4px', fontSize: '12px', fontWeight: 600 }}>
+                        Principal
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Non-removable Biddyapith Watermark */}
+                  <div className="biddyapith-footer-watermark" style={{ position: 'absolute', bottom: '8mm', left: 0, right: 0, textAlign: 'center', fontSize: '11px', color: '#94a3b8', borderTop: '1px solid #e2e8f0', paddingTop: '6px' }}>
+                    Powered by Sohopathi &bull; Verified Academic Document
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Modal: Create Exam */}
         <Modal isOpen={showCreateExamModal} onClose={() => setShowCreateExamModal(false)} title="Create New Examination Session">
           <form onSubmit={handleCreateExam} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Exam Category</label>
+              <select
+                value={examForm.examType}
+                onChange={(e) => setExamForm({ ...examForm, examType: e.target.value as any })}
+                style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              >
+                <option value="term">Term / Institutional Assessment (Multi-Class)</option>
+                <option value="class_test">Single Class / Section Test (e.g. 9B Bangla)</option>
+              </select>
+            </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Academic Year</label>
               <select
@@ -801,22 +1469,73 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
               <input
                 type="text"
                 required
-                placeholder="e.g. Mid-Term Examination 2026"
+                placeholder="e.g. Class 9B Bangla Chapter 1-5 Test"
                 value={examForm.name}
                 onChange={(e) => setExamForm({ ...examForm, name: e.target.value })}
                 style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
               />
             </div>
 
+            {/* If Class Test: show class, section, and syllabus remarks */}
+            {examForm.examType === 'class_test' && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Class</label>
+                    <select
+                      value={examForm.classId}
+                      onChange={(e) => setExamForm({ ...examForm, classId: e.target.value, sectionId: '' })}
+                      style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                    >
+                      <option value="">Select Class...</option>
+                      {classes.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Section</label>
+                    <select
+                      value={examForm.sectionId}
+                      onChange={(e) => setExamForm({ ...examForm, sectionId: e.target.value })}
+                      style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                    >
+                      <option value="">Select Section...</option>
+                      {sections
+                        .filter((s) => !examForm.classId || s.classId === examForm.classId)
+                        .map((sec) => (
+                          <option key={sec.id} value={sec.id}>{sec.className} - {sec.name}</option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Syllabus Coverage / Remarks</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Chapters 1 to 5 - Poetry & Grammar"
+                    value={examForm.syllabusRemarks}
+                    onChange={(e) => setExamForm({ ...examForm, syllabusRemarks: e.target.value })}
+                    style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                  />
+                </div>
+              </>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Term / Phase</label>
-              <input
-                type="text"
-                placeholder="e.g. 1st Term, Final Term"
-                value={examForm.term}
-                onChange={(e) => setExamForm({ ...examForm, term: e.target.value })}
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Exam Controller / In-Charge</label>
+              <select
+                value={examForm.examControllerMembershipId}
+                onChange={(e) => setExamForm({ ...examForm, examControllerMembershipId: e.target.value })}
                 style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
+              >
+                <option value="">Select Controller (Default: Principal / Admin)</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.roleName})</option>
+                ))}
+              </select>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
@@ -863,6 +1582,31 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
                   <option key={sub.id} value={sub.id}>{sub.name} ({sub.code || 'SUB'})</option>
                 ))}
               </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Assigned Teacher / Evaluator</label>
+              <select
+                value={paperForm.teacherMembershipId}
+                onChange={(e) => setPaperForm({ ...paperForm, teacherMembershipId: e.target.value })}
+                style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              >
+                <option value="">Select Subject Teacher...</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.roleName})</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Paper Syllabus / Chapters</label>
+              <input
+                type="text"
+                placeholder="e.g. Chapters 1-5"
+                value={paperForm.syllabus}
+                onChange={(e) => setPaperForm({ ...paperForm, syllabus: e.target.value })}
+                style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
@@ -930,43 +1674,93 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
               </div>
             </div>
 
-            {/* Mark Distribution Breakdown */}
-            <div style={{ padding: '0.75rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Mark Distribution Breakdown</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.7rem' }}>Theory</label>
-                  <input
-                    type="number"
-                    value={paperForm.theoryWeight}
-                    onChange={(e) => setPaperForm({ ...paperForm, theoryWeight: Number(e.target.value) })}
-                    style={{ width: '100%', padding: '0.35rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.7rem' }}>Practical</label>
-                  <input
-                    type="number"
-                    value={paperForm.practicalWeight}
-                    onChange={(e) => setPaperForm({ ...paperForm, practicalWeight: Number(e.target.value) })}
-                    style={{ width: '100%', padding: '0.35rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.7rem' }}>Viva</label>
-                  <input
-                    type="number"
-                    value={paperForm.vivaWeight}
-                    onChange={(e) => setPaperForm({ ...paperForm, vivaWeight: Number(e.target.value) })}
-                    style={{ width: '100%', padding: '0.35rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-                  />
-                </div>
-              </div>
-            </div>
-
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
               <Button variant="secondary" onClick={() => setShowAddPaperModal(false)}>Cancel</Button>
               <Button variant="primary" type="submit">Add Paper Schedule</Button>
+            </div>
+          </form>
+        </Modal>
+
+        {/* Modal: Add Room Allocation */}
+        <Modal isOpen={showAddRoomModal} onClose={() => setShowAddRoomModal(false)} title="Add Examination Room & Seating Allocation">
+          <form onSubmit={handleCreateRoom} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Room Number</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Room 704"
+                  value={roomForm.roomNumber}
+                  onChange={(e) => setRoomForm({ ...roomForm, roomNumber: e.target.value })}
+                  style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Seating Capacity</label>
+                <input
+                  type="number"
+                  required
+                  value={roomForm.capacity}
+                  onChange={(e) => setRoomForm({ ...roomForm, capacity: Number(e.target.value) })}
+                  style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Roll Range Start</label>
+                <input
+                  type="number"
+                  value={roomForm.rollRangeStart}
+                  onChange={(e) => setRoomForm({ ...roomForm, rollRangeStart: Number(e.target.value) })}
+                  style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Roll Range End</label>
+                <input
+                  type="number"
+                  value={roomForm.rollRangeEnd}
+                  onChange={(e) => setRoomForm({ ...roomForm, rollRangeEnd: Number(e.target.value) })}
+                  style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Invigilator Guards (Teachers)</label>
+              <select
+                multiple
+                value={roomForm.guardMembershipIds}
+                onChange={(e) => {
+                  const selected = Array.from(e.target.selectedOptions, (option) => option.value);
+                  setRoomForm({ ...roomForm, guardMembershipIds: selected });
+                }}
+                style={{ height: '100px', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              >
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.roleName})</option>
+                ))}
+              </select>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Hold Ctrl / Cmd to select multiple teachers (e.g. Teacher 07, Teacher 10)</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Seating Remarks / Arrangement</label>
+              <input
+                type="text"
+                placeholder="e.g. Odd rolls Column A, Even rolls Column B"
+                value={roomForm.remarks}
+                onChange={(e) => setRoomForm({ ...roomForm, remarks: e.target.value })}
+                style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <Button variant="secondary" onClick={() => setShowAddRoomModal(false)}>Cancel</Button>
+              <Button variant="primary" type="submit">Allocate Room</Button>
             </div>
           </form>
         </Modal>

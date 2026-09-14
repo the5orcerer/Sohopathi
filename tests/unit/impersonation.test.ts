@@ -15,6 +15,6 @@ describe('Impersonation and Reports Manifest', () => {
     const reportsNav = navItems.find((n) => n.path === '/reports');
     expect(reportsNav).toBeDefined();
     expect(reportsNav?.label).toBe('Reports');
-    expect(reportsNav?.requiredPermission).toBe('students.read');
+    expect(reportsNav?.requiredPermission).toBe('reports.read');
   });
 });

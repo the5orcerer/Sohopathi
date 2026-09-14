@@ -35,7 +35,9 @@ export async function syncModuleCatalog(manifest: ModuleManifest, client: PoolCl
   }
 
   // 3. Upsert widgets
-  for (const w of manifest.widgets) {
+  for (const w of manifest.widgets || []) {
+    const widgetKey = w.id || (w as any).key;
+    if (!widgetKey) continue;
     await client.query(
       `insert into widget (key, module_id, required_permissions, default_size, data_source, renderer)
        values ($1, $2, $3, $4, $5, $6)
@@ -44,7 +46,14 @@ export async function syncModuleCatalog(manifest: ModuleManifest, client: PoolCl
              default_size = excluded.default_size,
              data_source = excluded.data_source,
              renderer = excluded.renderer`,
-      [w.id, moduleRow.id, w.requiredPermissions, JSON.stringify(w.defaultSize), w.dataSource, w.renderer]
+      [
+        widgetKey,
+        moduleRow.id,
+        w.requiredPermissions || [],
+        JSON.stringify(w.defaultSize || { width: 2, height: 2 }),
+        w.dataSource || '',
+        w.renderer || '',
+      ]
     );
   }
 }

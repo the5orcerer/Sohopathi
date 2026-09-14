@@ -125,7 +125,7 @@ export async function addAttachment(req: Request, res: Response, client: PoolCli
 
 export async function submitAssignment(req: Request, res: Response, client: PoolClient) {
   const assignmentId = req.params.id;
-  const { fileKey } = req.body;
+  const { fileKey, fileUrl, submissionNotes } = req.body;
 
   let studentId = req.body.studentId;
   if (req.grantedScope === 'self' || !studentId) {
@@ -136,14 +136,63 @@ export async function submitAssignment(req: Request, res: Response, client: Pool
     studentId = selfStudentId;
   }
 
+  // Verify student is actually enrolled in the section for this assignment
+  const { rows: enrollCheck } = await client.query(
+    `select 1 from assignment a
+     join enrollment e on e.section_id = a.section_id
+     where a.id = $1 and a.institution_id = $2 and e.student_id = $3 and e.status = 'active' limit 1`,
+    [assignmentId, req.ctx!.institutionId, studentId]
+  );
+  if (enrollCheck.length === 0) {
+    return res.status(403).json({
+      error: 'Cannot submit assignment: student is not enrolled in the assigned section',
+      code: 'FORBIDDEN',
+    });
+  }
+
   const submission = await assignmentRepository.submitAssignment(
     client,
     req.ctx!.institutionId,
     assignmentId,
     studentId,
-    fileKey
+    { fileKey, fileUrl, submissionNotes }
   );
   res.status(201).json(submission);
+}
+
+export async function listSubmissions(req: Request, res: Response, client: PoolClient) {
+  const assignmentId = req.params.id;
+  const grantedScope = req.grantedScope;
+
+  if (grantedScope === 'assigned_sections') {
+    const isAllowed = await assignmentRepository.isTeacherAssignment(client, req.ctx!.membershipId, assignmentId);
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'You do not have permission to view submissions for this assignment', code: 'FORBIDDEN' });
+    }
+  }
+
+  const submissions = await assignmentRepository.listSubmissions(client, req.ctx!.institutionId, assignmentId);
+  res.json(submissions);
+}
+
+export async function remindPendingStudents(req: Request, res: Response, client: PoolClient) {
+  const assignmentId = req.params.id;
+  const grantedScope = req.grantedScope;
+
+  if (grantedScope === 'assigned_sections') {
+    const isAllowed = await assignmentRepository.isTeacherAssignment(client, req.ctx!.membershipId, assignmentId);
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'You do not have permission to send reminders for this assignment', code: 'FORBIDDEN' });
+    }
+  }
+
+  const result = await assignmentRepository.remindPendingStudents(
+    client,
+    req.ctx!.institutionId,
+    assignmentId,
+    req.ctx?.membershipId
+  );
+  res.json(result);
 }
 
 export async function gradeSubmission(req: Request, res: Response, client: PoolClient) {

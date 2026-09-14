@@ -1,5 +1,6 @@
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
+import { dispatchNotificationAndTask } from '../core/notification-task-service';
 
 export interface Assignment {
   id: string;
@@ -26,7 +27,11 @@ export interface AssignmentSubmission {
   institutionId: string;
   assignmentId: string;
   studentId: string;
+  studentName?: string;
+  rollNumber?: string;
   fileKey: string | null;
+  fileUrl?: string | null;
+  submissionNotes?: string | null;
   submittedAt: string;
   status: string;
   grade?: string | null;
@@ -237,20 +242,59 @@ export const assignmentRepository = {
     return rows[0];
   },
 
+  async listSubmissions(client: PoolClient, institutionId: string, assignmentId: string): Promise<AssignmentSubmission[]> {
+    const { rows } = await client.query(
+      `select 
+         asub.id,
+         asub.institution_id as "institutionId",
+         asub.assignment_id as "assignmentId",
+         asub.student_id as "studentId",
+         coalesce(p.name, s.name) as "studentName",
+         s.admission_no as "admissionNumber",
+         e.roll_no as "rollNumber",
+         sec.name as "sectionName",
+         c.name as "className",
+         asub.file_key as "fileKey",
+         asub.file_url as "fileUrl",
+         asub.submission_notes as "submissionNotes",
+         asub.submitted_at as "submittedAt",
+         asub.status,
+         ag.grade,
+         ag.feedback,
+         ag.created_at as "gradedAt"
+       from assignment_submission asub
+       join student s on s.id = asub.student_id
+       left join profile p on p.id = s.user_id
+       left join assignment a on a.id = asub.assignment_id
+       left join enrollment e on e.student_id = s.id and e.section_id = a.section_id and e.status = 'active'
+       left join section sec on sec.id = a.section_id
+       left join class c on c.id = sec.class_id
+       left join assignment_grade ag on ag.submission_id = asub.id
+       where asub.institution_id = $1 and asub.assignment_id = $2
+       order by e.roll_no asc nulls last, asub.submitted_at desc`,
+      [institutionId, assignmentId]
+    );
+    return rows;
+  },
+
   async submitAssignment(
     client: PoolClient,
     institutionId: string,
     assignmentId: string,
     studentId: string,
-    fileKey?: string
+    options?: { fileKey?: string; fileUrl?: string; submissionNotes?: string }
   ): Promise<AssignmentSubmission> {
     const { rows } = await client.query(
-      `insert into assignment_submission (institution_id, assignment_id, student_id, file_key, status)
-       values ($1, $2, $3, $4, 'submitted')
+      `insert into assignment_submission (institution_id, assignment_id, student_id, file_key, file_url, submission_notes, status)
+       values ($1, $2, $3, $4, $5, $6, 'submitted')
        on conflict (assignment_id, student_id) do update
-         set file_key = excluded.file_key, submitted_at = now(), status = 'submitted'
-       returning id, institution_id as "institutionId", assignment_id as "assignmentId", student_id as "studentId", file_key as "fileKey", submitted_at as "submittedAt", status`,
-      [institutionId, assignmentId, studentId, fileKey ?? null]
+         set file_key = coalesce(excluded.file_key, assignment_submission.file_key),
+             file_url = coalesce(excluded.file_url, assignment_submission.file_url),
+             submission_notes = coalesce(excluded.submission_notes, assignment_submission.submission_notes),
+             submitted_at = now(),
+             status = 'submitted'
+       returning id, institution_id as "institutionId", assignment_id as "assignmentId", student_id as "studentId", file_key as "fileKey", file_url as "fileUrl", submission_notes as "submissionNotes", submitted_at as "submittedAt", status`,
+      [institutionId, assignmentId, studentId, options?.fileKey ?? null, options?.fileUrl ?? null, options?.submissionNotes ?? null]
     );
     const sub = rows[0];
     await logAudit(client, {
@@ -261,6 +305,71 @@ export const assignmentRepository = {
       after: sub,
     });
     return sub;
+  },
+
+  async remindPendingStudents(
+    client: PoolClient,
+    institutionId: string,
+    assignmentId: string,
+    actorMembershipId?: string
+  ): Promise<{ notifiedCount: number; message: string }> {
+    const { rows: aRows } = await client.query(
+      `select a.id, a.title, a.due_date as "dueDate", a.section_id as "sectionId", sec.name as "sectionName"
+       from assignment a
+       join section sec on sec.id = a.section_id
+       where a.id = $1 and a.institution_id = $2`,
+      [assignmentId, institutionId]
+    );
+    if (aRows.length === 0) {
+      throw new Error('Assignment not found');
+    }
+    const assignment = aRows[0];
+
+    const { rows: pendingStudents } = await client.query(
+      `select s.id as "studentId", s.user_id as "userId", m.id as "membershipId", coalesce(p.name, s.name) as "studentName"
+       from enrollment e
+       join student s on s.id = e.student_id
+       left join profile p on p.id = s.user_id
+       left join membership m on m.user_id = s.user_id and m.institution_id = $1 and m.status = 'active'
+       where e.section_id = $2 and e.status = 'active'
+         and not exists (
+           select 1 from assignment_submission asub
+           where asub.assignment_id = $3 and asub.student_id = s.id and asub.status in ('submitted', 'graded')
+         )`,
+      [institutionId, assignment.sectionId, assignmentId]
+    );
+
+    let notifiedCount = 0;
+    const dueDateStr = assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : 'soon';
+
+    for (const st of pendingStudents) {
+      if (st.userId || st.membershipId) {
+        await dispatchNotificationAndTask({
+          client,
+          institutionId,
+          recipientUserIds: st.userId ? [st.userId] : undefined,
+          recipientMembershipIds: st.membershipId ? [st.membershipId] : undefined,
+          creatorMembershipId: actorMembershipId,
+          title: `Homework Reminder: ${assignment.title}`,
+          body: `Your assignment "${assignment.title}" for ${assignment.sectionName} is pending submission. Due date: ${dueDateStr}. Please upload your handwritten work.`,
+          type: 'warning',
+          priority: 'high',
+          dueDate: assignment.dueDate || undefined,
+          createTask: true,
+          metadata: {
+            entityType: 'assignment',
+            entityId: assignmentId,
+            link: `/assignments?assignmentId=${assignmentId}`,
+          },
+        });
+        notifiedCount++;
+      }
+    }
+
+    return {
+      notifiedCount,
+      message: `Sent reminder notifications and created tasks for ${notifiedCount} student(s) with pending submissions.`,
+    };
   },
 
   async gradeSubmission(

@@ -21,6 +21,7 @@ import {
   Layers,
   Check,
   Loader2,
+  Sparkles,
 } from 'lucide-react';
 
 export const PermissionMatrixPage: React.FC = () => {
@@ -40,6 +41,15 @@ export const PermissionMatrixPage: React.FC = () => {
   const [newRoleName, setNewRoleName] = useState('');
   const [templateRoleId, setTemplateRoleId] = useState<string>('');
   const [creatingRole, setCreatingRole] = useState(false);
+
+  // Multi-Selection State for Permissions
+  const [selectedPermKeys, setSelectedPermKeys] = useState<string[]>([]);
+
+  const displayRoleName = (name: string) => {
+    const n = (name || '').toLowerCase();
+    if (n === 'guardian' || n === 'student') return 'Guardian / Student';
+    return name;
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -171,6 +181,65 @@ export const PermissionMatrixPage: React.FC = () => {
         delete next[p.key];
       });
       return next;
+    });
+    setSavedSuccess(false);
+  };
+
+  const handleBulkSetScope = (scope: string | null) => {
+    if (selectedPermKeys.length === 0) return;
+    setRoleGrants((prev) => {
+      const next = { ...prev };
+      selectedPermKeys.forEach((key) => {
+        if (!scope) {
+          delete next[key];
+        } else {
+          next[key] = scope;
+        }
+      });
+      return next;
+    });
+    setSelectedPermKeys([]);
+    setSavedSuccess(false);
+  };
+
+  const applyTeacherPreset = () => {
+    setRoleGrants({
+      'attendance.read': 'assigned_sections',
+      'attendance.mark': 'assigned_sections',
+      'marks.read': 'assigned_sections',
+      'marks.create': 'assigned_sections',
+      'assignments.read': 'assigned_sections',
+      'assignments.create': 'assigned_sections',
+      'assignments.grade': 'assigned_sections',
+      'classes.manage': 'assigned_sections',
+      'notices.read': 'institution',
+      'requests.create': 'self',
+      'requests.manage': 'assigned_sections',
+    });
+    setSavedSuccess(false);
+  };
+
+  const applyStudentPreset = () => {
+    setRoleGrants({
+      'attendance.read': 'self',
+      'marks.read': 'self',
+      'assignments.read': 'self',
+      'assignments.submit': 'self',
+      'notices.read': 'institution',
+      'requests.create': 'self',
+    });
+    setSavedSuccess(false);
+  };
+
+  const applyAuditorPreset = () => {
+    setRoleGrants({
+      'students.read': 'institution',
+      'attendance.read': 'institution',
+      'marks.read': 'institution',
+      'assignments.read': 'institution',
+      'reports.read': 'institution',
+      'audit_logs.read': 'institution',
+      'notices.read': 'institution',
     });
     setSavedSuccess(false);
   };
@@ -326,7 +395,7 @@ export const PermissionMatrixPage: React.FC = () => {
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       {role.isSystem ? <Lock size={13} style={{ opacity: 0.8 }} /> : <Users size={13} style={{ opacity: 0.8 }} />}
-                      <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{role.name}</span>
+                      <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{displayRoleName(role.name)}</span>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -404,6 +473,51 @@ export const PermissionMatrixPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Presets Toolbar */}
+            <div className="glass-panel" style={{ padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                <Sparkles size={14} style={{ color: 'var(--brand-primary)' }} />
+                <span>Security Profile Presets:</span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <Button variant="secondary" size="sm" onClick={applyTeacherPreset}>
+                  Teacher Preset (Assigned Sections)
+                </Button>
+                <Button variant="secondary" size="sm" onClick={applyStudentPreset}>
+                  Guardian / Student Preset (Self Only)
+                </Button>
+                <Button variant="secondary" size="sm" onClick={applyAuditorPreset}>
+                  Auditor Preset (Read Only)
+                </Button>
+              </div>
+            </div>
+
+            {/* Floating Bulk Actions Toolbar */}
+            {selectedPermKeys.length > 0 && (
+              <div style={{ padding: '0.75rem 1rem', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid var(--brand-primary)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                  {selectedPermKeys.length} Permission{selectedPermKeys.length > 1 ? 's' : ''} Selected
+                </span>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <Button size="sm" variant="secondary" onClick={() => handleBulkSetScope('institution')}>
+                    Set Institution
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => handleBulkSetScope('assigned_sections')}>
+                    Set Assigned Sections
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => handleBulkSetScope('self')}>
+                    Set Self
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => handleBulkSetScope(null)}>
+                    Deny Selected
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedPermKeys([])}>
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Module Groups */}
             {Object.entries(groupedPermissions).map(([mKey, group]) => {
               const visibleItems = group.items.filter((p) => {
@@ -441,8 +555,21 @@ export const PermissionMatrixPage: React.FC = () => {
                     <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                          <th style={{ padding: '0.6rem 0.5rem', width: '32px' }}>
+                            <input
+                              type="checkbox"
+                              checked={visibleItems.length > 0 && visibleItems.every((item) => selectedPermKeys.includes(item.key))}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedPermKeys((prev) => Array.from(new Set([...prev, ...visibleItems.map((i) => i.key)])));
+                                } else {
+                                  setSelectedPermKeys((prev) => prev.filter((k) => !visibleItems.some((i) => i.key === k)));
+                                }
+                              }}
+                            />
+                          </th>
                           <th style={{ padding: '0.6rem 0.5rem', width: '38%' }}>Permission Capability</th>
-                          <th style={{ padding: '0.6rem 0.5rem', width: '62%' }}>Granted Scope Level</th>
+                          <th style={{ padding: '0.6rem 0.5rem', width: '58%' }}>Granted Scope Level</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -451,6 +578,17 @@ export const PermissionMatrixPage: React.FC = () => {
 
                           return (
                             <tr key={p.key} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                              <td style={{ padding: '0.65rem 0.5rem', verticalAlign: 'top' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedPermKeys.includes(p.key)}
+                                  onChange={() => {
+                                    setSelectedPermKeys((prev) =>
+                                      prev.includes(p.key) ? prev.filter((k) => k !== p.key) : [...prev, p.key]
+                                    );
+                                  }}
+                                />
+                              </td>
                               <td style={{ padding: '0.65rem 0.5rem', verticalAlign: 'top' }}>
                                 <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>
                                   {p.key}

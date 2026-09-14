@@ -17,9 +17,12 @@ import { InstitutionSettingsPage } from './pages/InstitutionSettingsPage';
 import { LoginPage } from './pages/LoginPage';
 import { AnalyticsDashboard } from './components/dashboard/AnalyticsDashboard';
 import { TemplatesPage } from './pages/TemplatesPage';
+import { DocumentTemplateBuilder } from './pages/DocumentTemplateBuilder';
+import { RequestsPage } from './pages/RequestsPage';
+import { BillingPage } from './pages/BillingPage';
 
 const MainAppContent: React.FC = () => {
-  const { isAuthenticated, loading } = useSession();
+  const { isAuthenticated, loading, activeMembership } = useSession();
   const [currentPath, setCurrentPath] = useState<string>('/');
 
   const handleNavigate = (path: string) => {
@@ -55,18 +58,31 @@ const MainAppContent: React.FC = () => {
   const renderPage = () => {
     switch (currentPath) {
       case '/': return <AnalyticsDashboard onNavigate={handleNavigate} />;
-      case '/templates': return <TemplatesPage />;
+      case '/templates': return <TemplatesPage onNavigate={handleNavigate} />;
+      case '/templates/builder': return <DocumentTemplateBuilder onNavigate={handleNavigate} />;
       case '/attendance': return <AttendancePage />;
+      case '/employee-attendance':
+      case '/attendance/employee': return <AttendancePage initialTab="employees" />;
       case '/admissions': return <AdmissionsPage />;
       case '/examinations': return <ExaminationsPage onNavigateHome={() => handleNavigate('/')} />;
       case '/assignments': return <AssignmentsPage onNavigateHome={() => handleNavigate('/')} />;
       case '/notices': return <NoticesPage />;
-      case '/students': return <StudentsPage />;
+      case '/students': {
+        const role = (activeMembership?.roleName || '').toLowerCase();
+        if (role.includes('guardian') || role.includes('student')) {
+          return <AnalyticsDashboard onNavigate={handleNavigate} />;
+        }
+        return <StudentsPage />;
+      }
+      case '/requests': return <RequestsPage />;
       case '/academic': return <AcademicPage />;
       case '/reports': return <ReportsPage onNavigate={handleNavigate} />;
       case '/tasks': return <TasksPage />;
       case '/members': return <MembersPage />;
       case '/permission-matrix': return <PermissionMatrixPage />;
+      case '/billing':
+      case '/invoices':
+      case '/finance': return <BillingPage onNavigateHome={() => handleNavigate('/')} />;
       case '/activity-log':
       case '/activity-logs': return <ActivityLogPage onNavigateHome={() => handleNavigate('/')} />;
       case '/settings': return <InstitutionSettingsPage />;

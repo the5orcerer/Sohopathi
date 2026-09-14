@@ -486,3 +486,195 @@ export async function renderTemplate(req: Request, res: Response, client: PoolCl
 }
 
 
+
+
+// --- Classrooms ---
+export async function listClassrooms(req: Request, res: Response, client: PoolClient) {
+  const rooms = await coreRepository.listClassrooms(client, req.ctx!.institutionId);
+  res.json(rooms);
+}
+
+export async function createClassroom(req: Request, res: Response, client: PoolClient) {
+  const room = await coreRepository.createClassroom(
+    client,
+    req.ctx!.institutionId,
+    req.body,
+    req.ctx?.membershipId
+  );
+  res.status(201).json(room);
+}
+
+export async function updateClassroom(req: Request, res: Response, client: PoolClient) {
+  const room = await coreRepository.updateClassroom(
+    client,
+    req.ctx!.institutionId,
+    req.params.id,
+    req.body,
+    req.ctx?.membershipId
+  );
+  res.json(room);
+}
+
+export async function deleteClassroom(req: Request, res: Response, client: PoolClient) {
+  await coreRepository.deleteClassroom(client, req.ctx!.institutionId, req.params.id, req.ctx?.membershipId);
+  res.json({ success: true });
+}
+
+// --- Class Overview & Live Periods ---
+export async function getClassOverview(req: Request, res: Response, client: PoolClient) {
+  const overview = await coreRepository.getClassOverview(client, req.ctx!.institutionId, req.params.id);
+  res.json(overview);
+}
+
+export async function getLivePeriods(req: Request, res: Response, client: PoolClient) {
+  const data = await coreRepository.getLivePeriods(client, req.ctx!.institutionId, {
+    userId: req.ctx?.userId,
+    membershipId: req.ctx?.membershipId,
+    roleName: req.ctx?.roleName,
+  });
+  res.json(data);
+}
+
+// --- Period Substitutions & Teacher History ---
+export async function recordPeriodSubstitution(req: Request, res: Response, client: PoolClient) {
+  const result = await coreRepository.recordPeriodSubstitution(
+    client,
+    req.ctx!.institutionId,
+    req.params.id,
+    req.body,
+    req.ctx?.membershipId
+  );
+  res.status(201).json(result);
+}
+
+export async function getTeacherHistory(req: Request, res: Response, client: PoolClient) {
+  const history = await coreRepository.getTeacherHistory(client, req.ctx!.institutionId, req.params.id);
+  res.json(history);
+}
+
+// --- Member Requests Engine ---
+export async function listRequests(req: Request, res: Response, client: PoolClient) {
+  const filter = (req.query.filter as any) || 'my_requests';
+  const category = req.query.category as string | undefined;
+  const status = req.query.status as string | undefined;
+  const requests = await coreRepository.listRequests(
+    client,
+    req.ctx!.institutionId,
+    {
+      membershipId: req.ctx!.membershipId,
+      userId: req.ctx?.userId,
+      roleName: req.ctx?.roleName,
+      filter,
+    },
+    { category, status }
+  );
+  res.json(requests);
+}
+
+export async function createRequest(req: Request, res: Response, client: PoolClient) {
+  const created = await coreRepository.createRequest(
+    client,
+    req.ctx!.institutionId,
+    req.body,
+    {
+      membershipId: req.ctx!.membershipId,
+      userId: req.ctx?.userId,
+      roleName: req.ctx?.roleName,
+    }
+  );
+  res.status(201).json(created);
+}
+
+export async function updateRequestStatus(req: Request, res: Response, client: PoolClient) {
+  const updated = await coreRepository.updateRequestStatus(
+    client,
+    req.ctx!.institutionId,
+    req.params.id,
+    req.body,
+    req.ctx?.membershipId
+  );
+  res.json(updated);
+}
+
+export async function bulkUpdateRequestStatus(req: Request, res: Response, client: PoolClient) {
+  const { requestIds, status, notes } = req.body;
+  const count = await coreRepository.bulkUpdateRequestStatus(
+    client,
+    req.ctx!.institutionId,
+    requestIds,
+    status,
+    notes,
+    req.ctx?.membershipId
+  );
+  res.json({ success: true, count });
+}
+
+// --- Universal Bulk Operations ---
+export async function bulkAssignManager(req: Request, res: Response, client: PoolClient) {
+  const { membershipIds, managerMembershipId } = req.body;
+  const count = await coreRepository.bulkAssignManager(
+    client,
+    req.ctx!.institutionId,
+    membershipIds,
+    managerMembershipId,
+    req.ctx?.membershipId
+  );
+  res.json({ success: true, count });
+}
+
+export async function bulkUpdateMemberRole(req: Request, res: Response, client: PoolClient) {
+  const { membershipIds, roleId } = req.body;
+  const count = await coreRepository.bulkUpdateMemberRole(
+    client,
+    req.ctx!.institutionId,
+    membershipIds,
+    roleId,
+    req.ctx?.membershipId
+  );
+  res.json({ success: true, count });
+}
+
+export async function bulkUpdateStudentStatus(req: Request, res: Response, client: PoolClient) {
+  const { studentIds, status } = req.body;
+  const count = await coreRepository.bulkUpdateStudentStatus(
+    client,
+    req.ctx!.institutionId,
+    studentIds,
+    status,
+    req.ctx?.membershipId
+  );
+  res.json({ success: true, count });
+}
+
+export async function bulkTransferStudentSection(req: Request, res: Response, client: PoolClient) {
+  const { studentIds, classId, sectionId } = req.body;
+  const count = await coreRepository.bulkTransferStudentSection(
+    client,
+    req.ctx!.institutionId,
+    studentIds,
+    classId,
+    sectionId,
+    req.ctx?.membershipId
+  );
+  res.json({ success: true, count });
+}
+
+export async function remindManager(req: Request, res: Response, client: PoolClient) {
+  const result = await coreRepository.remindManager(
+    client,
+    req.ctx!.institutionId,
+    req.params.id,
+    req.ctx?.membershipId
+  );
+  res.json(result);
+}
+
+export async function dispatchReminder(req: Request, res: Response, client: PoolClient) {
+  const result = await coreRepository.dispatchReminder(
+    client,
+    req.ctx!.institutionId,
+    req.body,
+    req.ctx?.membershipId
+  );
+  res.json(result);
+}

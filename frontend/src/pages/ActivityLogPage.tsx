@@ -3,7 +3,181 @@ import { ProtectedRoute } from '../components/auth/ProtectedRoute';
 import { fetchAuditLogs, fetchMembers } from '../services/api';
 import type { AuditLogEntry, Member } from '../types';
 import { SearchBar, Badge, Button, EmptyState, Pagination } from '../components/common';
-import { History, User, Calendar, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { History, User, Calendar, ChevronDown, ChevronUp, RefreshCw, ArrowRight, FileEdit, Clock } from 'lucide-react';
+
+const formatFieldName = (key: string): string => {
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/^\w/, (c) => c.toUpperCase())
+    .trim();
+};
+
+const formatValueDisplay = (val: any): string => {
+  if (val === null || val === undefined || val === '') return '(none / empty)';
+  if (typeof val === 'boolean') return val ? 'Enabled (Yes)' : 'Disabled (No)';
+  if (Array.isArray(val)) {
+    if (val.length === 0) return '(empty list)';
+    return val.map((item) => (typeof item === 'object' ? JSON.stringify(item) : String(item))).join(', ');
+  }
+  if (typeof val === 'object') {
+    return Object.entries(val)
+      .map(([k, v]) => `${formatFieldName(k)}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
+      .join('; ');
+  }
+  return String(val);
+};
+
+interface FieldDiff {
+  key: string;
+  label: string;
+  beforeVal: any;
+  afterVal: any;
+  type: 'modified' | 'added' | 'removed';
+}
+
+const computeFieldDiffs = (before: Record<string, any> | null, after: Record<string, any> | null): FieldDiff[] => {
+  const diffs: FieldDiff[] = [];
+  const b = before || {};
+  const a = after || {};
+  const allKeys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)]));
+
+  for (const key of allKeys) {
+    const hasBefore = key in b && b[key] !== undefined;
+    const hasAfter = key in a && a[key] !== undefined;
+    const beforeVal = b[key];
+    const afterVal = a[key];
+
+    if (hasBefore && hasAfter) {
+      if (JSON.stringify(beforeVal) !== JSON.stringify(afterVal)) {
+        diffs.push({
+          key,
+          label: formatFieldName(key),
+          beforeVal,
+          afterVal,
+          type: 'modified',
+        });
+      }
+    } else if (!hasBefore && hasAfter) {
+      diffs.push({
+        key,
+        label: formatFieldName(key),
+        beforeVal: undefined,
+        afterVal,
+        type: 'added',
+      });
+    } else if (hasBefore && !hasAfter) {
+      diffs.push({
+        key,
+        label: formatFieldName(key),
+        beforeVal,
+        afterVal: undefined,
+        type: 'removed',
+      });
+    }
+  }
+
+  return diffs;
+};
+
+const ChangeLogViewer: React.FC<{ log: AuditLogEntry }> = ({ log }) => {
+  const diffs = computeFieldDiffs(log.before, log.after);
+
+  return (
+    <div
+      style={{
+        marginTop: '0.6rem',
+        padding: '0.85rem 1rem',
+        borderRadius: 'var(--radius-sm)',
+        background: 'var(--surface-sunken)',
+        border: '1px solid var(--border-subtle)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.75rem',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+          <FileEdit size={15} style={{ color: 'var(--primary)' }} />
+          <span>Change Log: Details of {log.action.replace(/_/g, ' ')} on {log.entityType.replace(/_/g, ' ')}</span>
+        </div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <Clock size={12} />
+          <span>Recorded: {new Date(log.createdAt).toLocaleString()}</span>
+        </div>
+      </div>
+
+      {diffs.length === 0 ? (
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>
+          No individual field modifications recorded in payload.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 1.2fr) minmax(180px, 2fr) 20px minmax(180px, 2fr)', gap: '0.6rem', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '0 0.6rem' }}>
+            <span>Attribute</span>
+            <span>Previous Value</span>
+            <span></span>
+            <span>Updated Value</span>
+          </div>
+
+          {diffs.map((diff) => (
+            <div
+              key={diff.key}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(140px, 1.2fr) minmax(180px, 2fr) 20px minmax(180px, 2fr)',
+                alignItems: 'center',
+                gap: '0.6rem',
+                padding: '0.45rem 0.6rem',
+                background: 'var(--surface)',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-subtle)',
+                fontSize: '0.8rem',
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                {diff.type === 'modified' && <Badge tone="warning">MODIFIED</Badge>}
+                {diff.type === 'added' && <Badge tone="success">INITIALIZED</Badge>}
+                {diff.type === 'removed' && <Badge tone="danger">REMOVED</Badge>}
+                <span>{diff.label}</span>
+              </div>
+
+              <div
+                style={{
+                  color: diff.type === 'added' ? 'var(--text-muted)' : 'var(--status-danger)',
+                  textDecoration: diff.type === 'modified' ? 'line-through' : 'none',
+                  background: diff.type === 'added' ? 'transparent' : 'rgba(239, 68, 68, 0.08)',
+                  padding: '0.25rem 0.45rem',
+                  borderRadius: 'var(--radius-sm)',
+                  wordBreak: 'break-word',
+                  fontSize: '0.78rem',
+                }}
+              >
+                {diff.beforeVal !== undefined ? formatValueDisplay(diff.beforeVal) : '(Not set)'}
+              </div>
+
+              <ArrowRight size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+
+              <div
+                style={{
+                  color: diff.type === 'removed' ? 'var(--text-muted)' : 'var(--status-success)',
+                  fontWeight: 600,
+                  background: diff.type === 'removed' ? 'transparent' : 'rgba(34, 197, 94, 0.08)',
+                  padding: '0.25rem 0.45rem',
+                  borderRadius: 'var(--radius-sm)',
+                  wordBreak: 'break-word',
+                  fontSize: '0.78rem',
+                }}
+              >
+                {diff.afterVal !== undefined ? formatValueDisplay(diff.afterVal) : '(Deleted)'}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const ActivityLogPage: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
@@ -265,50 +439,13 @@ export const ActivityLogPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
                         onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
                         icon={isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       >
-                        {isExpanded ? 'Hide Details' : 'View Payload Diff'}
+                        {isExpanded ? 'Close Change Log' : 'View Change Log'}
                       </Button>
                     )}
                   </div>
 
-                  {/* Expandable JSON Diff Viewer */}
-                  {isExpanded && (
-                    <div
-                      style={{
-                        marginTop: '0.5rem',
-                        padding: '0.75rem',
-                        borderRadius: 'var(--radius-sm)',
-                        background: 'var(--surface-sunken)',
-                        border: '1px solid var(--border-subtle)',
-                        fontSize: '0.78rem',
-                        fontFamily: 'var(--font-mono)',
-                        display: 'grid',
-                        gridTemplateColumns: log.before && log.after ? '1fr 1fr' : '1fr',
-                        gap: '0.75rem',
-                      }}
-                    >
-                      {log.before && (
-                        <div>
-                          <div style={{ fontWeight: 600, color: 'var(--status-danger)', marginBottom: '0.25rem' }}>
-                            BEFORE STATE
-                          </div>
-                          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--text-secondary)' }}>
-                            {JSON.stringify(log.before, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-
-                      {log.after && (
-                        <div>
-                          <div style={{ fontWeight: 600, color: 'var(--status-success)', marginBottom: '0.25rem' }}>
-                            AFTER STATE
-                          </div>
-                          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--text-secondary)' }}>
-                            {JSON.stringify(log.after, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* Human-Readable Change Log Viewer */}
+                  {isExpanded && <ChangeLogViewer log={log} />}
                 </div>
               );
             })}

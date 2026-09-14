@@ -217,7 +217,7 @@ export const MyInvoices: React.FC<WidgetProps> = ({ dataSource }) => {
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                   <span style={{ fontSize: '0.9rem', fontWeight: 700, color: isPaid ? 'var(--status-success)' : 'var(--text-primary)' }}>
-                    ৳{inv.amount.toLocaleString()}
+                    ৳{(inv.amount ?? (inv as any).totalAmount ?? 0).toLocaleString()}
                   </span>
 
                   {!isPaid ? (

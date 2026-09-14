@@ -161,6 +161,41 @@ export async function deleteExamPaper(req: Request, res: Response, client: PoolC
   res.json({ success: true });
 }
 
+export async function listExamRooms(req: Request, res: Response, client: PoolClient) {
+  const rooms = await attendanceRepository.listExamRooms(client, req.ctx!.institutionId, req.params.id);
+  res.json(rooms);
+}
+
+export async function createExamRoom(req: Request, res: Response, client: PoolClient) {
+  const room = await attendanceRepository.createExamRoom(
+    client,
+    req.ctx!.institutionId,
+    { ...req.body, examId: req.params.id },
+    req.ctx?.membershipId
+  );
+  res.status(201).json(room);
+}
+
+export async function deleteExamRoom(req: Request, res: Response, client: PoolClient) {
+  await attendanceRepository.deleteExamRoom(client, req.ctx!.institutionId, req.params.roomId, req.ctx?.membershipId);
+  res.json({ success: true });
+}
+
+export async function getExamProgress(req: Request, res: Response, client: PoolClient) {
+  const progress = await attendanceRepository.getExamProgress(client, req.ctx!.institutionId, req.params.id);
+  res.json(progress);
+}
+
+export async function notifyPendingTeachers(req: Request, res: Response, client: PoolClient) {
+  const result = await attendanceRepository.notifyPendingTeachers(client, req.ctx!.institutionId, req.params.id, req.ctx?.membershipId);
+  res.json(result);
+}
+
+export async function publishExam(req: Request, res: Response, client: PoolClient) {
+  const result = await attendanceRepository.publishExam(client, req.ctx!.institutionId, req.params.id, req.ctx?.membershipId);
+  res.json(result);
+}
+
 export async function listMarks(req: Request, res: Response, client: PoolClient) {
   const grantedScope = req.grantedScope;
   let studentId = req.query.studentId as string | undefined;
@@ -251,6 +286,14 @@ export async function markEmployeeAttendance(req: Request, res: Response, client
   const { records } = req.body;
   if (!Array.isArray(records) || records.length === 0) {
     return res.status(400).json({ error: 'records must be a non-empty array', code: 'VALIDATION_ERROR' });
+  }
+
+  if (req.grantedScope === 'self') {
+    for (const r of records) {
+      if (r.membershipId !== req.ctx?.membershipId) {
+        return res.status(403).json({ error: 'Self scope users can only mark their own attendance', code: 'FORBIDDEN' });
+      }
+    }
   }
 
   const results = await attendanceRepository.markEmployeeAttendanceBatch(

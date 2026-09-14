@@ -7,6 +7,7 @@ import {
   fetchEmployeeAttendance,
   markEmployeeAttendanceBatch,
   exportToCsv,
+  dispatchReminder,
 } from '../services/api';
 import type { SectionItem, AttendanceSheetItem, EmployeeAttendanceItem } from '../types';
 import {
@@ -20,14 +21,26 @@ import {
   Loader2,
   Briefcase,
   Search,
+  Bell,
+  UserCheck,
 } from 'lucide-react';
 import { Button, Badge, Pagination } from '../components/common';
 
-export const AttendancePage: React.FC = () => {
+interface AttendancePageProps {
+  initialTab?: 'students' | 'employees';
+}
+
+export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'students' }) => {
   const { activeMembership } = useSession();
 
   // Active top-level tab: Students vs Employees
-  const [activeTab, setActiveTab] = useState<'students' | 'employees'>('students');
+  const [activeTab, setActiveTab] = useState<'students' | 'employees'>(initialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Role & Permissions
   const role = activeMembership?.roleName?.toLowerCase() || '';
@@ -66,6 +79,60 @@ export const AttendancePage: React.FC = () => {
   const [employeeStatusFilter, setEmployeeStatusFilter] = useState<string>('all');
   const [employeePage, setEmployeePage] = useState<number>(1);
   const [employeePageSize, setEmployeePageSize] = useState<number>(15);
+
+  // Absent Guardian Notification & Self Check-in State
+  const [notifyingGuardians, setNotifyingGuardians] = useState(false);
+  const [guardianNotifyMsg, setGuardianNotifyMsg] = useState<string | null>(null);
+  const [selfCheckinLoading, setSelfCheckinLoading] = useState(false);
+  const [selfCheckinMsg, setSelfCheckinMsg] = useState<string | null>(null);
+
+  const handleNotifyAbsentGuardians = async () => {
+    const absentStudents = sheetStudents.filter((s) => s.status === 'absent');
+    if (absentStudents.length === 0) {
+      alert(`No absent students found for ${selectedDate}`);
+      return;
+    }
+    try {
+      setNotifyingGuardians(true);
+      await dispatchReminder({
+        title: `Absence Notice: ${selectedDate}`,
+        body: `Your student was marked absent today (${selectedDate}). Please review and submit a leave request if needed.`,
+        priority: 'high',
+        createTask: true,
+      });
+      setGuardianNotifyMsg(`Successfully notified guardians and created attendance tasks for ${absentStudents.length} absent student(s).`);
+      setTimeout(() => setGuardianNotifyMsg(null), 6000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to dispatch absence notifications');
+    } finally {
+      setNotifyingGuardians(false);
+    }
+  };
+
+  const handleSelfCheckin = async (status: 'present' | 'absent') => {
+    if (!activeMembership?.id) return;
+    try {
+      setSelfCheckinLoading(true);
+      const today = new Date().toISOString().split('T')[0];
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      await markEmployeeAttendanceBatch([
+        {
+          membershipId: activeMembership.id,
+          date: today,
+          status,
+          checkInTime: status === 'present' ? timeStr : undefined,
+          notes: 'Self check-in via web portal',
+        },
+      ]);
+      setSelfCheckinMsg(`Self check-in recorded as ${status.toUpperCase()} successfully!`);
+      setTimeout(() => setSelfCheckinMsg(null), 5000);
+      loadEmployeeData(employeeDate);
+    } catch (err: any) {
+      alert(err.message || 'Failed to record self attendance');
+    } finally {
+      setSelfCheckinLoading(false);
+    }
+  };
 
   // Load sections on mount
   useEffect(() => {
@@ -422,10 +489,38 @@ export const AttendancePage: React.FC = () => {
               <Button variant="secondary" size="sm" onClick={handleExportStudentCsv} icon={<Download size={14} />}>
                 Export CSV
               </Button>
+              {canTakeAttendance && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleNotifyAbsentGuardians}
+                  disabled={notifyingGuardians}
+                  icon={notifyingGuardians ? <Loader2 size={14} className="animate-spin" /> : <Bell size={14} />}
+                >
+                  Notify Absent Guardians
+                </Button>
+              )}
             </div>
           </div>
 
           {/* Feedback Banners */}
+          {guardianNotifyMsg && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1rem',
+                borderRadius: 'var(--radius-sm)',
+                background: 'rgba(59, 130, 246, 0.1)',
+                border: '1px solid var(--primary)',
+                color: 'var(--primary)',
+                fontSize: '0.85rem',
+              }}
+            >
+              <CheckCircle2 size={16} /> {guardianNotifyMsg}
+            </div>
+          )}
           {studentSavedSuccess && (
             <div
               style={{
@@ -699,10 +794,36 @@ export const AttendancePage: React.FC = () => {
               <Button variant="secondary" size="sm" onClick={handleExportEmployeeCsv} icon={<Download size={14} />}>
                 Export CSV
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleSelfCheckin('present')}
+                disabled={selfCheckinLoading}
+                icon={selfCheckinLoading ? <Loader2 size={14} className="animate-spin" /> : <UserCheck size={14} />}
+              >
+                Self Check-in
+              </Button>
             </div>
           </div>
 
           {/* Feedback Banners */}
+          {selfCheckinMsg && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1rem',
+                borderRadius: 'var(--radius-sm)',
+                background: 'rgba(59, 130, 246, 0.1)',
+                border: '1px solid var(--primary)',
+                color: 'var(--primary)',
+                fontSize: '0.85rem',
+              }}
+            >
+              <CheckCircle2 size={16} /> {selfCheckinMsg}
+            </div>
+          )}
           {employeeSavedSuccess && (
             <div
               style={{

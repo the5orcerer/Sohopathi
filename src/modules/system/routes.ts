@@ -35,7 +35,7 @@ export async function getMe(req: Request, res: Response, client: PoolClient) {
   });
 }
 
-export async function getNav(req: Request, res: Response) {
+export async function getNav(req: Request, res: Response, client?: PoolClient) {
   const allNavItems: NavItemDefinition[] = [];
   for (const manifest of registeredManifests) {
     if (manifest.navItem) {
@@ -47,11 +47,67 @@ export async function getNav(req: Request, res: Response) {
     }
   }
 
-  // Filter navigation items by user's resolved permissions (which includes all active module permissions for admins)
-  const authorizedNavItems = allNavItems.filter((item) =>
-    !item.requiredPermission ||
-    req.ctx?.permissions.has(item.requiredPermission)
-  );
+  // Load institution feature settings if client & institutionId available
+  let settings: Record<string, any> = {};
+  if (client && req.ctx?.institutionId) {
+    try {
+      const { rows } = await client.query(
+        `select settings from institution_setting where institution_id = $1`,
+        [req.ctx.institutionId]
+      );
+      if (rows.length > 0 && rows[0].settings) {
+        settings = rows[0].settings;
+      }
+    } catch {}
+  }
+
+  const featureLimitations = settings.featureLimitations || {};
+  const userRole = (req.ctx?.roleName || '').trim();
+
+  // Helper to check if a feature is allowed
+  const isFeatureAllowed = (featureKey: string, legacyToggleKey?: string): boolean => {
+    // Check master legacy toggle if present
+    if (legacyToggleKey && settings[legacyToggleKey] === false) {
+      return false;
+    }
+    const limitConfig = featureLimitations[featureKey];
+    if (limitConfig) {
+      if (limitConfig.enabled === false) return false;
+      if (Array.isArray(limitConfig.allowedRoles) && limitConfig.allowedRoles.length > 0) {
+        return limitConfig.allowedRoles.some(
+          (r: string) => r.toLowerCase() === userRole.toLowerCase()
+        );
+      }
+    }
+    return true;
+  };
+
+  // Filter navigation items by user's resolved permissions and feature limitation
+  const authorizedNavItems = allNavItems.filter((item) => {
+    if (!item.requiredPermission) return true;
+    if (!req.ctx?.permissions.has(item.requiredPermission)) return false;
+
+    // Feature Limitation checks
+    if (item.path === '/examinations' && !isFeatureAllowed('examinations', 'enableExaminations')) return false;
+    if (item.path === '/assignments' && !isFeatureAllowed('assignments', 'enableAssignments')) return false;
+    if (item.path === '/billing' && !isFeatureAllowed('finance', 'enableFinance')) return false;
+    if (item.path === '/transport' && !isFeatureAllowed('transport', 'enableTransport')) return false;
+    if (item.path === '/timetable' && !isFeatureAllowed('timetable', 'enableTimetable')) return false;
+    if (item.path === '/admissions' && !isFeatureAllowed('admissions')) return false;
+    if (item.path === '/notices' && !isFeatureAllowed('notices')) return false;
+    if (item.path === '/tasks' && !isFeatureAllowed('tasks')) return false;
+    if (item.path === '/attendance' && !isFeatureAllowed('attendance')) return false;
+
+    // Student Directory should NOT be visible to student/guardian or self-only scope
+    if (item.path === '/students') {
+      const scope = req.ctx.permissions.get(item.requiredPermission);
+      const roleName = req.ctx.roleName?.toLowerCase() || '';
+      if (scope === 'self' || roleName.includes('guardian') || roleName.includes('student')) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   // Sort nav items by sortOrder
   authorizedNavItems.sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99));

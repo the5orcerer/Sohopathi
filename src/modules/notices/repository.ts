@@ -6,14 +6,27 @@ export interface Notice {
   title: string;
   body: string;
   audienceScope: string;
+  targetRoles?: string[];
+  targetClassIds?: string[];
+  targetSectionIds?: string[];
+  audienceFilters?: Record<string, any>;
   publishedAt: string;
 }
 
 export const noticeRepository = {
   async list(client: PoolClient): Promise<Notice[]> {
     const { rows } = await client.query(
-      `select id, title, body, audience_scope as "audienceScope", published_at as "publishedAt"
-       from notice order by published_at desc limit 50`
+      `select 
+        id, 
+        title, 
+        body, 
+        audience_scope as "audienceScope", 
+        target_roles as "targetRoles",
+        target_class_ids as "targetClassIds",
+        target_section_ids as "targetSectionIds",
+        audience_filters as "audienceFilters",
+        published_at as "publishedAt"
+       from notice order by published_at desc limit 100`
     );
     return rows;
   },
@@ -22,13 +35,66 @@ export const noticeRepository = {
     client: PoolClient,
     institutionId: string,
     publishedByMembershipId: string,
-    data: { title: string; body: string; audienceScope: string }
+    data: {
+      title: string;
+      body: string;
+      audienceScope?: string;
+      targetRoles?: string[];
+      targetClassIds?: string[];
+      targetSectionIds?: string[];
+      audienceFilters?: Record<string, any>;
+    }
   ): Promise<Notice> {
+    const cleanTitle = data.title?.trim();
+    const cleanBody = data.body?.trim();
+
+    if (!cleanTitle) {
+      throw new Error('Notice title is required');
+    }
+    if (cleanTitle.length > 120) {
+      throw new Error('Notice title cannot exceed 120 characters');
+    }
+    if (!cleanBody) {
+      throw new Error('Notice content is required');
+    }
+    if (cleanBody.length > 2000) {
+      throw new Error('Notice content cannot exceed 2000 characters');
+    }
+
     const { rows } = await client.query(
-      `insert into notice (institution_id, title, body, audience_scope, published_by_membership_id)
-       values ($1, $2, $3, $4, $5)
-       returning id, title, body, audience_scope as "audienceScope", published_at as "publishedAt"`,
-      [institutionId, data.title, data.body, data.audienceScope, publishedByMembershipId]
+      `insert into notice (
+        institution_id, 
+        title, 
+        body, 
+        audience_scope, 
+        target_roles, 
+        target_class_ids, 
+        target_section_ids, 
+        audience_filters, 
+        published_by_membership_id
+       )
+       values ($1, $2, $3, coalesce($4, 'institution'), $5, $6, $7, $8, $9)
+       returning 
+        id, 
+        title, 
+        body, 
+        audience_scope as "audienceScope", 
+        target_roles as "targetRoles",
+        target_class_ids as "targetClassIds",
+        target_section_ids as "targetSectionIds",
+        audience_filters as "audienceFilters",
+        published_at as "publishedAt"`,
+      [
+        institutionId,
+        cleanTitle,
+        cleanBody,
+        data.audienceScope || 'institution',
+        data.targetRoles || [],
+        data.targetClassIds || [],
+        data.targetSectionIds || [],
+        JSON.stringify(data.audienceFilters || {}),
+        publishedByMembershipId,
+      ]
     );
     const notice = rows[0];
     await logAudit(client, {

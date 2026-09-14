@@ -46,6 +46,7 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
     { name: 'Notices', description: 'Institutional notice board and audience-targeted announcements' },
     { name: 'Assignments', description: 'Homework, coursework, file attachments, student submissions, and grading' },
     { name: 'Admissions', description: 'Inquiries, admission applications lifecycle, and 1-click student enrollment' },
+    { name: 'Finance & Invoicing', description: 'Student tuition fee billing, bulk class invoicing, payroll disbursements, payment recording, and official receipts' },
     { name: 'Marketing & Inquiries', description: 'Public landing page demo requests and lead generation' },
     { name: 'Storage & Health', description: 'File uploads, storage management, and service health checks' },
   ],
@@ -245,6 +246,8 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
           priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
           dueDate: { type: 'string', format: 'date', nullable: true },
           assigneeName: { type: 'string' },
+          assigneeRole: { type: 'string' },
+          assigneeMembershipIds: { type: 'array', items: { type: 'string', format: 'uuid' } },
           creatorName: { type: 'string' },
         },
       },
@@ -252,12 +255,85 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
         type: 'object',
         properties: {
           id: { type: 'string', format: 'uuid' },
-          title: { type: 'string', example: 'Annual Sports Day 2026 Announcement' },
-          body: { type: 'string', example: 'The annual sports competition will be held next Friday...' },
-          audienceScope: { type: 'string', example: 'institution' },
+          title: { type: 'string', maxLength: 120, example: 'Annual Sports Day 2026 Announcement' },
+          body: { type: 'string', maxLength: 2000, example: 'The annual sports competition will be held next Friday...' },
+          audienceScope: { type: 'string', enum: ['institution', 'roles', 'classes'], example: 'institution' },
+          targetRoles: { type: 'array', items: { type: 'string' } },
+          targetClassIds: { type: 'array', items: { type: 'string', format: 'uuid' } },
+          targetSectionIds: { type: 'array', items: { type: 'string', format: 'uuid' } },
+          audienceFilters: { type: 'object' },
           publishedAt: { type: 'string', format: 'date-time' },
           authorName: { type: 'string' },
           isRead: { type: 'boolean' },
+        },
+      },
+      InvoiceItem: {
+        type: 'object',
+        properties: {
+          label: { type: 'string', example: 'Monthly Tuition Fee' },
+          amount: { type: 'number', example: 3500 },
+          description: { type: 'string' },
+        },
+        required: ['label', 'amount'],
+      },
+      PaymentRecord: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          receiptNumber: { type: 'string', example: 'RCP-2026-0001' },
+          amount: { type: 'number', example: 3500 },
+          paymentDate: { type: 'string', format: 'date' },
+          method: { type: 'string', example: 'bKash' },
+          transactionId: { type: 'string', nullable: true },
+          notes: { type: 'string', nullable: true },
+          recordedByName: { type: 'string', nullable: true },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      Invoice: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          invoiceNumber: { type: 'string', example: 'INV-2026-0001' },
+          recipientType: { type: 'string', enum: ['student', 'employee', 'institution'] },
+          studentId: { type: 'string', format: 'uuid', nullable: true },
+          studentName: { type: 'string', nullable: true },
+          studentRollNo: { type: 'string', nullable: true },
+          className: { type: 'string', nullable: true },
+          employeeMembershipId: { type: 'string', format: 'uuid', nullable: true },
+          employeeName: { type: 'string', nullable: true },
+          category: { type: 'string', example: 'Tuition Fee' },
+          title: { type: 'string', maxLength: 120, example: 'October 2026 Tuition' },
+          description: { type: 'string', maxLength: 2000, nullable: true },
+          totalAmount: { type: 'number', example: 3500 },
+          discountAmount: { type: 'number', example: 500 },
+          paidAmount: { type: 'number', example: 3000 },
+          dueAmount: { type: 'number', example: 0 },
+          dueDate: { type: 'string', format: 'date' },
+          status: { type: 'string', enum: ['pending', 'partially_paid', 'paid', 'overdue', 'cancelled'] },
+          items: { type: 'array', items: { $ref: '#/components/schemas/InvoiceItem' } },
+          payments: { type: 'array', items: { $ref: '#/components/schemas/PaymentRecord' } },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      FinanceSummary: {
+        type: 'object',
+        properties: {
+          totalBilled: { type: 'number', example: 450000 },
+          totalCollected: { type: 'number', example: 380000 },
+          totalPending: { type: 'number', example: 70000 },
+          totalDisbursements: { type: 'number', example: 120000 },
+          collectionRate: { type: 'integer', example: 84 },
+          monthlyCollection: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                month: { type: 'string', example: 'Sep 2026' },
+                amount: { type: 'number', example: 95000 },
+              },
+            },
+          },
         },
       },
       Assignment: {
@@ -1684,13 +1760,18 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
               schema: {
                 type: 'object',
                 properties: {
-                  assigneeMembershipId: { type: 'string', format: 'uuid' },
-                  title: { type: 'string', example: 'Verify Midterm Grade Submissions' },
-                  description: { type: 'string' },
+                  assigneeMembershipId: { type: 'string', format: 'uuid', description: 'Single staff assignee (legacy)' },
+                  assigneeMembershipIds: {
+                    type: 'array',
+                    items: { type: 'string', format: 'uuid' },
+                    description: 'Multi-assignee array of staff members',
+                  },
+                  title: { type: 'string', maxLength: 120, example: 'Verify Midterm Grade Submissions' },
+                  description: { type: 'string', maxLength: 2000 },
                   priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
                   dueDate: { type: 'string', format: 'date' },
                 },
-                required: ['assigneeMembershipId', 'title'],
+                required: ['title'],
               },
             },
           },
@@ -1742,6 +1823,47 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
         tags: ['Core - Institutions & Settings'],
         summary: 'Update Institution Settings',
         description: 'Requires permission: `settings.manage`',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  instituteCode: { type: 'string', description: 'Official EIIN code of the educational institution', example: '108542' },
+                  branding: { type: 'object' },
+                  settings: {
+                    type: 'object',
+                    properties: {
+                      address: { type: 'string' },
+                      contactEmail: { type: 'string' },
+                      contactPhone: { type: 'string' },
+                      website: { type: 'string' },
+                      currency: { type: 'string', example: 'BDT' },
+                      timezone: { type: 'string', example: 'Asia/Dhaka' },
+                      attendanceThreshold: { type: 'integer', example: 75 },
+                      principalSignatureUrl: { type: 'string' },
+                      officialSealUrl: { type: 'string' },
+                      officialWatermarkText: { type: 'string' },
+                      featureLimitations: {
+                        type: 'object',
+                        description: 'Granular feature toggles and role restriction policy matrix',
+                        additionalProperties: {
+                          type: 'object',
+                          properties: {
+                            enabled: { type: 'boolean' },
+                            allowedRoles: { type: 'array', items: { type: 'string' } },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         responses: { 200: { description: 'Settings updated' } },
       },
     },
@@ -2037,9 +2159,13 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
               schema: {
                 type: 'object',
                 properties: {
-                  title: { type: 'string', example: 'School Closed on Independence Day' },
-                  body: { type: 'string', example: 'All academic activities will remain suspended on...' },
-                  audienceScope: { type: 'string', example: 'institution' },
+                  title: { type: 'string', maxLength: 120, example: 'School Closed on Independence Day' },
+                  body: { type: 'string', maxLength: 2000, example: 'All academic activities will remain suspended on...' },
+                  audienceScope: { type: 'string', enum: ['institution', 'roles', 'classes'], example: 'roles' },
+                  targetRoles: { type: 'array', items: { type: 'string' }, example: ['Teacher', 'Student'] },
+                  targetClassIds: { type: 'array', items: { type: 'string', format: 'uuid' } },
+                  targetSectionIds: { type: 'array', items: { type: 'string', format: 'uuid' } },
+                  audienceFilters: { type: 'object' },
                 },
                 required: ['title', 'body'],
               },
@@ -2501,6 +2627,234 @@ Private, permission-driven backend API supporting dynamic modules, role-based ac
         summary: 'Public Subdomain Resolution',
         parameters: [{ name: 'subdomain', in: 'query', schema: { type: 'string' } }],
         responses: { 200: { description: 'Institution identity metadata' } },
+      },
+    },
+
+    // -------------------------------------------------------------
+    // Finance & Invoicing Module
+    // -------------------------------------------------------------
+    '/api/finance/summary': {
+      get: {
+        tags: ['Finance & Invoicing'],
+        summary: 'Get Financial & Fee Collection Metrics Summary',
+        description: 'Requires permission: `finance.read`',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        responses: {
+          200: {
+            description: 'Financial KPI summary metrics',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/FinanceSummary' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/finance/invoices': {
+      get: {
+        tags: ['Finance & Invoicing'],
+        summary: 'List Invoices & Billing Statements',
+        description: 'Requires permission: `finance.read`',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        parameters: [
+          { name: 'status', in: 'query', schema: { type: 'string', enum: ['all', 'pending', 'partially_paid', 'paid', 'overdue', 'cancelled'] } },
+          { name: 'recipientType', in: 'query', schema: { type: 'string', enum: ['all', 'student', 'employee', 'institution'] } },
+          { name: 'category', in: 'query', schema: { type: 'string' } },
+          { name: 'studentId', in: 'query', schema: { type: 'string', format: 'uuid' } },
+          { name: 'employeeMembershipId', in: 'query', schema: { type: 'string', format: 'uuid' } },
+          { name: 'search', in: 'query', schema: { type: 'string' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } },
+          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 } },
+        ],
+        responses: {
+          200: {
+            description: 'List of invoices with pagination total',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    invoices: { type: 'array', items: { $ref: '#/components/schemas/Invoice' } },
+                    total: { type: 'integer' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ['Finance & Invoicing'],
+        summary: 'Issue Single Fee Invoice or Payroll Disbursement',
+        description: 'Requires permission: `finance.write`',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  recipientType: { type: 'string', enum: ['student', 'employee', 'institution'], default: 'student' },
+                  studentId: { type: 'string', format: 'uuid' },
+                  employeeMembershipId: { type: 'string', format: 'uuid' },
+                  category: { type: 'string', example: 'Tuition Fee' },
+                  title: { type: 'string', maxLength: 120, example: 'October 2026 Academic Tuition' },
+                  description: { type: 'string', maxLength: 2000 },
+                  totalAmount: { type: 'number', example: 3500 },
+                  discountAmount: { type: 'number', example: 0 },
+                  dueDate: { type: 'string', format: 'date' },
+                  items: { type: 'array', items: { $ref: '#/components/schemas/InvoiceItem' } },
+                  notes: { type: 'string' },
+                },
+                required: ['recipientType', 'category', 'title', 'totalAmount', 'dueDate'],
+              },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Invoice created successfully',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/Invoice' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/finance/invoices/{id}': {
+      get: {
+        tags: ['Finance & Invoicing'],
+        summary: 'Get Invoice Details & Payment Ledger',
+        description: 'Requires permission: `finance.read`',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: {
+            description: 'Invoice object with payments array',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/Invoice' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/finance/invoices/bulk': {
+      post: {
+        tags: ['Finance & Invoicing'],
+        summary: 'Cohort Bulk Fee Invoice Generation (Class-Wide)',
+        description: 'Generates individualized invoices for all enrolled students in a given class or section. Requires permission: `finance.write`',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  classId: { type: 'string', format: 'uuid' },
+                  sectionId: { type: 'string', format: 'uuid' },
+                  category: { type: 'string', example: 'Tuition Fee' },
+                  title: { type: 'string', maxLength: 120, example: 'Term 2 Tuition & Activity Fee' },
+                  amount: { type: 'number', example: 3500 },
+                  dueDate: { type: 'string', format: 'date' },
+                  notes: { type: 'string', maxLength: 2000 },
+                },
+                required: ['classId', 'category', 'title', 'amount', 'dueDate'],
+              },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Batch invoices generated successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    count: { type: 'integer', example: 45 },
+                    invoices: { type: 'array', items: { $ref: '#/components/schemas/Invoice' } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/finance/invoices/{id}/payments': {
+      post: {
+        tags: ['Finance & Invoicing'],
+        summary: 'Record Payment Against Invoice & Issue Official Receipt',
+        description: 'Records fee deposit, updates invoice paid and due balances, and generates official receipt number. Requires permission: `finance.payment`',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  amount: { type: 'number', example: 3500 },
+                  paymentDate: { type: 'string', format: 'date' },
+                  method: { type: 'string', enum: ['Cash', 'bKash', 'Nagad', 'Rocket', 'Bank Transfer', 'Cheque', 'Credit/Debit Card'], example: 'Cash' },
+                  transactionId: { type: 'string', example: 'TRX-109283' },
+                  notes: { type: 'string', example: 'Paid at cash desk' },
+                },
+                required: ['amount', 'method'],
+              },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Payment recorded and official receipt issued',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    payment: { $ref: '#/components/schemas/PaymentRecord' },
+                    invoice: { $ref: '#/components/schemas/Invoice' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/finance/receipts/{paymentId}': {
+      get: {
+        tags: ['Finance & Invoicing'],
+        summary: 'Get Official Printable Receipt Data',
+        description: 'Returns printable receipt payload with institution identity, EIIN code, signatures, and itemized breakdown. Requires permission: `finance.read`',
+        security: [{ BearerAuth: [] }, { InstitutionId: [] }],
+        parameters: [{ name: 'paymentId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: {
+            description: 'Official printable receipt details',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    payment: { $ref: '#/components/schemas/PaymentRecord' },
+                    invoice: { $ref: '#/components/schemas/Invoice' },
+                    institution: { type: 'object' },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     },
   },

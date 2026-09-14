@@ -1,6 +1,7 @@
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
 import { invalidateContextCache } from '../../core/permissions/resolve-permissions';
+import { dispatchNotificationAndTask } from './notification-task-service';
 
 export interface Institution {
   id: string;
@@ -53,7 +54,6 @@ export interface Student {
   id: string;
   institutionId: string;
   userId: string | null;
-  username?: string;
   admissionNo: string;
   name: string;
   dateOfBirth: string | null;
@@ -68,6 +68,7 @@ export interface Student {
   customFields?: Record<string, any>;
   guardianName?: string;
   guardianPhone?: string;
+  username?: string;
 }
 
 export async function generateUniqueStudentUsername(
@@ -366,9 +367,8 @@ export const coreRepository = {
   },
 
   async listRoles(client: PoolClient, institutionId: string): Promise<Role[]> {
-    // Return tenant-specific roles, and fill in missing template roles without duplicate names
     const { rows } = await client.query(
-      `select distinct on (lower(r.name))
+      `select 
         r.id,
         r.institution_id as "institutionId",
         r.name,
@@ -376,16 +376,10 @@ export const coreRepository = {
         (select count(*)::int from membership m where m.role_id = r.id and m.institution_id = $1) as "memberCount"
        from role r
        where (r.institution_id = $1 or r.institution_id is null)
-       order by lower(r.name), r.institution_id nulls last`,
+       order by r.institution_id nulls first, r.name asc`,
       [institutionId]
     );
-
-    // Sort: System roles first, then custom roles alphabetically
-    return rows.sort((a, b) => {
-      if (a.isSystem && !b.isSystem) return -1;
-      if (!a.isSystem && b.isSystem) return 1;
-      return a.name.localeCompare(b.name);
-    });
+    return rows;
   },
 
   async createRole(
@@ -420,8 +414,6 @@ export const coreRepository = {
       entityId: role.id,
       after: role,
     });
-
-    invalidateContextCache(undefined, institutionId);
     return role;
   },
 
@@ -446,50 +438,20 @@ export const coreRepository = {
     roleId: string,
     permissions: Array<{ permissionKey: string; scope: string }>,
     actorMembershipId?: string
-  ): Promise<{ effectiveRoleId: string }> {
-    const { rows: [targetRole] } = await client.query(
-      `select id, institution_id, name from role where id = $1`,
-      [roleId]
-    );
-    if (!targetRole) throw new Error('Role not found');
-
-    let effectiveRoleId = roleId;
-
-    // If attempting to edit a global system template role (institution_id IS NULL),
-    // clone or resolve to the institution's role so global templates are never mutated across tenants.
-    if (!targetRole.institution_id) {
-      const { rows: [existingClone] } = await client.query(
-        `select id from role where institution_id = $1 and lower(name) = lower($2)`,
-        [institutionId, targetRole.name]
-      );
-      if (existingClone) {
-        effectiveRoleId = existingClone.id;
-      } else {
-        const { rows: [newClone] } = await client.query(
-          `insert into role (institution_id, name, is_system)
-           values ($1, $2, false)
-           returning id`,
-          [institutionId, targetRole.name]
-        );
-        effectiveRoleId = newClone.id;
-      }
-    }
-
+  ): Promise<void> {
     const { rows: beforeRows } = await client.query(
       `select p.key, rp.scope from role_permission rp join permission p on p.id = rp.permission_id where rp.role_id = $1`,
-      [effectiveRoleId]
+      [roleId]
     );
 
-    await client.query(`delete from role_permission where role_id = $1`, [effectiveRoleId]);
+    await client.query(`delete from role_permission where role_id = $1`, [roleId]);
 
     for (const p of permissions) {
       await client.query(
         `insert into role_permission (institution_id, role_id, permission_id, scope)
-         select $1, $2, p.id, $4
-         from permission p
-         where p.key = $3
+         values ($1, $2, (select id from permission where key = $3), $4)
          on conflict (role_id, permission_id) do update set scope = excluded.scope`,
-        [institutionId, effectiveRoleId, p.permissionKey, p.scope]
+        [institutionId, roleId, p.permissionKey, p.scope]
       );
     }
 
@@ -498,13 +460,10 @@ export const coreRepository = {
       actorMembershipId,
       action: 'update_permissions',
       entityType: 'role_permission',
-      entityId: effectiveRoleId,
+      entityId: roleId,
       before: beforeRows,
       after: permissions,
     });
-
-    invalidateContextCache(undefined, institutionId);
-    return { effectiveRoleId };
   },
 
   // --- Memberships (Employees / Staff) ---
@@ -528,6 +487,7 @@ export const coreRepository = {
        left join auth.users u on u.id = m.user_id
        left join role r on r.id = m.role_id
        where m.institution_id = $1
+         and lower(coalesce(r.name, '')) not in ('student', 'guardian')
        order by m.id, m.created_at desc`,
       [institutionId]
     );
@@ -550,8 +510,8 @@ export const coreRepository = {
       userId = authRows[0].id;
     } else {
       const { rows: newAuth } = await client.query(
-        `insert into auth.users (id, email, raw_user_meta_data, aud, role)
-         values (gen_random_uuid(), $1, $2, 'authenticated', 'authenticated')
+        `insert into auth.users (email, raw_user_meta_data)
+         values ($1, $2)
          returning id`,
         [email, JSON.stringify({ name: data.name })]
       );
@@ -803,6 +763,8 @@ export const coreRepository = {
         c.name as "className",
         s.name, 
         s.capacity,
+        s.class_teacher_membership_id as "classTeacherMembershipId",
+        (select coalesce(p.name, p.email, 'Faculty') from membership m join profile p on p.id = m.user_id where m.id = s.class_teacher_membership_id limit 1) as "classTeacherName",
         (select count(*)::int from enrollment e where e.section_id = s.id and e.status = 'active') as "studentCount"
        from section s
        join class c on c.id = s.class_id
@@ -821,14 +783,14 @@ export const coreRepository = {
   async createSection(
     client: PoolClient,
     institutionId: string,
-    data: { classId: string; name: string; capacity?: number },
+    data: { classId: string; name: string; capacity?: number; classTeacherMembershipId?: string },
     actorMembershipId?: string
   ): Promise<Section> {
     const { rows } = await client.query(
-      `insert into section (institution_id, class_id, name, capacity)
-       values ($1, $2, $3, $4)
-       returning id, institution_id as "institutionId", class_id as "classId", name, capacity`,
-      [institutionId, data.classId, data.name.trim(), data.capacity || null]
+      `insert into section (institution_id, class_id, name, capacity, class_teacher_membership_id)
+       values ($1, $2, $3, $4, $5)
+       returning id, institution_id as "institutionId", class_id as "classId", name, capacity, class_teacher_membership_id as "classTeacherMembershipId"`,
+      [institutionId, data.classId, data.name.trim(), data.capacity || null, data.classTeacherMembershipId || null]
     );
     const section = rows[0];
     await logAudit(client, { institutionId, actorMembershipId, action: 'create', entityType: 'section', entityId: section.id, after: section });
@@ -921,6 +883,7 @@ export const coreRepository = {
     await logAudit(client, { institutionId, actorMembershipId, action: 'create', entityType: 'class_subject_teacher', entityId: assignment.id, after: assignment });
     return assignment;
   },
+
   // --- Students & Enrollments ---
   async listStudents(
     client: PoolClient,
@@ -1021,28 +984,31 @@ export const coreRepository = {
     },
     actorMembershipId?: string
   ): Promise<Student> {
-    const { userId, username } = await provisionStudentUserAccount(
-      client,
-      institutionId,
-      data.name,
-      data.admissionNo
-    );
+    let studentUserId: string | null = null;
+    let studentUsername: string | null = null;
+    try {
+      const provisioned = await provisionStudentUserAccount(
+        client,
+        institutionId,
+        data.name.trim(),
+        data.admissionNo.trim()
+      );
+      studentUserId = provisioned.userId;
+      studentUsername = provisioned.username;
+    } catch {
+      // User account provisioning fallback
+    }
 
     const { rows: studentRows } = await client.query(
-      `insert into student (institution_id, user_id, admission_no, name, date_of_birth, gender, status, custom_fields)
-       values ($1, $2, $3, $4, $5, $6, 'active', $7)
-       returning id, institution_id as "institutionId", user_id as "userId", admission_no as "admissionNo", name, date_of_birth as "dateOfBirth", gender, status, custom_fields as "customFields", created_at as "createdAt"`,
-      [
-        institutionId,
-        userId,
-        data.admissionNo.trim(),
-        data.name.trim(),
-        data.dateOfBirth || null,
-        data.gender || null,
-        JSON.stringify(data.customFields || {}),
-      ]
+      `insert into student (institution_id, admission_no, name, date_of_birth, gender, status, custom_fields, user_id)
+       values ($1, $2, $3, $4, $5, 'active', $6, $7)
+       returning id, institution_id as "institutionId", admission_no as "admissionNo", name, date_of_birth as "dateOfBirth", gender, status, custom_fields as "customFields", user_id as "userId", created_at as "createdAt"`,
+      [institutionId, data.admissionNo.trim(), data.name.trim(), data.dateOfBirth || null, data.gender || 'Other', JSON.stringify(data.customFields || {}), studentUserId]
     );
-    const student = { ...studentRows[0], username };
+    const student = {
+      ...studentRows[0],
+      username: studentUsername || undefined,
+    };
 
     // Enroll in academic year if specified
     if (data.classId && data.sectionId) {
@@ -1052,8 +1018,10 @@ export const coreRepository = {
           `select id from academic_year where institution_id = $1 and is_current = true limit 1`,
           [institutionId]
         );
+        ayId = ayRows[0]?.id;
         if (ayRows.length > 0) ayId = ayRows[0].id;
       }
+
       if (ayId) {
         await client.query(
           `insert into enrollment (institution_id, student_id, academic_year_id, class_id, section_id, roll_no, status)
@@ -1153,7 +1121,7 @@ export const coreRepository = {
 
     if (data.guardianName) {
       const { rows: gLinkRows } = await client.query(
-        `select guardian_id from student_guardian where student_id = $1 limit 1`,
+        `select guardian_id from student_guardian where student_id = $1 and is_primary = true limit 1`,
         [studentId]
       );
       if (gLinkRows.length > 0) {
@@ -1222,7 +1190,6 @@ export const coreRepository = {
     return rows.length;
   },
 
-  // --- Student 360 Academic History ---
   async getStudentAcademicHistory(
     client: PoolClient,
     institutionId: string,
@@ -1320,7 +1287,7 @@ export const coreRepository = {
         g.id,
         g.name,
         g.phone,
-        sg.relation_type as "relation",
+        sg.relation,
         sg.is_primary as "isPrimary"
        from student_guardian sg
        join guardian g on g.id = sg.guardian_id
@@ -1399,7 +1366,6 @@ export const coreRepository = {
       params.push(allowedSectionIds);
       query += ` and cs.section_id = any($${params.length})`;
     }
-
     if (filters?.sectionId) {
       params.push(filters.sectionId);
       query += ` and cs.section_id = $${params.length}`;
@@ -1608,15 +1574,12 @@ export const coreRepository = {
     const currentAyId = ayRows[0]?.id;
 
     for (const item of students) {
-      const { userId } = await provisionStudentUserAccount(client, institutionId, item.name, item.admissionNo);
-
       const { rows: sRows } = await client.query(
-        `insert into student (institution_id, user_id, admission_no, name, gender, date_of_birth, status, custom_fields)
-         values ($1, $2, $3, $4, $5, $6, 'active', $7)
-         on conflict (institution_id, admission_no) do update
-         set name = excluded.name, user_id = coalesce(student.user_id, excluded.user_id), custom_fields = coalesce(student.custom_fields, '{}'::jsonb) || excluded.custom_fields
+        `insert into student (institution_id, admission_no, name, gender, date_of_birth, status, custom_fields)
+         values ($1, $2, $3, $4, $5, 'active', $6)
+         on conflict (institution_id, admission_no) do update set name = excluded.name, custom_fields = coalesce(student.custom_fields, '{}'::jsonb) || excluded.custom_fields
          returning id`,
-        [institutionId, userId, item.admissionNo.trim(), item.name.trim(), item.gender || 'Other', item.dateOfBirth || null, JSON.stringify(item.customFields || {})]
+        [institutionId, item.admissionNo.trim(), item.name.trim(), item.gender || 'Other', item.dateOfBirth || null, JSON.stringify(item.customFields || {})]
       );
       const studentId = sRows[0].id;
 
@@ -1783,9 +1746,14 @@ export const coreRepository = {
     );
   },
 
-  async markAllNotificationsRead(client: PoolClient, institutionId: string, userId: string, membershipId: string): Promise<void> {
+  async markAllNotificationsRead(
+    client: PoolClient,
+    institutionId: string,
+    userId: string,
+    membershipId: string
+  ): Promise<void> {
     await client.query(
-      `update notification set is_read = true
+      `update notification set is_read = true 
        where institution_id = $1 and (recipient_membership_id = $2 or recipient_user_id = $3)`,
       [institutionId, membershipId, userId]
     );
@@ -1844,52 +1812,76 @@ export const coreRepository = {
     institutionId: string,
     data: {
       creatorMembershipId?: string;
-      assigneeMembershipId: string;
+      assigneeMembershipId?: string;
+      assigneeMembershipIds?: string[];
       title: string;
       description?: string;
       priority?: string;
       dueDate?: string;
     }
   ): Promise<any> {
-    const { rows } = await client.query(
-      `insert into user_task (institution_id, creator_membership_id, assignee_membership_id, title, description, priority, due_date, status)
-       values ($1, $2, $3, $4, $5, coalesce($6, 'medium'), $7, 'pending')
-       returning id, institution_id as "institutionId", creator_membership_id as "creatorMembershipId", assignee_membership_id as "assigneeMembershipId", title, description, priority, due_date as "dueDate", status, created_at as "createdAt"`,
-      [
-        institutionId,
-        data.creatorMembershipId || null,
-        data.assigneeMembershipId,
-        data.title.trim(),
-        data.description?.trim() || null,
-        data.priority || 'medium',
-        data.dueDate || null,
-      ]
-    );
-    const task = rows[0];
-
-    // Auto-dispatch notification to the assigned staff member
-    try {
-      await coreRepository.createNotification(client, institutionId, {
-        recipientMembershipId: data.assigneeMembershipId,
-        title: `New Task Assigned: ${task.title}`,
-        body: data.description || 'You have been assigned a new academic work order.',
-        type: 'task_assigned',
-        data: { taskId: task.id },
-      });
-    } catch {
-      // notification failure shouldn't block task creation
+    if (!data.title?.trim()) {
+      throw new Error('Task title is required');
+    }
+    if (data.title.trim().length > 120) {
+      throw new Error('Task title cannot exceed 120 characters');
+    }
+    if (data.description && data.description.trim().length > 2000) {
+      throw new Error('Task description cannot exceed 2000 characters');
     }
 
-    await logAudit(client, {
-      institutionId,
-      actorMembershipId: data.creatorMembershipId,
-      action: 'create',
-      entityType: 'task',
-      entityId: task.id,
-      after: task,
-    });
+    const assignees = Array.from(new Set([
+      ...(data.assigneeMembershipIds || []),
+      ...(data.assigneeMembershipId ? [data.assigneeMembershipId] : []),
+    ])).filter(Boolean);
 
-    return task;
+    if (assignees.length === 0) {
+      throw new Error('At least one task assignee must be specified');
+    }
+
+    const createdTasks: any[] = [];
+    for (const assigneeId of assignees) {
+      const { rows } = await client.query(
+        `insert into user_task (institution_id, creator_membership_id, assignee_membership_id, title, description, priority, due_date, status)
+         values ($1, $2, $3, $4, $5, coalesce($6, 'medium'), $7, 'pending')
+         returning id, institution_id as "institutionId", creator_membership_id as "creatorMembershipId", assignee_membership_id as "assigneeMembershipId", title, description, priority, due_date as "dueDate", status, created_at as "createdAt"`,
+        [
+          institutionId,
+          data.creatorMembershipId || null,
+          assigneeId,
+          data.title.trim(),
+          data.description?.trim() || null,
+          data.priority || 'medium',
+          data.dueDate || null,
+        ]
+      );
+      const task = rows[0];
+      createdTasks.push(task);
+
+      // Auto-dispatch notification to the assigned staff member
+      try {
+        await coreRepository.createNotification(client, institutionId, {
+          recipientMembershipId: assigneeId,
+          title: `New Task Assigned: ${task.title}`,
+          body: data.description || 'You have been assigned a new academic work order.',
+          type: 'task_assigned',
+          data: { taskId: task.id },
+        });
+      } catch {
+        // notification failure shouldn't block task creation
+      }
+
+      await logAudit(client, {
+        institutionId,
+        actorMembershipId: data.creatorMembershipId,
+        action: 'create',
+        entityType: 'task',
+        entityId: task.id,
+        after: task,
+      });
+    }
+
+    return createdTasks.length === 1 ? createdTasks[0] : createdTasks;
   },
 
   async updateTaskStatus(
@@ -1948,7 +1940,7 @@ export const coreRepository = {
   // --- Institution Settings & Preferences ---
   async getInstitutionSettings(client: PoolClient, institutionId: string): Promise<any> {
     const { rows: instRows } = await client.query(
-      `select id, name, subdomain, branding, status, created_at as "createdAt"
+      `select id, name, subdomain, institute_code as "instituteCode", branding, status, created_at as "createdAt"
        from institution where id = $1`,
       [institutionId]
     );
@@ -1968,11 +1960,29 @@ export const coreRepository = {
       timezone: 'Asia/Dhaka',
       academicYearName: '2026-2027',
       attendanceThreshold: 75,
+      instituteCode: instRows[0]?.instituteCode || '',
       enableExaminations: true,
       enableAssignments: true,
-      enableAdmissions: true,
+      enableTransport: false,
+      enableFinance: true,
       enableTimetable: true,
       notificationSmsEnabled: false,
+      featureLimitations: {
+        examinations: { enabled: true, allowedRoles: [] },
+        assignments: { enabled: true, allowedRoles: [] },
+        finance: { enabled: true, allowedRoles: [] },
+        timetable: { enabled: true, allowedRoles: [] },
+        transport: { enabled: false, allowedRoles: [] },
+        admissions: { enabled: true, allowedRoles: [] },
+        attendance: { enabled: true, allowedRoles: [] },
+        notices: { enabled: true, allowedRoles: [] },
+        tasks: { enabled: true, allowedRoles: [] },
+      },
+      principalSignatureUrl: '',
+      officialSealUrl: '',
+      examControllerSignatureUrl: '',
+      institutionAffiliationNo: '',
+      officialWatermarkText: 'Powered by Biddyapith • Verified Official Institutional Document',
     };
 
     return {
@@ -1984,16 +1994,24 @@ export const coreRepository = {
   async updateInstitutionSettings(
     client: PoolClient,
     institutionId: string,
-    data: { name?: string; subdomain?: string; branding?: any; settings?: Record<string, any> },
+    data: { name?: string; instituteCode?: string; branding?: any; settings?: Record<string, any> },
     actorMembershipId?: string
   ): Promise<any> {
-    if (data.name || data.branding) {
+    const effectiveInstituteCode = data.instituteCode ?? data.settings?.instituteCode;
+
+    if (data.name || data.branding || effectiveInstituteCode !== undefined) {
       await client.query(
         `update institution set
            name = coalesce($1, name),
-           branding = coalesce($2, branding)
-         where id = $3`,
-        [data.name?.trim() || null, data.branding ? JSON.stringify(data.branding) : null, institutionId]
+           institute_code = coalesce($2, institute_code),
+           branding = coalesce($3, branding)
+         where id = $4`,
+        [
+          data.name?.trim() || null,
+          effectiveInstituteCode !== undefined ? effectiveInstituteCode.trim() : null,
+          data.branding ? JSON.stringify(data.branding) : null,
+          institutionId,
+        ]
       );
     }
 
@@ -2121,17 +2139,15 @@ export const coreRepository = {
         sectionsCreated++;
       }
 
-      // 4. Ensure Student exists or upsert with auto-provisioned student user account
+      // 4. Ensure Student exists or upsert
       const admNo = row.admissionNo?.trim() || `ADM-${Date.now().toString().slice(-4)}${i + 1}`;
-      const { userId } = await provisionStudentUserAccount(client, institutionId, row.studentName, admNo);
-
       const { rows: sRows } = await client.query(
-        `insert into student (institution_id, user_id, admission_no, name, date_of_birth, gender, status)
-         values ($1, $2, $3, $4, $5, $6, 'active')
+        `insert into student (institution_id, admission_no, name, date_of_birth, gender, status)
+         values ($1, $2, $3, $4, $5, 'active')
          on conflict (institution_id, admission_no) do update
-         set name = excluded.name, user_id = coalesce(student.user_id, excluded.user_id), status = 'active'
+         set name = excluded.name, status = 'active'
          returning id`,
-        [institutionId, userId, admNo, row.studentName.trim(), row.dateOfBirth || null, row.gender || null]
+        [institutionId, admNo, row.studentName.trim(), row.dateOfBirth || null, row.gender || null]
       );
       const studentId = sRows[0].id;
       studentsCreated++;
@@ -2179,6 +2195,911 @@ export const coreRepository = {
       studentsCreated,
       enrollmentsCreated,
     };
+  },
+
+  // --- Physical Classrooms & Facilities ---
+  async listClassrooms(client: PoolClient, institutionId: string): Promise<any[]> {
+    const { rows } = await client.query(
+      `select 
+        id, institution_id as "institutionId", room_number as "roomNumber", name,
+        building, floor, capacity, coalesce(facilities, '{}') as facilities,
+        status, created_at as "createdAt"
+       from classroom
+       where institution_id = $1
+       order by room_number asc`,
+      [institutionId]
+    );
+    return rows;
+  },
+
+  async createClassroom(
+    client: PoolClient,
+    institutionId: string,
+    data: { roomNumber: string; name?: string; building?: string; floor?: string; capacity?: number; facilities?: string[] },
+    actorMembershipId?: string
+  ): Promise<any> {
+    const { rows } = await client.query(
+      `insert into classroom (institution_id, room_number, name, building, floor, capacity, facilities, status)
+       values ($1, $2, $3, $4, $5, coalesce($6, 40), coalesce($7::text[], array[]::text[]), 'available')
+       returning id, institution_id as "institutionId", room_number as "roomNumber", name, building, floor, capacity, facilities, status, created_at as "createdAt"`,
+      [institutionId, data.roomNumber.trim(), data.name?.trim() || null, data.building?.trim() || null, data.floor?.trim() || null, data.capacity, data.facilities || []]
+    );
+    await logAudit(client, { institutionId, actorMembershipId, action: 'create', entityType: 'classroom', entityId: rows[0].id, after: rows[0] });
+    return rows[0];
+  },
+
+  async updateClassroom(
+    client: PoolClient,
+    institutionId: string,
+    id: string,
+    data: Partial<{ roomNumber: string; name: string; building: string; floor: string; capacity: number; facilities: string[]; status: string }>,
+    actorMembershipId?: string
+  ): Promise<any> {
+    const { rows } = await client.query(
+      `update classroom set
+         room_number = coalesce($1, room_number),
+         name = coalesce($2, name),
+         building = coalesce($3, building),
+         floor = coalesce($4, floor),
+         capacity = coalesce($5, capacity),
+         facilities = coalesce($6::text[], facilities),
+         status = coalesce($7, status)
+       where id = $8 and institution_id = $9
+       returning id, institution_id as "institutionId", room_number as "roomNumber", name, building, floor, capacity, facilities, status, created_at as "createdAt"`,
+      [data.roomNumber?.trim() || null, data.name?.trim() || null, data.building?.trim() || null, data.floor?.trim() || null, data.capacity, data.facilities, data.status, id, institutionId]
+    );
+    if (rows.length === 0) throw new Error('Classroom not found');
+    await logAudit(client, { institutionId, actorMembershipId, action: 'update', entityType: 'classroom', entityId: id, after: rows[0] });
+    return rows[0];
+  },
+
+  async deleteClassroom(client: PoolClient, institutionId: string, id: string, actorMembershipId?: string): Promise<void> {
+    await client.query(`delete from classroom where id = $1 and institution_id = $2`, [id, institutionId]);
+    await logAudit(client, { institutionId, actorMembershipId, action: 'delete', entityType: 'classroom', entityId: id });
+  },
+
+  // --- Class Overview (Live Telemetry) ---
+  async getClassOverview(client: PoolClient, institutionId: string, classId: string): Promise<any> {
+    const { rows: [cls] } = await client.query(`select id, name from class where id = $1 and institution_id = $2`, [classId, institutionId]);
+    if (!cls) throw new Error('Class not found');
+
+    const { rows: sections } = await client.query(
+      `select 
+        s.id, s.name, s.capacity,
+        s.class_teacher_membership_id as "classTeacherMembershipId",
+        p.name as "classTeacherName",
+        count(e.id)::int as "studentCount"
+       from section s
+       left join enrollment e on e.section_id = s.id and e.status = 'active'
+       left join membership m on m.id = s.class_teacher_membership_id
+       left join profile p on p.id = m.user_id
+       where s.class_id = $1 and s.institution_id = $2
+       group by s.id, s.name, s.capacity, s.class_teacher_membership_id, p.name
+       order by s.name asc`,
+      [classId, institutionId]
+    );
+
+    const totalStudents = sections.reduce((acc, s) => acc + (s.studentCount || 0), 0);
+
+    // Today attendance for this class
+    const today = new Date().toISOString().split('T')[0];
+    const { rows: attRows } = await client.query(
+      `select 
+        count(a.id)::int as "markedCount",
+        count(a.id) filter (where a.status = 'present')::int as "present",
+        count(a.id) filter (where a.status = 'absent')::int as "absent",
+        count(a.id) filter (where a.status = 'late')::int as "late",
+        count(a.id) filter (where a.status = 'excused')::int as "excused"
+       from attendance a
+       join enrollment e on e.student_id = a.student_id and e.status = 'active'
+       where e.class_id = $1 and a.date = $2 and a.institution_id = $3`,
+      [classId, today, institutionId]
+    );
+    const marked = attRows[0]?.markedCount || 0;
+    const present = attRows[0]?.present || 0;
+    const absent = attRows[0]?.absent || 0;
+    const late = attRows[0]?.late || 0;
+    const excused = attRows[0]?.excused || 0;
+    const rate = totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0;
+
+    // Current day and time for timetable
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const currentDay = days[new Date().getDay()];
+    const now = new Date();
+    const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    // Class schedules for this class today
+    const { rows: schedRows } = await client.query(
+      `select 
+        cs.id, cs.section_id as "sectionId", sec.name as "sectionName",
+        cs.subject_id as "subjectId", sub.name as "subjectName",
+        cs.teacher_membership_id as "teacherMembershipId",
+        p.name as "teacherName",
+        cs.start_time as "startTime", cs.end_time as "endTime",
+        coalesce(c.room_number, cs.room_no, 'Room 4022') as "roomNumber",
+        subst.status as "subStatus", subst.reason as "subReason",
+        subp.name as "substituteTeacherName"
+       from class_schedule cs
+       join section sec on sec.id = cs.section_id
+       join subject sub on sub.id = cs.subject_id
+       left join membership m on m.id = cs.teacher_membership_id
+       left join profile p on p.id = m.user_id
+       left join classroom c on c.id = cs.room_id
+       left join schedule_substitution subst on subst.schedule_id = cs.id and subst.date = $3
+       left join membership subm on subm.id = subst.substitute_teacher_membership_id
+       left join profile subp on subp.id = subm.user_id
+       where sec.class_id = $1 and lower(cs.day_of_week) = lower($2) and cs.institution_id = $4
+       order by cs.start_time asc`,
+      [classId, currentDay, today, institutionId]
+    );
+
+    let currentPeriod: any = null;
+    let nextPeriod: any = null;
+
+    for (const s of schedRows) {
+      if (currentTimeStr >= s.startTime && currentTimeStr <= s.endTime) {
+        currentPeriod = { ...s, isOngoing: true };
+      } else if (currentTimeStr < s.startTime && !nextPeriod) {
+        nextPeriod = s;
+      }
+    }
+    if (!currentPeriod && schedRows.length > 0) {
+      currentPeriod = { ...schedRows[0], isOngoing: false };
+    }
+
+    // Assigned Teachers
+    const { rows: teachers } = await client.query(
+      `select distinct 
+        p.name as "teacherName",
+        sub.name as "subjectName",
+        sec.name as "sectionName"
+       from class_subject_teacher cst
+       join section sec on sec.id = cst.section_id
+       join subject sub on sub.id = cst.subject_id
+       join membership m on m.id = cst.teacher_membership_id
+       join profile p on p.id = m.user_id
+       where sec.class_id = $1 and cst.institution_id = $2
+       order by sec.name, sub.name`,
+      [classId, institutionId]
+    );
+
+    return {
+      classId: cls.id,
+      className: cls.name,
+      totalStudents,
+      sections,
+      todayAttendance: {
+        totalStudents,
+        marked,
+        present,
+        absent,
+        late,
+        excused,
+        attendanceRate: rate,
+      },
+      currentPeriod,
+      nextPeriod,
+      todaySchedules: schedRows,
+      assignedTeachers: teachers,
+    };
+  },
+
+  // --- Live Periods & Today's Schedule (For Student, Teacher, Admin Dashboards) ---
+  async getLivePeriods(client: PoolClient, institutionId: string, ctx: any): Promise<any> {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const currentDay = days[new Date().getDay()];
+    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const roleName = ctx.roleName?.toLowerCase() || '';
+    const isGuardianOrStudent = roleName.includes('guardian') || roleName.includes('student');
+    const isTeacher = roleName.includes('teacher');
+
+    if (isGuardianOrStudent) {
+      const { rows: sRows } = await client.query(
+        `select s.id, s.name, e.section_id as "sectionId", c.name as "className", sec.name as "sectionName"
+         from student s
+         left join enrollment e on e.student_id = s.id and e.status = 'active'
+         left join class c on c.id = e.class_id
+         left join section sec on sec.id = e.section_id
+         where (s.user_id = $1 or s.id in (select sg.student_id from student_guardian sg join guardian g on g.id = sg.guardian_id where g.user_id = $1))
+           and s.institution_id = $2
+         limit 1`,
+        [ctx.userId, institutionId]
+      );
+      if (sRows.length === 0 || !sRows[0].sectionId) {
+        return { role: 'student', currentPeriod: null, nextPeriod: null, todaySchedule: [] };
+      }
+      const student = sRows[0];
+
+      const { rows: schedRows } = await client.query(
+        `select 
+          cs.id, cs.start_time as "startTime", cs.end_time as "endTime",
+          sub.name as "subjectName",
+          coalesce(subp.name, p.name, 'Faculty') as "teacherName",
+          coalesce(c.room_number, cs.room_no, 'Room 4022') as "roomNumber",
+          ss.status as "substitutionStatus",
+          ss.reason as "substitutionReason"
+         from class_schedule cs
+         join subject sub on sub.id = cs.subject_id
+         left join membership m on m.id = cs.teacher_membership_id
+         left join profile p on p.id = m.user_id
+         left join classroom c on c.id = cs.room_id
+         left join schedule_substitution ss on ss.schedule_id = cs.id and ss.date = $3
+         left join membership subm on subm.id = ss.substitute_teacher_membership_id
+         left join profile subp on subp.id = subm.user_id
+         where cs.section_id = $1 and lower(cs.day_of_week) = lower($2) and cs.institution_id = $4
+         order by cs.start_time asc`,
+        [student.sectionId, currentDay, today, institutionId]
+      );
+
+      let currentPeriod: any = null;
+      let nextPeriod: any = null;
+      for (const s of schedRows) {
+        if (currentTimeStr >= s.startTime && currentTimeStr <= s.endTime) {
+          currentPeriod = { ...s, isOngoing: true };
+        } else if (currentTimeStr < s.startTime && !nextPeriod) {
+          nextPeriod = s;
+        }
+      }
+      if (!currentPeriod && schedRows.length > 0 && currentTimeStr < schedRows[0].startTime) {
+        nextPeriod = schedRows[0];
+      }
+
+      return {
+        role: 'student',
+        studentName: student.name,
+        className: student.className,
+        sectionName: student.sectionName,
+        currentPeriod,
+        nextPeriod,
+        todaySchedule: schedRows,
+      };
+    } else if (isTeacher) {
+      const { rows: schedRows } = await client.query(
+        `select 
+          cs.id, cs.start_time as "startTime", cs.end_time as "endTime",
+          c.name as "className", sec.name as "sectionName",
+          sub.name as "subjectName",
+          coalesce(rm.room_number, cs.room_no, 'Room 4022') as "roomNumber",
+          ss.status as "substitutionStatus",
+          ss.reason as "substitutionReason",
+          subp.name as "substituteTeacherName"
+         from class_schedule cs
+         join section sec on sec.id = cs.section_id
+         join class c on c.id = sec.class_id
+         join subject sub on sub.id = cs.subject_id
+         left join classroom rm on rm.id = cs.room_id
+         left join schedule_substitution ss on ss.schedule_id = cs.id and ss.date = $3
+         left join membership subm on subm.id = ss.substitute_teacher_membership_id
+         left join profile subp on subp.id = subm.user_id
+         where (cs.teacher_membership_id = $1 or ss.substitute_teacher_membership_id = $1)
+           and lower(cs.day_of_week) = lower($2)
+           and cs.institution_id = $4
+         order by cs.start_time asc`,
+        [ctx.membershipId, currentDay, today, institutionId]
+      );
+
+      let currentPeriod: any = null;
+      let nextPeriod: any = null;
+      for (const s of schedRows) {
+        if (currentTimeStr >= s.startTime && currentTimeStr <= s.endTime) {
+          currentPeriod = { ...s, isOngoing: true };
+        } else if (currentTimeStr < s.startTime && !nextPeriod) {
+          nextPeriod = s;
+        }
+      }
+      if (!currentPeriod && schedRows.length > 0 && currentTimeStr < schedRows[0].startTime) {
+        nextPeriod = schedRows[0];
+      }
+
+      return {
+        role: 'teacher',
+        currentPeriod,
+        nextPeriod,
+        todaySchedule: schedRows,
+      };
+    } else {
+      const { rows: runningNow } = await client.query(
+        `select 
+          cs.id, cs.start_time as "startTime", cs.end_time as "endTime",
+          c.name as "className", sec.name as "sectionName", sub.name as "subjectName",
+          coalesce(subp.name, p.name, 'Unassigned') as "teacherName",
+          coalesce(rm.room_number, cs.room_no, '4022') as "roomNumber"
+         from class_schedule cs
+         join section sec on sec.id = cs.section_id
+         join class c on c.id = sec.class_id
+         join subject sub on sub.id = cs.subject_id
+         left join membership m on m.id = cs.teacher_membership_id
+         left join profile p on p.id = m.user_id
+         left join classroom rm on rm.id = cs.room_id
+         left join schedule_substitution ss on ss.schedule_id = cs.id and ss.date = $3
+         left join membership subm on subm.id = ss.substitute_teacher_membership_id
+         left join profile subp on subp.id = subm.user_id
+         where lower(cs.day_of_week) = lower($1)
+           and cs.institution_id = $2
+           and cs.start_time <= $4 and cs.end_time >= $4
+         order by cs.start_time asc`,
+        [currentDay, institutionId, today, currentTimeStr]
+      );
+
+      return {
+        role: 'admin',
+        runningNow,
+        activeClassroomsCount: runningNow.length,
+      };
+    }
+  },
+
+  // --- Period Substitutions & Teacher History ---
+  async recordPeriodSubstitution(
+    client: PoolClient,
+    institutionId: string,
+    scheduleId: string,
+    data: {
+      date: string;
+      substituteTeacherMembershipId?: string | null;
+      status?: 'substituted' | 'cancelled' | 'rescheduled';
+      reason?: string;
+      roomId?: string;
+    },
+    actorMembershipId?: string
+  ): Promise<any> {
+    const { rows: [sched] } = await client.query(
+      `select teacher_membership_id, room_id from class_schedule where id = $1 and institution_id = $2`,
+      [scheduleId, institutionId]
+    );
+    if (!sched) throw new Error('Schedule slot not found');
+
+    const originalTeacherId = sched.teacher_membership_id;
+    const roomId = data.roomId || sched.room_id;
+    const status = data.status || (data.substituteTeacherMembershipId ? 'substituted' : 'cancelled');
+
+    const { rows } = await client.query(
+      `insert into schedule_substitution (
+         institution_id, schedule_id, date, original_teacher_membership_id,
+         substitute_teacher_membership_id, room_id, status, reason, recorded_by_membership_id
+       )
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       on conflict (institution_id, schedule_id, date) do update
+       set substitute_teacher_membership_id = excluded.substitute_teacher_membership_id,
+           status = excluded.status,
+           reason = excluded.reason,
+           room_id = coalesce(excluded.room_id, schedule_substitution.room_id),
+           recorded_by_membership_id = excluded.recorded_by_membership_id,
+           updated_at = now()
+       returning id, schedule_id as "scheduleId", date, status, reason,
+                 substitute_teacher_membership_id as "substituteTeacherMembershipId"`,
+      [
+        institutionId,
+        scheduleId,
+        data.date,
+        originalTeacherId,
+        data.substituteTeacherMembershipId || null,
+        roomId,
+        status,
+        data.reason || null,
+        actorMembershipId || null,
+      ]
+    );
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'record_substitution',
+      entityType: 'schedule_substitution',
+      entityId: rows[0].id,
+      after: rows[0],
+    });
+
+    return rows[0];
+  },
+
+  async getTeacherHistory(client: PoolClient, institutionId: string, teacherMembershipId: string): Promise<any> {
+    const { rows: [teacher] } = await client.query(
+      `select m.id, p.name, p.email, coalesce(r.name, 'Teacher') as "roleName"
+       from membership m
+       join profile p on p.id = m.user_id
+       join role r on r.id = m.role_id
+       where m.id = $1 and m.institution_id = $2`,
+      [teacherMembershipId, institutionId]
+    );
+    if (!teacher) throw new Error('Teacher not found');
+
+    const { rows: [schedCount] } = await client.query(
+      `select count(*)::int as count from class_schedule where teacher_membership_id = $1 and institution_id = $2`,
+      [teacherMembershipId, institutionId]
+    );
+
+    const { rows: missedClasses } = await client.query(
+      `select 
+        ss.date, ss.status, ss.reason,
+        subp.name as "substituteTeacherName",
+        sub.name as "subjectName",
+        sec.name as "sectionName",
+        c.name as "className",
+        cs.start_time as "startTime", cs.end_time as "endTime"
+       from schedule_substitution ss
+       join class_schedule cs on cs.id = ss.schedule_id
+       join section sec on sec.id = cs.section_id
+       join class c on c.id = sec.class_id
+       join subject sub on sub.id = cs.subject_id
+       left join membership subm on subm.id = ss.substitute_teacher_membership_id
+       left join profile subp on subp.id = subm.user_id
+       where ss.original_teacher_membership_id = $1 and ss.institution_id = $2
+       order by ss.date desc`,
+      [teacherMembershipId, institutionId]
+    );
+
+    const { rows: substitutedClasses } = await client.query(
+      `select 
+        ss.date, ss.reason,
+        origp.name as "originalTeacherName",
+        sub.name as "subjectName",
+        sec.name as "sectionName",
+        c.name as "className",
+        cs.start_time as "startTime", cs.end_time as "endTime"
+       from schedule_substitution ss
+       join class_schedule cs on cs.id = ss.schedule_id
+       join section sec on sec.id = cs.section_id
+       join class c on c.id = sec.class_id
+       join subject sub on sub.id = cs.subject_id
+       left join membership origm on origm.id = ss.original_teacher_membership_id
+       left join profile origp on origp.id = origm.user_id
+       where ss.substitute_teacher_membership_id = $1 and ss.institution_id = $2
+       order by ss.date desc`,
+      [teacherMembershipId, institutionId]
+    );
+
+    const { rows: attStats } = await client.query(
+      `select 
+        count(*)::int as "totalDays",
+        count(*) filter (where status = 'present')::int as "presentDays",
+        count(*) filter (where status = 'absent')::int as "absentDays",
+        count(*) filter (where status = 'late')::int as "lateDays",
+        count(*) filter (where status = 'on_leave')::int as "leaveDays"
+       from employee_attendance
+       where membership_id = $1 and institution_id = $2`,
+      [teacherMembershipId, institutionId]
+    );
+    const totalDays = attStats[0]?.totalDays || 0;
+    const presentDays = attStats[0]?.presentDays || 0;
+    const rate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
+
+    return {
+      teacher,
+      weeklyPeriods: schedCount?.count || 0,
+      attendanceRate: rate,
+      attendanceSummary: attStats[0] || { totalDays: 0, presentDays: 0, absentDays: 0, lateDays: 0, leaveDays: 0 },
+      missedClasses,
+      substitutedClasses,
+    };
+  },
+
+  // --- Requests & Approvals Engine ---
+  async createRequest(
+    client: PoolClient,
+    institutionId: string,
+    data: {
+      category: 'leave' | 'break' | 'schedule_change' | 'resource' | 'general';
+      title: string;
+      description?: string;
+      startDate?: string;
+      endDate?: string;
+      metadata?: Record<string, any>;
+    },
+    ctx: any
+  ): Promise<any> {
+    let requesterStudentId: string | null = null;
+    let managerMembershipId: string | null = null;
+
+    const roleName = ctx.roleName?.toLowerCase() || '';
+    const isGuardianOrStudent = roleName.includes('guardian') || roleName.includes('student');
+
+    if (isGuardianOrStudent) {
+      const { rows: sRows } = await client.query(
+        `select s.id, sec.class_teacher_membership_id
+         from student s
+         left join enrollment e on e.student_id = s.id and e.status = 'active'
+         left join section sec on sec.id = e.section_id
+         where (s.user_id = $1 or s.id in (select sg.student_id from student_guardian sg join guardian g on g.id = sg.guardian_id where g.user_id = $1))
+           and s.institution_id = $2 limit 1`,
+        [ctx.userId, institutionId]
+      );
+      if (sRows.length > 0) {
+        requesterStudentId = sRows[0].id;
+        managerMembershipId = sRows[0].class_teacher_membership_id;
+      }
+    } else {
+      const { rows: mRows } = await client.query(
+        `select manager_membership_id from membership where id = $1 and institution_id = $2`,
+        [ctx.membershipId, institutionId]
+      );
+      if (mRows.length > 0) {
+        managerMembershipId = mRows[0].manager_membership_id;
+      }
+    }
+
+    if (!managerMembershipId) {
+      const { rows: adminRows } = await client.query(
+        `select m.id from membership m
+         join role r on r.id = m.role_id
+         where lower(r.name) in ('institution admin', 'admin') and m.institution_id = $1 limit 1`,
+        [institutionId]
+      );
+      if (adminRows.length > 0) {
+        managerMembershipId = adminRows[0].id;
+      }
+    }
+
+    const { rows } = await client.query(
+      `insert into member_request (
+         institution_id, requester_membership_id, requester_student_id,
+         manager_membership_id, category, title, description,
+         start_date, end_date, status, metadata
+       )
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', coalesce($10, '{}'::jsonb))
+       returning id, institution_id as "institutionId", category, title, description,
+                 start_date as "startDate", end_date as "endDate", status, created_at as "createdAt"`,
+      [
+        institutionId,
+        ctx.membershipId,
+        requesterStudentId,
+        managerMembershipId,
+        data.category,
+        data.title.trim(),
+        data.description?.trim() || null,
+        data.startDate || null,
+        data.endDate || null,
+        data.metadata ? JSON.stringify(data.metadata) : '{}',
+      ]
+    );
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId: ctx.membershipId,
+      action: 'create_request',
+      entityType: 'member_request',
+      entityId: rows[0].id,
+      after: rows[0],
+    });
+
+    return rows[0];
+  },
+
+  async listRequests(client: PoolClient, institutionId: string, ctx: any, filters?: { status?: string; category?: string }): Promise<any[]> {
+    let query = `
+      select 
+        r.id, r.institution_id as "institutionId",
+        r.requester_membership_id as "requesterMembershipId",
+        rp.name as "requesterName",
+        r.requester_student_id as "requesterStudentId",
+        st.name as "requesterStudentName",
+        r.manager_membership_id as "managerMembershipId",
+        mp.name as "managerName",
+        r.category, r.title, r.description,
+        r.start_date as "startDate", r.end_date as "endDate",
+        r.status, r.reviewer_notes as "reviewerNotes",
+        r.reviewed_at as "reviewedAt", r.created_at as "createdAt"
+      from member_request r
+      left join membership req_m on req_m.id = r.requester_membership_id
+      left join profile rp on rp.id = req_m.user_id
+      left join student st on st.id = r.requester_student_id
+      left join membership mgr_m on mgr_m.id = r.manager_membership_id
+      left join profile mp on mp.id = mgr_m.user_id
+      where r.institution_id = $1
+    `;
+    const params: any[] = [institutionId];
+
+    const roleName = ctx.roleName?.toLowerCase() || '';
+    const isGuardianOrStudent = roleName.includes('guardian') || roleName.includes('student');
+    const isAdmin = roleName.includes('admin');
+
+    if (isGuardianOrStudent) {
+      params.push(ctx.userId);
+      query += ` and (r.requester_membership_id = $${params.length} or r.requester_student_id in (
+        select s.id from student s
+        where s.user_id = $${params.length} or s.id in (select sg.student_id from student_guardian sg join guardian g on g.id = sg.guardian_id where g.user_id = $${params.length})
+      ))`;
+    } else if (!isAdmin) {
+      params.push(ctx.membershipId);
+      query += ` and (r.requester_membership_id = $${params.length} or r.manager_membership_id = $${params.length})`;
+    }
+
+    if (filters?.status) {
+      params.push(filters.status);
+      query += ` and r.status = $${params.length}`;
+    }
+    if (filters?.category) {
+      params.push(filters.category);
+      query += ` and r.category = $${params.length}`;
+    }
+
+    query += ` order by r.created_at desc`;
+    const { rows } = await client.query(query, params);
+    return rows;
+  },
+
+  async updateRequestStatus(
+    client: PoolClient,
+    institutionId: string,
+    requestId: string,
+    data: { status: 'approved' | 'rejected' | 'cancelled'; reviewerNotes?: string },
+    actorMembershipId?: string
+  ): Promise<any> {
+    const { rows } = await client.query(
+      `update member_request set
+         status = $1,
+         reviewer_notes = coalesce($2, reviewer_notes),
+         reviewed_at = now(),
+         updated_at = now()
+       where id = $3 and institution_id = $4
+       returning 
+         id, institution_id as "institutionId", category, title, description,
+         start_date as "startDate", end_date as "endDate", status,
+         reviewer_notes as "reviewerNotes", reviewed_at as "reviewedAt", updated_at as "updatedAt"`,
+      [data.status, data.reviewerNotes || null, requestId, institutionId]
+    );
+    if (rows.length === 0) throw new Error('Request not found');
+    const updated = rows[0];
+
+    // If leave request was approved, record excused attendance for student or employee
+    if (updated.status === 'approved' && updated.category === 'leave' && updated.start_date) {
+      const start = new Date(updated.start_date);
+      const end = updated.end_date ? new Date(updated.end_date) : start;
+      const cur = new Date(start);
+
+      while (cur <= end) {
+        const curDateStr = cur.toISOString().split('T')[0];
+        // 1. Student attendance
+        if (updated.requester_student_id) {
+          const { rows: enroll } = await client.query(
+            `select section_id from enrollment where student_id = $1 and status = 'active' limit 1`,
+            [updated.requester_student_id]
+          );
+          const sectionId = enroll[0]?.section_id;
+          if (sectionId) {
+            await client.query(
+              `insert into attendance (institution_id, student_id, section_id, date, status, recorded_by_membership_id)
+               values ($1, $2, $3, $4, 'excused', $5)
+               on conflict (student_id, date) do update set status = 'excused'`,
+              [institutionId, updated.requester_student_id, sectionId, curDateStr, actorMembershipId || null]
+            );
+          }
+        }
+        // 2. Employee attendance
+        if (updated.requester_membership_id) {
+          await client.query(
+            `insert into employee_attendance (institution_id, membership_id, date, status, notes, recorded_by_membership_id)
+             values ($1, $2, $3, 'excused', 'Approved Leave', $4)
+             on conflict (institution_id, membership_id, date) do update set status = 'excused', notes = 'Approved Leave'`,
+            [institutionId, updated.requester_membership_id, curDateStr, actorMembershipId || null]
+          );
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+
+    // Notify requester of decision
+    if (updated.requester_membership_id) {
+      const statusTitle = `Request ${data.status.toUpperCase()}: ${updated.title}`;
+      const statusBody = data.reviewerNotes
+        ? `Your request was marked as ${data.status}. Manager remarks: "${data.reviewerNotes}"`
+        : `Your request for "${updated.title}" has been ${data.status}.`;
+      
+      await dispatchNotificationAndTask({
+        client,
+        institutionId,
+        creatorMembershipId: actorMembershipId,
+        recipientMembershipIds: [updated.requester_membership_id],
+        title: statusTitle,
+        body: statusBody,
+        type: 'request_update',
+        createTask: false,
+      }).catch(() => {});
+    }
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'update_request_status',
+      entityType: 'member_request',
+      entityId: requestId,
+      after: updated,
+    });
+
+    return updated;
+  },
+
+  async bulkUpdateRequestStatus(
+    client: PoolClient,
+    institutionId: string,
+    requestIds: string[],
+    status: 'approved' | 'rejected',
+    notes?: string,
+    actorMembershipId?: string
+  ): Promise<number> {
+    for (const reqId of requestIds) {
+      await this.updateRequestStatus(client, institutionId, reqId, { status, reviewerNotes: notes }, actorMembershipId);
+    }
+    return requestIds.length;
+  },
+
+  async remindManager(
+    client: PoolClient,
+    institutionId: string,
+    requestId: string,
+    callerMembershipId?: string
+  ): Promise<{ success: boolean; message: string }> {
+    const { rows } = await client.query(
+      `select id, title, category, status, target_manager_membership_id
+       from member_request where id = $1 and institution_id = $2`,
+      [requestId, institutionId]
+    );
+    if (rows.length === 0) throw new Error('Request not found');
+    const req = rows[0];
+    if (req.status !== 'pending') {
+      throw new Error(`Cannot remind manager: request is already ${req.status}`);
+    }
+    if (!req.target_manager_membership_id) {
+      throw new Error('No manager assigned to this request');
+    }
+
+    await dispatchNotificationAndTask({
+      client,
+      institutionId,
+      creatorMembershipId: callerMembershipId,
+      recipientMembershipIds: [req.target_manager_membership_id],
+      title: `Action Required: Pending ${req.category.toUpperCase()} Request`,
+      body: `A reminder has been dispatched regarding pending request: "${req.title}". Please review and take action.`,
+      type: 'request_reminder',
+      priority: 'high',
+      createTask: true,
+      metadata: { requestId: req.id, category: req.category },
+    });
+
+    return { success: true, message: 'Manager reminded successfully' };
+  },
+
+  async dispatchReminder(
+    client: PoolClient,
+    institutionId: string,
+    data: {
+      recipientMembershipIds?: string[];
+      recipientUserIds?: string[];
+      title: string;
+      body: string;
+      type?: string;
+      priority?: 'low' | 'medium' | 'high';
+      dueDate?: string;
+      metadata?: Record<string, any>;
+      createTask?: boolean;
+    },
+    callerMembershipId?: string
+  ): Promise<{ success: boolean; count: number }> {
+    const res = await dispatchNotificationAndTask({
+      client,
+      institutionId,
+      creatorMembershipId: callerMembershipId,
+      recipientMembershipIds: data.recipientMembershipIds,
+      recipientUserIds: data.recipientUserIds,
+      title: data.title,
+      body: data.body,
+      type: data.type || 'general_reminder',
+      priority: data.priority || 'medium',
+      dueDate: data.dueDate,
+      metadata: data.metadata,
+      createTask: data.createTask !== false,
+    });
+    return { success: true, count: res.notificationsSent };
+  },
+
+  // --- Universal Bulk Operations ---
+  async bulkAssignManager(
+    client: PoolClient,
+    institutionId: string,
+    membershipIds: string[],
+    managerMembershipId: string,
+    actorMembershipId?: string
+  ): Promise<number> {
+    const { rows } = await client.query(
+      `update membership set manager_membership_id = $1
+       where id = any($2) and institution_id = $3 returning id`,
+      [managerMembershipId, membershipIds, institutionId]
+    );
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'bulk_assign_manager',
+      entityType: 'membership',
+      entityId: institutionId,
+      after: { updatedCount: rows.length, membershipIds },
+    });
+    return rows.length;
+  },
+
+  async bulkUpdateMemberRole(
+    client: PoolClient,
+    institutionId: string,
+    membershipIds: string[],
+    roleId: string,
+    actorMembershipId?: string
+  ): Promise<number> {
+    const { rows } = await client.query(
+      `update membership set role_id = $1
+       where id = any($2) and institution_id = $3 returning id`,
+      [roleId, membershipIds, institutionId]
+    );
+    invalidateContextCache(undefined, institutionId);
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'bulk_update_role',
+      entityType: 'membership',
+      entityId: institutionId,
+      after: { updatedCount: rows.length, membershipIds, roleId },
+    });
+    return rows.length;
+  },
+
+  async bulkUpdateStudentStatus(
+    client: PoolClient,
+    institutionId: string,
+    studentIds: string[],
+    status: string,
+    actorMembershipId?: string
+  ): Promise<number> {
+    const { rows } = await client.query(
+      `update student set status = $1
+       where id = any($2) and institution_id = $3 returning id`,
+      [status, studentIds, institutionId]
+    );
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'bulk_update_student_status',
+      entityType: 'student',
+      entityId: institutionId,
+      after: { updatedCount: rows.length, studentIds, status },
+    });
+    return rows.length;
+  },
+
+  async bulkTransferStudentSection(
+    client: PoolClient,
+    institutionId: string,
+    studentIds: string[],
+    classId: string,
+    sectionId: string,
+    actorMembershipId?: string
+  ): Promise<number> {
+    const { rows: [curAy] } = await client.query(
+      `select id from academic_year where institution_id = $1 and is_current = true limit 1`,
+      [institutionId]
+    );
+    const ayId = curAy?.id;
+    if (!ayId) throw new Error('No active academic year found');
+
+    for (const sId of studentIds) {
+      await client.query(
+        `insert into enrollment (institution_id, student_id, academic_year_id, class_id, section_id, status)
+         values ($1, $2, $3, $4, $5, 'active')
+         on conflict (student_id, academic_year_id) do update
+         set class_id = excluded.class_id, section_id = excluded.section_id`,
+        [institutionId, sId, ayId, classId, sectionId]
+      );
+    }
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'bulk_transfer_section',
+      entityType: 'enrollment',
+      entityId: institutionId,
+      after: { updatedCount: studentIds.length, studentIds, classId, sectionId },
+    });
+    return studentIds.length;
   },
 
   // --- Document & Certificate Templates ---
@@ -2341,10 +3262,36 @@ export const coreRepository = {
       }
     }
 
+    const instSettings = await this.getInstitutionSettings(client, institutionId).catch(() => null);
+    const settings = instSettings?.settings || {};
+
     const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const defaults: Record<string, string> = {
       'institution.name': inst?.name || 'Educational Institution',
       'institution.subdomain': inst?.subdomain || 'school',
+      'institution.address': settings.address || '',
+      'institution.phone': settings.contactPhone || '',
+      'institution.email': settings.contactEmail || '',
+      'institution.website': settings.website || '',
+      'institution.affiliationNo': settings.institutionAffiliationNo || '',
+      'principalSignature': settings.principalSignatureUrl
+        ? `<img src="${settings.principalSignatureUrl}" alt="Principal Signature" style="max-height: 48px; object-fit: contain; vertical-align: middle;" />`
+        : '<div style="border-top: 1px dashed #64748b; width: 140px; text-align: center; font-size: 0.75rem; padding-top: 4px; display: inline-block;">Principal Signature</div>',
+      'institution.principalSignature': settings.principalSignatureUrl
+        ? `<img src="${settings.principalSignatureUrl}" alt="Principal Signature" style="max-height: 48px; object-fit: contain; vertical-align: middle;" />`
+        : '<div style="border-top: 1px dashed #64748b; width: 140px; text-align: center; font-size: 0.75rem; padding-top: 4px; display: inline-block;">Principal Signature</div>',
+      'officialSeal': settings.officialSealUrl
+        ? `<img src="${settings.officialSealUrl}" alt="Official Seal" style="max-height: 60px; object-fit: contain; vertical-align: middle;" />`
+        : '<div style="width: 60px; height: 60px; border: 2px dashed #94a3b8; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.65rem; color: #94a3b8;">SEAL</div>',
+      'institution.officialSeal': settings.officialSealUrl
+        ? `<img src="${settings.officialSealUrl}" alt="Official Seal" style="max-height: 60px; object-fit: contain; vertical-align: middle;" />`
+        : '<div style="width: 60px; height: 60px; border: 2px dashed #94a3b8; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.65rem; color: #94a3b8;">SEAL</div>',
+      'examControllerSignature': settings.examControllerSignatureUrl
+        ? `<img src="${settings.examControllerSignatureUrl}" alt="Exam Controller Signature" style="max-height: 48px; object-fit: contain; vertical-align: middle;" />`
+        : '<div style="border-top: 1px dashed #64748b; width: 140px; text-align: center; font-size: 0.75rem; padding-top: 4px; display: inline-block;">Exam Controller</div>',
+      'institution.examControllerSignature': settings.examControllerSignatureUrl
+        ? `<img src="${settings.examControllerSignatureUrl}" alt="Exam Controller Signature" style="max-height: 48px; object-fit: contain; vertical-align: middle;" />`
+        : '<div style="border-top: 1px dashed #64748b; width: 140px; text-align: center; font-size: 0.75rem; padding-top: 4px; display: inline-block;">Exam Controller</div>',
       'student.name': studentData.name || 'Sample Student',
       'student.admissionNo': studentData.admissionNo || 'ADM-2026-SAMPLE',
       'student.rollNo': studentData.rollNo || '01',
@@ -2368,6 +3315,13 @@ export const coreRepository = {
     for (const [key, val] of Object.entries(mergedVariables)) {
       const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
       rendered = rendered.replace(regex, val || '');
+    }
+
+    // Enforce non-removable Biddyapith footer watermark
+    const watermarkText = settings.officialWatermarkText || 'Powered by Biddyapith • Verified Official Institutional Document';
+    const watermarkHtml = `<div class="biddyapith-footer-watermark" style="margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid #e2e8f0; text-align: center; font-size: 0.72rem; color: #94a3b8; font-family: sans-serif; letter-spacing: 0.05em; text-transform: uppercase;">${watermarkText}</div>`;
+    if (!rendered.includes('biddyapith-footer-watermark')) {
+      rendered += `\n${watermarkHtml}`;
     }
 
     return {

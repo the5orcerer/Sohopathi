@@ -3,7 +3,9 @@ import {
   fetchStudents,
   fetchAttendanceSummary,
   fetchAdmissionStats,
+  fetchLivePeriods,
 } from '../../services/api';
+import type { LivePeriodData } from '../../types';
 import { useSession } from '../../context/SessionContext';
 import {
   GraduationCap,
@@ -14,6 +16,11 @@ import {
   FileText,
   Award,
   CheckCircle2,
+  Clock,
+  MapPin,
+  Sparkles,
+  ArrowRight,
+  GitPullRequest,
 } from 'lucide-react';
 import { Button, Badge } from '../common';
 
@@ -31,19 +38,25 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ onNaviga
   const [attendanceRate, setAttendanceRate] = useState<number>(94);
   const [pendingAdmissions, setPendingAdmissions] = useState<number>(12);
   const [admittedCount, setAdmittedCount] = useState<number>(38);
+  const [liveData, setLiveData] = useState<LivePeriodData | null>(null);
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
     const loadDashboardData = async () => {
       try {
-        const [stRes, attRes, admRes] = await Promise.allSettled([
+        const [stRes, attRes, admRes, liveRes] = await Promise.allSettled([
           fetchStudents(),
           fetchAttendanceSummary(),
           fetchAdmissionStats(),
+          fetchLivePeriods(),
         ]);
 
         if (!isMounted) return;
+
+        if (liveRes.status === 'fulfilled') {
+          setLiveData(liveRes.value);
+        }
 
         if (stRes.status === 'fulfilled' && Array.isArray(stRes.value)) {
           setStudentCount(stRes.value.length || 142);
@@ -201,6 +214,188 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ onNaviga
           </Button>
         </div>
       </div>
+
+      {/* Live Class Period Telemetry Card */}
+      {liveData && (
+        <div
+          className="glass-panel"
+          style={{
+            padding: '1.25rem 1.5rem',
+            borderRadius: 'var(--radius-md)',
+            border: '2px solid rgba(99, 102, 241, 0.3)',
+            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(168, 85, 247, 0.04))',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '0.5rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  width: '10px',
+                  height: '10px',
+                  borderRadius: '50%',
+                  background: '#10b981',
+                  boxShadow: '0 0 8px #10b981',
+                }}
+              />
+              <span
+                style={{
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  color: 'var(--brand-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                }}
+              >
+                <Sparkles size={14} />
+                {liveData.role === 'student'
+                  ? 'Live Student Schedule & Period Telemetry'
+                  : liveData.role === 'teacher'
+                  ? 'Faculty Live Teaching Session'
+                  : 'Institutional Live Period Telemetry'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <Button size="sm" variant="secondary" onClick={() => onNavigate('/requests')}>
+                <GitPullRequest size={13} style={{ marginRight: '0.3rem' }} />
+                Requests & Approvals
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => onNavigate('/academic')}>
+                View Timetable
+              </Button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: '1rem',
+            }}
+          >
+            {/* Ongoing Period */}
+            <div
+              style={{
+                padding: '1rem',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--surface-sunken)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: 'var(--text-muted)',
+                  marginBottom: '0.4rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                }}
+              >
+                <Clock size={12} /> Currently In Session
+              </div>
+              {liveData.currentPeriod ? (
+                <div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {liveData.currentPeriod.subjectName}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                    Section: {liveData.currentPeriod.sectionName} &bull; Instructor:{' '}
+                    {liveData.currentPeriod.teacherName || 'Faculty'}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: 'var(--brand-primary)',
+                      marginTop: '0.4rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                    }}
+                  >
+                    <Clock size={12} /> {liveData.currentPeriod.startTime} - {liveData.currentPeriod.endTime}{' '}
+                    &bull; <MapPin size={12} /> {liveData.currentPeriod.roomNumber || 'Room 4022'}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>
+                  No ongoing period right now (Break or Off-hours)
+                </div>
+              )}
+            </div>
+
+            {/* Next Period */}
+            <div
+              style={{
+                padding: '1rem',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--surface-sunken)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: 'var(--text-muted)',
+                  marginBottom: '0.4rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                }}
+              >
+                <ArrowRight size={12} /> Next Upcoming Today
+              </div>
+              {liveData.nextPeriod ? (
+                <div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {liveData.nextPeriod.subjectName}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                    Section: {liveData.nextPeriod.sectionName} &bull; Instructor:{' '}
+                    {liveData.nextPeriod.teacherName || 'Faculty'}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: 'var(--brand-primary)',
+                      marginTop: '0.4rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                    }}
+                  >
+                    <Clock size={12} /> {liveData.nextPeriod.startTime} - {liveData.nextPeriod.endTime}{' '}
+                    &bull; <MapPin size={12} /> {liveData.nextPeriod.roomNumber || 'Room 4022'}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>
+                  No more periods scheduled for today
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 4 Executive High-Impact Stats Ribbon */}
       <div

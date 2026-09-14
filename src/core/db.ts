@@ -138,6 +138,20 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
       unique (exam_id, subject_id)
     );
 
+    create table if not exists public.exam_room_assignment (
+      id uuid primary key default gen_random_uuid(),
+      institution_id uuid not null references public.institution(id) on delete cascade,
+      exam_id uuid not null references public.exam(id) on delete cascade,
+      paper_id uuid references public.exam_paper(id) on delete set null,
+      room_number text not null,
+      classroom_id uuid references public.classroom(id) on delete set null,
+      guard_membership_ids uuid[] default array[]::uuid[],
+      start_roll int,
+      end_roll int,
+      student_ids uuid[] default array[]::uuid[],
+      created_at timestamptz not null default now()
+    );
+
     -- 4. In-App & Push Notifications Table
     create table if not exists public.notification (
       id uuid primary key default gen_random_uuid(),
@@ -227,6 +241,135 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
       updated_at timestamptz not null default now(),
       unique (institution_id, membership_id, date)
     );
+
+    -- 10. Consolidate Guardian role into Student and ensure template roles
+    do $$
+    declare
+      v_student_role_id uuid;
+      v_guardian_role_id uuid;
+    begin
+      -- Ensure Student template role exists
+      select id into v_student_role_id from public.role where lower(name) = 'student' and institution_id is null limit 1;
+      if v_student_role_id is null then
+        insert into public.role (institution_id, name, is_system)
+        values (null, 'Student', true)
+        returning id into v_student_role_id;
+      end if;
+
+      -- Ensure Staff template role exists
+      if not exists (select 1 from public.role where lower(name) = 'staff' and institution_id is null) then
+        insert into public.role (institution_id, name, is_system) values (null, 'Staff', true);
+      end if;
+
+      -- Ensure Teacher template role exists
+      if not exists (select 1 from public.role where lower(name) = 'teacher' and institution_id is null) then
+        insert into public.role (institution_id, name, is_system) values (null, 'Teacher', true);
+      end if;
+
+      -- Ensure Institution Admin template role exists
+      if not exists (select 1 from public.role where lower(name) = 'institution admin' and institution_id is null) then
+        insert into public.role (institution_id, name, is_system) values (null, 'Institution Admin', true);
+      end if;
+
+      -- Migrate any memberships from Guardian to Student
+      for v_guardian_role_id in select id from public.role where lower(name) = 'guardian' loop
+        update public.membership set role_id = v_student_role_id where role_id = v_guardian_role_id;
+        delete from public.role_permission where role_id = v_guardian_role_id;
+        delete from public.role where id = v_guardian_role_id;
+      end loop;
+
+      -- Ensure Student role has standard default permissions
+      if v_student_role_id is not null then
+        insert into public.role_permission (institution_id, role_id, permission_id, scope)
+        select null, v_student_role_id, p.id, g.scope
+        from (values
+          ('students.read', 'self'),
+          ('schedules.read', 'self'),
+          ('attendance.read', 'self'),
+          ('marks.read', 'self'),
+          ('assignments.read', 'self'),
+          ('assignments.submit', 'self'),
+          ('notices.read', 'institution')
+        ) as g(permission_key, scope)
+        join public.permission p on p.key = g.permission_key
+        on conflict (role_id, permission_id) do update set scope = excluded.scope;
+      end if;
+    end $$;
+
+    -- 11. Institution EIIN Code
+    alter table public.institution add column if not exists institute_code text;
+
+    -- 12. Notice Audience Scopes and Granular Target Filters
+    alter table public.notice add column if not exists target_roles text[] default '{}';
+    alter table public.notice add column if not exists target_class_ids uuid[] default '{}';
+    alter table public.notice add column if not exists target_section_ids uuid[] default '{}';
+    alter table public.notice add column if not exists audience_filters jsonb default '{}'::jsonb;
+
+    -- 13. Fee Invoice & Invoicing Extensions
+    alter table public.fee_invoice add column if not exists invoice_number text;
+    alter table public.fee_invoice add column if not exists recipient_type text not null default 'student';
+    alter table public.fee_invoice add column if not exists employee_membership_id uuid references public.membership(id) on delete cascade;
+    alter table public.fee_invoice add column if not exists category text not null default 'tuition';
+    alter table public.fee_invoice add column if not exists description text;
+    alter table public.fee_invoice add column if not exists total_amount numeric not null default 0;
+    alter table public.fee_invoice add column if not exists discount_amount numeric not null default 0;
+    alter table public.fee_invoice add column if not exists paid_amount numeric not null default 0;
+    alter table public.fee_invoice add column if not exists items jsonb not null default '[]'::jsonb;
+    alter table public.fee_invoice add column if not exists notes text;
+    alter table public.fee_invoice add column if not exists created_by_membership_id uuid references public.membership(id) on delete set null;
+    alter table public.fee_invoice add column if not exists updated_at timestamptz not null default now();
+    do $$
+    begin
+      alter table public.fee_invoice alter column student_id drop not null;
+    exception when others then null;
+    end $$;
+    update public.fee_invoice set total_amount = amount where total_amount = 0 and amount is not null;
+
+    -- 14. Payment & Receipts Extensions
+    alter table public.payment add column if not exists receipt_number text;
+    alter table public.payment add column if not exists transaction_id text;
+    alter table public.payment add column if not exists notes text;
+    alter table public.payment add column if not exists recorded_by_membership_id uuid references public.membership(id) on delete set null;
+    alter table public.payment add column if not exists created_at timestamptz not null default now();
+
+    -- 15. Finance Module & Permissions
+    insert into public.module (key, name, version) values ('finance', 'Finance & Invoicing', '1.0.0')
+    on conflict (key) do update set name = excluded.name;
+
+    with m as (select id from public.module where key = 'finance')
+    insert into public.permission (key, module_id, description, scope_options)
+    select p.key, m.id, p.description, p.scope_options
+    from m, (values
+      ('finance.read', 'View fee invoices, payments, and financial summaries', array['institution', 'assigned_sections', 'self']),
+      ('finance.write', 'Create and manage student invoices and salary disbursements', array['institution']),
+      ('finance.payment', 'Record fee and billing payments and generate receipts', array['institution']),
+      ('finance.reports', 'View ledger reconciliation, collection metrics, and exports', array['institution'])
+    ) as p(key, description, scope_options)
+    on conflict (key) do update set description = excluded.description, scope_options = excluded.scope_options;
+
+    -- Grant finance permissions to Institution Admin template role
+    with admin_role as (
+      select id from public.role where lower(name) in ('institution admin', 'admin') and institution_id is null limit 1
+    ),
+    perm as (
+      select id from public.permission where key in ('finance.read', 'finance.write', 'finance.payment', 'finance.reports')
+    )
+    insert into public.role_permission (institution_id, role_id, permission_id, scope)
+    select null, admin_role.id, perm.id, 'institution'
+    from admin_role, perm
+    on conflict (role_id, permission_id) do nothing;
+
+    -- Grant finance.read self to Student template role
+    with student_role as (
+      select id from public.role where lower(name) = 'student' and institution_id is null limit 1
+    ),
+    perm as (
+      select id from public.permission where key = 'finance.read'
+    )
+    insert into public.role_permission (institution_id, role_id, permission_id, scope)
+    select null, student_role.id, perm.id, 'self'
+    from student_role, perm
+    on conflict (role_id, permission_id) do nothing;
   `);
 
   const tenantTables = [
@@ -239,8 +382,14 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
     'role_permission','institution','role','dashboard_layout',
     'custom_field_definition','class_schedule','exam_paper',
     'notification','user_task','institution_setting',
-    'admission_application','notice_read_receipt','employee_attendance'
+    'admission_application','notice_read_receipt','employee_attendance',
+    'classroom', 'schedule_substitution', 'member_request', 'template', 'exam_room_assignment'
   ];
+
+  await client.query(`
+    grant all on all tables in schema public to app_user;
+    grant all on all sequences in schema public to app_user;
+  `);
 
   for (const t of tenantTables) {
     await client.query(`alter table public.${t} force row level security;`);

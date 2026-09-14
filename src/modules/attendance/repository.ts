@@ -1,5 +1,6 @@
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
+import { dispatchNotificationAndTask } from '../core/notification-task-service';
 
 export interface AttendanceRecord {
   id: string;
@@ -41,6 +42,15 @@ export interface Exam {
   endDate: string | null;
   isPublished: boolean;
   paperCount?: number;
+  examType: 'class_test' | 'term_exam';
+  examControllerMembershipId?: string | null;
+  examControllerName?: string | null;
+  classId?: string | null;
+  className?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  syllabusRemarks?: string | null;
+  eligibleStudentIds?: string[] | null;
 }
 
 export interface ExamPaper {
@@ -50,6 +60,9 @@ export interface ExamPaper {
   examName?: string;
   subjectId: string;
   subjectName?: string;
+  teacherMembershipId?: string | null;
+  teacherName?: string | null;
+  syllabus?: string | null;
   examDate: string | null;
   startTime: string | null;
   endTime: string | null;
@@ -62,6 +75,22 @@ export interface ExamPaper {
   createdAt: string;
 }
 
+export interface ExamRoomAssignment {
+  id: string;
+  institutionId: string;
+  examId: string;
+  paperId?: string | null;
+  subjectName?: string | null;
+  roomNumber: string;
+  classroomId?: string | null;
+  guardMembershipIds?: string[];
+  guardNames?: string[];
+  startRoll?: number | null;
+  endRoll?: number | null;
+  studentIds?: string[];
+  createdAt: string;
+}
+
 export interface Mark {
   id: string;
   institutionId: string;
@@ -69,12 +98,15 @@ export interface Mark {
   studentId: string;
   studentName?: string;
   admissionNo?: string;
+  rollNo?: string;
   subjectId: string;
   subjectName?: string;
   marksObtained: number | null;
   maxMarks: number;
   grade: string | null;
   recordedByMembershipId: string | null;
+  remarks?: string | null;
+  isRechecked?: boolean;
 }
 
 function calculateLetterGrade(percentage: number): string {
@@ -257,9 +289,22 @@ export const attendanceRepository = {
         e.start_date as "startDate",
         e.end_date as "endDate",
         e.is_published as "isPublished",
+        coalesce(e.exam_type, 'term_exam') as "examType",
+        e.exam_controller_membership_id as "examControllerMembershipId",
+        cp.name as "examControllerName",
+        e.class_id as "classId",
+        cls.name as "className",
+        e.section_id as "sectionId",
+        sec.name as "sectionName",
+        e.syllabus_remarks as "syllabusRemarks",
+        e.eligible_student_ids as "eligibleStudentIds",
         (select count(*)::int from exam_paper ep where ep.exam_id = e.id) as "paperCount"
       from exam e
       left join academic_year ay on ay.id = e.academic_year_id
+      left join membership cm on cm.id = e.exam_controller_membership_id
+      left join profile cp on cp.id = cm.user_id
+      left join class cls on cls.id = e.class_id
+      left join section sec on sec.id = e.section_id
       where e.institution_id = $1
     `;
     const params: any[] = [institutionId];
@@ -275,14 +320,47 @@ export const attendanceRepository = {
   async createExam(
     client: PoolClient,
     institutionId: string,
-    data: { academicYearId: string; name: string; term?: string; startDate?: string; endDate?: string },
+    data: {
+      academicYearId: string;
+      name: string;
+      term?: string;
+      startDate?: string;
+      endDate?: string;
+      examType?: 'class_test' | 'term_exam';
+      examControllerMembershipId?: string;
+      classId?: string;
+      sectionId?: string;
+      syllabusRemarks?: string;
+      eligibleStudentIds?: string[];
+    },
     actorMembershipId?: string
   ): Promise<Exam> {
     const { rows } = await client.query(
-      `insert into exam (institution_id, academic_year_id, name, term, start_date, end_date, is_published)
-       values ($1, $2, $3, $4, $5, $6, false)
-       returning id, institution_id as "institutionId", academic_year_id as "academicYearId", name, term, start_date as "startDate", end_date as "endDate", is_published as "isPublished"`,
-      [institutionId, data.academicYearId, data.name.trim(), data.term || null, data.startDate || null, data.endDate || null]
+      `insert into exam (
+         institution_id, academic_year_id, name, term, start_date, end_date, is_published,
+         exam_type, exam_controller_membership_id, class_id, section_id, syllabus_remarks, eligible_student_ids
+       )
+       values ($1, $2, $3, $4, $5, $6, false, coalesce($7, 'term_exam'), $8, $9, $10, $11, coalesce($12::uuid[], '{}'::uuid[]))
+       returning 
+         id, institution_id as "institutionId", academic_year_id as "academicYearId", name, term,
+         start_date as "startDate", end_date as "endDate", is_published as "isPublished",
+         exam_type as "examType", exam_controller_membership_id as "examControllerMembershipId",
+         class_id as "classId", section_id as "sectionId", syllabus_remarks as "syllabusRemarks",
+         eligible_student_ids as "eligibleStudentIds"`,
+      [
+        institutionId,
+        data.academicYearId,
+        data.name.trim(),
+        data.term || null,
+        data.startDate || null,
+        data.endDate || null,
+        data.examType || 'term_exam',
+        data.examControllerMembershipId || null,
+        data.classId || null,
+        data.sectionId || null,
+        data.syllabusRemarks || null,
+        data.eligibleStudentIds || null,
+      ]
     );
     const exam = rows[0];
     await logAudit(client, { institutionId, actorMembershipId, action: 'create', entityType: 'exam', entityId: exam.id, after: exam });
@@ -293,7 +371,19 @@ export const attendanceRepository = {
     client: PoolClient,
     institutionId: string,
     examId: string,
-    data: { name?: string; term?: string; startDate?: string; endDate?: string; isPublished?: boolean },
+    data: {
+      name?: string;
+      term?: string;
+      startDate?: string;
+      endDate?: string;
+      isPublished?: boolean;
+      examType?: 'class_test' | 'term_exam';
+      examControllerMembershipId?: string;
+      classId?: string;
+      sectionId?: string;
+      syllabusRemarks?: string;
+      eligibleStudentIds?: string[];
+    },
     actorMembershipId?: string
   ): Promise<Exam> {
     const { rows } = await client.query(
@@ -302,10 +392,35 @@ export const attendanceRepository = {
          term = coalesce($2, term),
          start_date = coalesce($3, start_date),
          end_date = coalesce($4, end_date),
-         is_published = coalesce($5, is_published)
-       where id = $6 and institution_id = $7
-       returning id, institution_id as "institutionId", academic_year_id as "academicYearId", name, term, start_date as "startDate", end_date as "endDate", is_published as "isPublished"`,
-      [data.name?.trim() || null, data.term || null, data.startDate || null, data.endDate || null, data.isPublished, examId, institutionId]
+         is_published = coalesce($5, is_published),
+         exam_type = coalesce($6, exam_type),
+         exam_controller_membership_id = coalesce($7, exam_controller_membership_id),
+         class_id = coalesce($8, class_id),
+         section_id = coalesce($9, section_id),
+         syllabus_remarks = coalesce($10, syllabus_remarks),
+         eligible_student_ids = coalesce($11::uuid[], eligible_student_ids)
+       where id = $12 and institution_id = $13
+       returning 
+         id, institution_id as "institutionId", academic_year_id as "academicYearId", name, term,
+         start_date as "startDate", end_date as "endDate", is_published as "isPublished",
+         exam_type as "examType", exam_controller_membership_id as "examControllerMembershipId",
+         class_id as "classId", section_id as "sectionId", syllabus_remarks as "syllabusRemarks",
+         eligible_student_ids as "eligibleStudentIds"`,
+      [
+        data.name?.trim() || null,
+        data.term || null,
+        data.startDate || null,
+        data.endDate || null,
+        data.isPublished,
+        data.examType || null,
+        data.examControllerMembershipId || null,
+        data.classId || null,
+        data.sectionId || null,
+        data.syllabusRemarks || null,
+        data.eligibleStudentIds || null,
+        examId,
+        institutionId,
+      ]
     );
     const updated = rows[0];
     await logAudit(client, { institutionId, actorMembershipId, action: 'update', entityType: 'exam', entityId: examId, after: updated });
@@ -326,6 +441,9 @@ export const attendanceRepository = {
         e.name as "examName",
         ep.subject_id as "subjectId",
         s.name as "subjectName",
+        ep.teacher_membership_id as "teacherMembershipId",
+        tp.name as "teacherName",
+        ep.syllabus,
         ep.exam_date as "examDate",
         ep.start_time as "startTime",
         ep.end_time as "endTime",
@@ -339,6 +457,8 @@ export const attendanceRepository = {
        from exam_paper ep
        join exam e on e.id = ep.exam_id
        join subject s on s.id = ep.subject_id
+       left join membership tm on tm.id = ep.teacher_membership_id
+       left join profile tp on tp.id = tm.user_id
        where ep.institution_id = $1 and ep.exam_id = $2
        order by ep.exam_date asc nulls last, ep.start_time asc nulls last`,
       [institutionId, examId]
@@ -352,6 +472,8 @@ export const attendanceRepository = {
     data: {
       examId: string;
       subjectId: string;
+      teacherMembershipId?: string;
+      syllabus?: string;
       examDate?: string;
       startTime?: string;
       endTime?: string;
@@ -365,26 +487,32 @@ export const attendanceRepository = {
     actorMembershipId?: string
   ): Promise<ExamPaper> {
     const { rows } = await client.query(
-      `insert into exam_paper (institution_id, exam_id, subject_id, exam_date, start_time, end_time, room_no, max_marks, pass_marks, theory_weight, practical_weight, viva_weight)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       on conflict (exam_id, subject_id) do update set
-         exam_date = excluded.exam_date, start_time = excluded.start_time, end_time = excluded.end_time,
-         room_no = excluded.room_no, max_marks = excluded.max_marks, pass_marks = excluded.pass_marks,
-         theory_weight = excluded.theory_weight, practical_weight = excluded.practical_weight, viva_weight = excluded.viva_weight
-       returning id, institution_id as "institutionId", exam_id as "examId", subject_id as "subjectId", exam_date as "examDate", start_time as "startTime", end_time as "endTime", room_no as "roomNo", max_marks as "maxMarks", pass_marks as "passMarks", theory_weight as "theoryWeight", practical_weight as "practicalWeight", viva_weight as "vivaWeight", created_at as "createdAt"`,
+      `insert into exam_paper (
+         institution_id, exam_id, subject_id, teacher_membership_id, syllabus,
+         exam_date, start_time, end_time, room_no, max_marks, pass_marks, theory_weight, practical_weight, viva_weight
+       )
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce($10, 100), coalesce($11, 40), coalesce($12, 70), coalesce($13, 30), coalesce($14, 0))
+       returning 
+         id, institution_id as "institutionId", exam_id as "examId", subject_id as "subjectId",
+         teacher_membership_id as "teacherMembershipId", syllabus,
+         exam_date as "examDate", start_time as "startTime", end_time as "endTime", room_no as "roomNo",
+         max_marks as "maxMarks", pass_marks as "passMarks", theory_weight as "theoryWeight",
+         practical_weight as "practicalWeight", viva_weight as "vivaWeight", created_at as "createdAt"`,
       [
         institutionId,
         data.examId,
         data.subjectId,
+        data.teacherMembershipId || null,
+        data.syllabus || null,
         data.examDate || null,
         data.startTime || null,
         data.endTime || null,
         data.roomNo || null,
-        data.maxMarks ?? 100,
-        data.passMarks ?? 40,
-        data.theoryWeight ?? 70,
-        data.practicalWeight ?? 30,
-        data.vivaWeight ?? 0,
+        data.maxMarks,
+        data.passMarks,
+        data.theoryWeight,
+        data.practicalWeight,
+        data.vivaWeight,
       ]
     );
     const paper = rows[0];
@@ -395,6 +523,256 @@ export const attendanceRepository = {
   async deleteExamPaper(client: PoolClient, institutionId: string, paperId: string, actorMembershipId?: string): Promise<void> {
     await client.query(`delete from exam_paper where id = $1 and institution_id = $2`, [paperId, institutionId]);
     await logAudit(client, { institutionId, actorMembershipId, action: 'delete', entityType: 'exam_paper', entityId: paperId });
+  },
+
+  // --- Exam Room & Seating Allocations ---
+  async listExamRooms(client: PoolClient, institutionId: string, examId: string): Promise<ExamRoomAssignment[]> {
+    const { rows } = await client.query(
+      `select 
+        r.id,
+        r.institution_id as "institutionId",
+        r.exam_id as "examId",
+        r.paper_id as "paperId",
+        sub.name as "subjectName",
+        r.room_number as "roomNumber",
+        r.classroom_id as "classroomId",
+        r.guard_membership_ids as "guardMembershipIds",
+        r.start_roll as "startRoll",
+        r.end_roll as "endRoll",
+        r.student_ids as "studentIds",
+        r.created_at as "createdAt"
+       from exam_room_assignment r
+       left join exam_paper ep on ep.id = r.paper_id
+       left join subject sub on sub.id = ep.subject_id
+       where r.institution_id = $1 and r.exam_id = $2
+       order by r.room_number asc`,
+      [institutionId, examId]
+    );
+
+    for (const row of rows) {
+      if (row.guardMembershipIds && row.guardMembershipIds.length > 0) {
+        const { rows: guardRows } = await client.query(
+          `select p.name from membership m join profile p on p.id = m.user_id where m.id = any($1)`,
+          [row.guardMembershipIds]
+        );
+        row.guardNames = guardRows.map((g: any) => g.name);
+      } else {
+        row.guardNames = [];
+      }
+    }
+    return rows;
+  },
+
+  async createExamRoom(
+    client: PoolClient,
+    institutionId: string,
+    data: {
+      examId: string;
+      paperId?: string;
+      roomNumber: string;
+      classroomId?: string;
+      guardMembershipIds?: string[];
+      startRoll?: number;
+      endRoll?: number;
+      studentIds?: string[];
+    },
+    actorMembershipId?: string
+  ): Promise<ExamRoomAssignment> {
+    const { rows } = await client.query(
+      `insert into exam_room_assignment (
+         institution_id, exam_id, paper_id, room_number, classroom_id, guard_membership_ids, start_roll, end_roll, student_ids
+       )
+       values ($1, $2, $3, $4, $5, coalesce($6::uuid[], '{}'::uuid[]), $7, $8, coalesce($9::uuid[], '{}'::uuid[]))
+       returning 
+         id, institution_id as "institutionId", exam_id as "examId", paper_id as "paperId",
+         room_number as "roomNumber", classroom_id as "classroomId", guard_membership_ids as "guardMembershipIds",
+         start_roll as "startRoll", end_roll as "endRoll", student_ids as "studentIds", created_at as "createdAt"`,
+      [
+        institutionId,
+        data.examId,
+        data.paperId || null,
+        data.roomNumber.trim(),
+        data.classroomId || null,
+        data.guardMembershipIds || [],
+        data.startRoll ?? null,
+        data.endRoll ?? null,
+        data.studentIds || [],
+      ]
+    );
+    const item = rows[0];
+    await logAudit(client, { institutionId, actorMembershipId, action: 'create', entityType: 'exam_room_assignment', entityId: item.id, after: item });
+    return item;
+  },
+
+  async deleteExamRoom(client: PoolClient, institutionId: string, roomId: string, actorMembershipId?: string): Promise<void> {
+    await client.query(`delete from exam_room_assignment where id = $1 and institution_id = $2`, [roomId, institutionId]);
+    await logAudit(client, { institutionId, actorMembershipId, action: 'delete', entityType: 'exam_room_assignment', entityId: roomId });
+  },
+
+  // --- Real-time Exam Progress Tracking ---
+  async getExamProgress(client: PoolClient, institutionId: string, examId: string): Promise<any> {
+    const exams = await this.listExams(client, institutionId);
+    const exam = exams.find((e) => e.id === examId);
+    if (!exam) throw new Error('Exam not found');
+
+    let eligibleStudents: any[] = [];
+    if (exam.eligibleStudentIds && exam.eligibleStudentIds.length > 0) {
+      const { rows } = await client.query(
+        `select s.id, s.name, e.roll_no as "rollNo", s.admission_no as "admissionNo"
+         from student s
+         left join enrollment e on e.student_id = s.id and e.status = 'active'
+         where s.institution_id = $1 and s.id = any($2)
+         order by e.roll_no asc nulls last, s.name asc`,
+        [institutionId, exam.eligibleStudentIds]
+      );
+      eligibleStudents = rows;
+    } else if (exam.sectionId) {
+      const { rows } = await client.query(
+        `select s.id, s.name, e.roll_no as "rollNo", s.admission_no as "admissionNo"
+         from enrollment e
+         join student s on s.id = e.student_id
+         where e.institution_id = $1 and e.section_id = $2 and e.status = 'active'
+         order by e.roll_no asc nulls last, s.name asc`,
+        [institutionId, exam.sectionId]
+      );
+      eligibleStudents = rows;
+    } else if (exam.classId) {
+      const { rows } = await client.query(
+        `select s.id, s.name, e.roll_no as "rollNo", s.admission_no as "admissionNo"
+         from enrollment e
+         join section sec on sec.id = e.section_id
+         join student s on s.id = e.student_id
+         where e.institution_id = $1 and sec.class_id = $2 and e.status = 'active'
+         order by e.roll_no asc nulls last, s.name asc`,
+        [institutionId, exam.classId]
+      );
+      eligibleStudents = rows;
+    } else {
+      const { rows } = await client.query(
+        `select distinct on (s.id) s.id, s.name, e.roll_no as "rollNo", s.admission_no as "admissionNo"
+         from enrollment e
+         join student s on s.id = e.student_id
+         where e.institution_id = $1 and e.status = 'active'
+         order by s.id, e.roll_no asc nulls last, s.name asc`,
+        [institutionId]
+      );
+      eligibleStudents = rows;
+    }
+
+    const papers = await this.listExamPapers(client, institutionId, examId);
+    const paperProgress = [];
+
+    for (const paper of papers) {
+      const { rows: markedRows } = await client.query(
+        `select student_id from mark where exam_id = $1 and subject_id = $2 and marks_obtained is not null`,
+        [examId, paper.subjectId]
+      );
+      const markedMap = new Set(markedRows.map((r) => r.student_id));
+
+      const pendingStudents = eligibleStudents.filter((s) => !markedMap.has(s.id));
+      const markedCount = eligibleStudents.length - pendingStudents.length;
+      const completionRate = eligibleStudents.length > 0 ? Math.round((markedCount / eligibleStudents.length) * 100) : 0;
+
+      paperProgress.push({
+        paperId: paper.id,
+        subjectId: paper.subjectId,
+        subjectName: paper.subjectName,
+        teacherMembershipId: paper.teacherMembershipId,
+        teacherName: paper.teacherName,
+        totalEligible: eligibleStudents.length,
+        markedCount,
+        pendingCount: pendingStudents.length,
+        completionRate,
+        pendingRolls: pendingStudents.map((s) => s.rollNo).filter(Boolean),
+        pendingStudents: pendingStudents.map((s) => ({ id: s.id, name: s.name, rollNo: s.rollNo })),
+      });
+    }
+
+    const totalEligibleTotal = paperProgress.reduce((sum, p) => sum + p.totalEligible, 0);
+    const totalMarkedTotal = paperProgress.reduce((sum, p) => sum + p.markedCount, 0);
+    const overallCompletionRate = totalEligibleTotal > 0 ? Math.round((totalMarkedTotal / totalEligibleTotal) * 100) : 0;
+
+    return {
+      exam,
+      totalEligibleStudents: eligibleStudents.length,
+      overallCompletionRate,
+      papers: paperProgress,
+    };
+  },
+
+  async notifyPendingTeachers(
+    client: PoolClient,
+    institutionId: string,
+    examId: string,
+    actorMembershipId?: string
+  ): Promise<{ success: boolean; notifiedCount: number }> {
+    const progress = await this.getExamProgress(client, institutionId, examId);
+    let notifiedCount = 0;
+
+    for (const paper of progress.papers) {
+      if (paper.pendingCount > 0 && paper.teacherMembershipId) {
+        await dispatchNotificationAndTask({
+          client,
+          institutionId,
+          creatorMembershipId: actorMembershipId,
+          recipientMembershipIds: [paper.teacherMembershipId],
+          title: `Action Required: Submit Marks for ${paper.subjectName}`,
+          body: `You have ${paper.pendingCount} students missing marks for ${paper.subjectName} (${progress.exam.name}). Missing rolls: ${paper.pendingRolls.join(', ') || 'N/A'}. Please enter marks promptly.`,
+          type: 'exam_marks_reminder',
+          priority: 'high',
+          createTask: true,
+          metadata: { examId, subjectId: paper.subjectId, paperId: paper.paperId },
+        });
+        notifiedCount++;
+      }
+    }
+
+    return { success: true, notifiedCount };
+  },
+
+  async publishExam(
+    client: PoolClient,
+    institutionId: string,
+    examId: string,
+    actorMembershipId?: string
+  ): Promise<{ success: boolean; studentNotificationCount: number }> {
+    await client.query(`update exam set is_published = true where id = $1 and institution_id = $2`, [examId, institutionId]);
+
+    const progress = await this.getExamProgress(client, institutionId, examId);
+    let count = 0;
+
+    const studentUserIds: string[] = [];
+    const studentIds = progress.exam.eligibleStudentIds && progress.exam.eligibleStudentIds.length > 0
+      ? progress.exam.eligibleStudentIds
+      : progress.papers[0]?.pendingStudents?.map((s: any) => s.id) || [];
+
+    if (studentIds.length > 0) {
+      const { rows } = await client.query(
+        `select user_id from student where institution_id = $1 and id = any($2) and user_id is not null`,
+        [institutionId, studentIds]
+      );
+      for (const r of rows) studentUserIds.push(r.user_id);
+    }
+
+    if (studentUserIds.length > 0) {
+      const res = await dispatchNotificationAndTask({
+        client,
+        institutionId,
+        creatorMembershipId: actorMembershipId,
+        recipientUserIds: studentUserIds,
+        title: `Results Published: ${progress.exam.name}`,
+        body: `Your examination results and marksheet for ${progress.exam.name} have been published. View your marksheet from your dashboard.`,
+        type: 'exam_results',
+        priority: 'high',
+        createTask: false,
+        metadata: { examId },
+      });
+      count = res.notificationsSent;
+    }
+
+    await logAudit(client, { institutionId, actorMembershipId, action: 'publish_exam', entityType: 'exam', entityId: examId });
+
+    return { success: true, studentNotificationCount: count };
   },
 
   // --- Marks Recording ---
@@ -432,12 +810,15 @@ export const attendanceRepository = {
         m.student_id as "studentId",
         s.name as "studentName",
         s.admission_no as "admissionNo",
+        s.roll_no as "rollNo",
         m.subject_id as "subjectId",
         sub.name as "subjectName",
         m.marks_obtained as "marksObtained",
         m.max_marks as "maxMarks",
         m.grade,
-        m.recorded_by_membership_id as "recordedByMembershipId"
+        m.recorded_by_membership_id as "recordedByMembershipId",
+        m.remarks,
+        m.is_rechecked as "isRechecked"
       from mark m
       join student s on s.id = m.student_id
       join subject sub on sub.id = m.subject_id
@@ -464,7 +845,7 @@ export const attendanceRepository = {
       query += ` and e.section_id = any($${params.length})`;
     }
 
-    query += ` order by s.name asc`;
+    query += ` order by s.roll_no asc nulls last, s.name asc`;
     const { rows } = await client.query(query, params);
     return rows;
   },
@@ -473,8 +854,37 @@ export const attendanceRepository = {
     client: PoolClient,
     institutionId: string,
     recordedByMembershipId: string,
-    marks: { examId: string; studentId: string; subjectId: string; marksObtained?: number; maxMarks: number; grade?: string }[]
+    marks: {
+      examId: string;
+      studentId: string;
+      subjectId: string;
+      marksObtained?: number;
+      maxMarks: number;
+      grade?: string;
+      remarks?: string;
+      isRechecked?: boolean;
+    }[]
   ): Promise<Mark[]> {
+    if (marks.length === 0) return [];
+
+    // Check if exam is published
+    const examId = marks[0].examId;
+    const { rows: examRows } = await client.query(
+      `select is_published, exam_controller_membership_id from exam where id = $1 and institution_id = $2`,
+      [examId, institutionId]
+    );
+    if (examRows.length > 0 && examRows[0].is_published) {
+      const isController = examRows[0].exam_controller_membership_id === recordedByMembershipId;
+      const { rows: roleRows } = await client.query(
+        `select r.name from membership m join role r on r.id = m.role_id where m.id = $1 limit 1`,
+        [recordedByMembershipId]
+      );
+      const isAdmin = roleRows[0]?.name?.toLowerCase().includes('admin');
+      if (!isController && !isAdmin) {
+        throw new Error('This exam is already published. Only the Exam Controller or Institution Admin can adjust marks.');
+      }
+    }
+
     const results: Mark[] = [];
     for (const m of marks) {
       let resolvedGrade = m.grade;
@@ -483,13 +893,40 @@ export const attendanceRepository = {
         resolvedGrade = calculateLetterGrade(pct);
       }
 
+      const isRecheckedVal = m.isRechecked || (examRows[0]?.is_published ? true : false);
+      const recheckedBy = isRecheckedVal ? recordedByMembershipId : null;
+
       const { rows } = await client.query(
-        `insert into mark (institution_id, exam_id, student_id, subject_id, marks_obtained, max_marks, grade, recorded_by_membership_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)
+        `insert into mark (
+           institution_id, exam_id, student_id, subject_id, marks_obtained, max_marks, grade,
+           recorded_by_membership_id, remarks, is_rechecked, rechecked_by_membership_id
+         )
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          on conflict (exam_id, student_id, subject_id) do update
-         set marks_obtained = excluded.marks_obtained, max_marks = excluded.max_marks, grade = excluded.grade, recorded_by_membership_id = excluded.recorded_by_membership_id
-         returning id, institution_id as "institutionId", exam_id as "examId", student_id as "studentId", subject_id as "subjectId", marks_obtained as "marksObtained", max_marks as "maxMarks", grade, recorded_by_membership_id as "recordedByMembershipId"`,
-        [institutionId, m.examId, m.studentId, m.subjectId, m.marksObtained ?? null, m.maxMarks, resolvedGrade ?? null, recordedByMembershipId]
+         set marks_obtained = excluded.marks_obtained,
+             max_marks = excluded.max_marks,
+             grade = excluded.grade,
+             recorded_by_membership_id = excluded.recorded_by_membership_id,
+             remarks = coalesce(excluded.remarks, mark.remarks),
+             is_rechecked = case when excluded.is_rechecked then true else mark.is_rechecked end,
+             rechecked_by_membership_id = coalesce(excluded.rechecked_by_membership_id, mark.rechecked_by_membership_id)
+         returning 
+           id, institution_id as "institutionId", exam_id as "examId", student_id as "studentId",
+           subject_id as "subjectId", marks_obtained as "marksObtained", max_marks as "maxMarks",
+           grade, recorded_by_membership_id as "recordedByMembershipId", remarks, is_rechecked as "isRechecked"`,
+        [
+          institutionId,
+          m.examId,
+          m.studentId,
+          m.subjectId,
+          m.marksObtained ?? null,
+          m.maxMarks,
+          resolvedGrade ?? null,
+          recordedByMembershipId,
+          m.remarks || null,
+          isRecheckedVal,
+          recheckedBy,
+        ]
       );
       results.push(rows[0]);
     }
@@ -521,8 +958,8 @@ export const attendanceRepository = {
       offset?: number;
       membershipId?: string;
     }
-  ): Promise<{ employees: any[]; total: number }> {
-    let whereClause = `where m.institution_id = $1 and m.status = 'active'`;
+  ): Promise<any> {
+    let whereClause = `where m.institution_id = $1 and m.status = 'active' and lower(coalesce(r.name, '')) not in ('student', 'guardian')`;
     const params: any[] = [institutionId, options.date];
 
     if (options.membershipId) {

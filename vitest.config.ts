@@ -1,9 +1,14 @@
 import { defineConfig } from 'vitest/config';
+import dotenv from 'dotenv';
 
-// Force isolated local test environment so tests NEVER connect to or mutate production cloud DB
+dotenv.config();
+
+// Use dedicated test database or configured database when local container is unavailable
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL =
-  process.env.TEST_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5433/biddyapith_dev';
+  process.env.TEST_DATABASE_URL ||
+  process.env.DATABASE_URL ||
+  'postgresql://postgres:postgres@127.0.0.1:5433/biddyapith_dev';
 process.env.JWT_SECRET = 'biddyapith-secure-jwt-secret-local-dev-2026';
 process.env.SUPABASE_URL = 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';

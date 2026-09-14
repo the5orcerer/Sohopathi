@@ -18,6 +18,8 @@ import type {
   AttendanceSummaryData,
   ExamItem,
   ExamPaperItem,
+  ExamRoomItem,
+  ExamProgressData,
   MarkItem,
   Notice,
   InstitutionItem,
@@ -26,6 +28,7 @@ import type {
   AuditLogEntry,
   StudentAcademicHistory,
   Assignment,
+  AssignmentSubmissionItem,
   AssignmentStatisticsData,
   NotificationItem,
   UserTaskItem,
@@ -38,6 +41,15 @@ import type {
   AdmitStudentPayload,
   EmployeeAttendanceItem,
   EmployeeAttendanceSummaryData,
+  ClassroomItem,
+  MemberRequestItem,
+  ClassOverviewData,
+  LivePeriodData,
+  Invoice,
+  InvoiceItem,
+  PaymentRecord,
+  FinanceSummaryData,
+  ReceiptData,
 } from '../types';
 
 import { getTenantSubdomain } from '../utils/tenant';
@@ -430,6 +442,7 @@ export async function createSection(data: {
   classId: string;
   name: string;
   capacity?: number;
+  classTeacherMembershipId?: string;
 }): Promise<SectionItem> {
   return fetchWithAuth<SectionItem>('/api/core/sections', {
     method: 'POST',
@@ -746,6 +759,12 @@ export async function createExam(data: {
   term?: string;
   startDate?: string;
   endDate?: string;
+  examType?: 'term' | 'class_test';
+  examControllerMembershipId?: string | null;
+  classId?: string | null;
+  sectionId?: string | null;
+  syllabusRemarks?: string | null;
+  eligibleStudentIds?: string[] | null;
 }): Promise<ExamItem> {
   return fetchWithAuth<ExamItem>('/api/attendance/exams', {
     method: 'POST',
@@ -755,7 +774,19 @@ export async function createExam(data: {
 
 export async function updateExam(
   examId: string,
-  data: { name?: string; term?: string; startDate?: string; endDate?: string; isPublished?: boolean }
+  data: {
+    name?: string;
+    term?: string;
+    startDate?: string;
+    endDate?: string;
+    isPublished?: boolean;
+    examType?: 'term' | 'class_test';
+    examControllerMembershipId?: string | null;
+    classId?: string | null;
+    sectionId?: string | null;
+    syllabusRemarks?: string | null;
+    eligibleStudentIds?: string[] | null;
+  }
 ): Promise<ExamItem> {
   return fetchWithAuth<ExamItem>(`/api/attendance/exams/${examId}`, {
     method: 'PATCH',
@@ -765,6 +796,39 @@ export async function updateExam(
 
 export async function deleteExam(examId: string): Promise<{ success: boolean }> {
   return fetchWithAuth<{ success: boolean }>(`/api/attendance/exams/${examId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function fetchExamProgress(examId: string): Promise<ExamProgressData> {
+  return fetchWithAuth<ExamProgressData>(`/api/attendance/exams/${examId}/progress`);
+}
+
+export async function notifyPendingExamTeachers(examId: string): Promise<{ notifiedCount: number; tasksCreated: number; message: string }> {
+  return fetchWithAuth<{ notifiedCount: number; tasksCreated: number; message: string }>(`/api/attendance/exams/${examId}/notify-pending`, {
+    method: 'POST',
+  });
+}
+
+export async function publishExam(examId: string): Promise<{ success: boolean; message: string; isPublished: boolean }> {
+  return fetchWithAuth<{ success: boolean; message: string; isPublished: boolean }>(`/api/attendance/exams/${examId}/publish`, {
+    method: 'POST',
+  });
+}
+
+export async function fetchExamRooms(examId: string): Promise<ExamRoomItem[]> {
+  return fetchWithAuth<ExamRoomItem[]>(`/api/attendance/exams/${examId}/rooms`);
+}
+
+export async function createExamRoom(examId: string, data: Partial<ExamRoomItem>): Promise<ExamRoomItem> {
+  return fetchWithAuth<ExamRoomItem>(`/api/attendance/exams/${examId}/rooms`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteExamRoom(examId: string, roomId: string): Promise<{ success: boolean }> {
+  return fetchWithAuth<{ success: boolean }>(`/api/attendance/exams/${examId}/rooms/${roomId}`, {
     method: 'DELETE',
   });
 }
@@ -786,6 +850,8 @@ export async function createExamPaper(
     theoryWeight?: number;
     practicalWeight?: number;
     vivaWeight?: number;
+    teacherMembershipId?: string | null;
+    syllabus?: string | null;
   }
 ): Promise<ExamPaperItem> {
   return fetchWithAuth<ExamPaperItem>(`/api/attendance/exams/${examId}/papers`, {
@@ -868,17 +934,30 @@ export async function deleteAssignment(id: string): Promise<{ success: boolean }
   });
 }
 
-export async function submitAssignment(assignmentId: string, data: { fileKey?: string }): Promise<any> {
+export async function submitAssignment(
+  assignmentId: string,
+  data: { fileKey?: string; fileUrl?: string; submissionNotes?: string }
+): Promise<any> {
   return fetchWithAuth(`/api/assignments/${assignmentId}/submit`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
 }
 
-export async function gradeSubmission(submissionId: string, data: { grade: string; feedback?: string }): Promise<any> {
-  return fetchWithAuth(`/api/assignments/submissions/${submissionId}/grade`, {
+export async function fetchAssignmentSubmissions(assignmentId: string): Promise<AssignmentSubmissionItem[]> {
+  return fetchWithAuth<AssignmentSubmissionItem[]>(`/api/assignments/${assignmentId}/submissions`);
+}
+
+export async function remindPendingAssignmentStudents(assignmentId: string): Promise<{ notifiedCount: number; message: string }> {
+  return fetchWithAuth<{ notifiedCount: number; message: string }>(`/api/assignments/${assignmentId}/remind-pending`, {
     method: 'POST',
-    body: JSON.stringify(data),
+  });
+}
+
+export async function gradeSubmission(submissionId: string, data: { grade: string; feedback?: string }): Promise<any> {
+  return fetchWithAuth(`/api/assignments/grade`, {
+    method: 'POST',
+    body: JSON.stringify({ submissionId, ...data }),
   });
 }
 
@@ -898,6 +977,10 @@ export async function createNotice(data: {
   title: string;
   body: string;
   audienceScope?: string;
+  targetRoles?: string[];
+  targetClassIds?: string[];
+  targetSectionIds?: string[];
+  audienceFilters?: Record<string, any>;
 }): Promise<Notice> {
   return fetchWithAuth<Notice>('/api/notices', {
     method: 'POST',
@@ -934,7 +1017,8 @@ export async function fetchTasks(filter: 'my_tasks' | 'assigned_by_me' | 'all' =
 }
 
 export async function createTask(data: {
-  assigneeMembershipId: string;
+  assigneeMembershipId?: string;
+  assigneeMembershipIds?: string[];
   title: string;
   description?: string;
   priority?: 'low' | 'medium' | 'high' | 'urgent';
@@ -973,6 +1057,7 @@ export async function fetchInstitutionSettings(): Promise<InstitutionSettingsDat
 export async function updateInstitutionSettings(data: {
   name?: string;
   subdomain?: string;
+  instituteCode?: string;
   branding?: any;
   settings?: Record<string, any>;
 }): Promise<InstitutionSettingsData> {
@@ -1181,3 +1266,329 @@ export async function renderTemplate(
     }
   );
 }
+
+// ============================================================
+// PHYSICAL CLASSROOMS API
+// ============================================================
+
+export async function fetchClassrooms(): Promise<ClassroomItem[]> {
+  return fetchWithAuth<ClassroomItem[]>("/api/core/classrooms");
+}
+
+export async function createClassroom(data: {
+  roomNumber: string;
+  name?: string;
+  building?: string;
+  floor?: string;
+  capacity?: number;
+  facilities?: string[];
+  status?: string;
+}): Promise<ClassroomItem> {
+  return fetchWithAuth<ClassroomItem>("/api/core/classrooms", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateClassroom(
+  id: string,
+  data: Partial<{
+    roomNumber: string;
+    name: string;
+    building: string;
+    floor: string;
+    capacity: number;
+    facilities: string[];
+    status: string;
+  }>
+): Promise<ClassroomItem> {
+  return fetchWithAuth<ClassroomItem>(`/api/core/classrooms/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteClassroom(id: string): Promise<{ success: boolean }> {
+  return fetchWithAuth<{ success: boolean }>(`/api/core/classrooms/${id}`, {
+    method: "DELETE",
+  });
+}
+
+// ============================================================
+// CLASS OVERVIEW (TELEMETRY) API
+// ============================================================
+
+export async function fetchClassOverview(classId: string): Promise<ClassOverviewData> {
+  return fetchWithAuth<ClassOverviewData>(`/api/core/classes/${classId}/overview`);
+}
+
+// ============================================================
+// PERIOD SUBSTITUTIONS & TEACHER HISTORY API
+// ============================================================
+
+export async function recordPeriodSubstitution(
+  scheduleId: string,
+  data: {
+    date?: string;
+    substitutionDate?: string;
+    substituteTeacherMembershipId?: string | null;
+    status: "normal" | "substitute" | "cancelled";
+    reason?: string;
+  }
+): Promise<{ success: boolean; id: string }> {
+  return fetchWithAuth<{ success: boolean; id: string }>(`/api/core/schedules/${scheduleId}/substitute`, {
+    method: "POST",
+    body: JSON.stringify({
+      ...data,
+      date: data.date || data.substitutionDate || new Date().toISOString().split('T')[0],
+    }),
+  });
+}
+
+export async function fetchTeacherHistory(teacherId: string): Promise<any> {
+  return fetchWithAuth<any>(`/api/core/teachers/${teacherId}/history`);
+}
+
+// ============================================================
+// MEMBER REQUESTS (LEAVE, BREAK, ETC.) API
+// ============================================================
+
+export async function fetchMemberRequests(filters?: {
+  filter?: "my_requests" | "to_approve" | "all";
+  status?: string;
+  category?: string;
+} | string): Promise<MemberRequestItem[]> {
+  const params = new URLSearchParams();
+  if (typeof filters === 'string') {
+    if (filters !== 'all') params.set("status", filters);
+  } else if (filters) {
+    if (filters.filter) params.set("filter", filters.filter);
+    if (filters.status && filters.status !== "all") params.set("status", filters.status);
+    if (filters.category && filters.category !== "all") params.set("category", filters.category);
+  }
+  const qs = params.toString();
+  return fetchWithAuth<MemberRequestItem[]>(`/api/core/requests${qs ? `?${qs}` : ""}`);
+}
+
+export async function createMemberRequest(data: {
+  category?: "leave" | "break" | "schedule_change" | "schedule" | "resource" | "general" | string;
+  requestType?: "leave" | "break" | "schedule_change" | "schedule" | "resource" | "general" | string;
+  title: string;
+  description?: string;
+  startDate?: string;
+  endDate?: string;
+  metadata?: Record<string, any>;
+}): Promise<MemberRequestItem> {
+  return fetchWithAuth<MemberRequestItem>("/api/core/requests", {
+    method: "POST",
+    body: JSON.stringify({
+      ...data,
+      category: data.category || (data.requestType === 'schedule' ? 'schedule_change' : data.requestType) || 'general',
+    }),
+  });
+}
+
+export async function updateMemberRequestStatus(
+  requestId: string,
+  data: {
+    status: "approved" | "rejected" | "cancelled";
+    reviewerNotes?: string;
+    managerRemarks?: string;
+  }
+): Promise<MemberRequestItem> {
+  return fetchWithAuth<MemberRequestItem>(`/api/core/requests/${requestId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      status: data.status,
+      reviewerNotes: data.reviewerNotes || data.managerRemarks,
+    }),
+  });
+}
+
+export async function bulkUpdateMemberRequestStatus(data: {
+  requestIds?: string[];
+  ids?: string[];
+  status: "approved" | "rejected";
+  notes?: string;
+  managerRemarks?: string;
+}): Promise<{ success: boolean; count: number }> {
+  const ids = data.requestIds || data.ids || [];
+  const notes = data.notes || data.managerRemarks;
+  return fetchWithAuth<{ success: boolean; count: number }>("/api/core/requests/bulk-status", {
+    method: "POST",
+    body: JSON.stringify({ requestIds: ids, status: data.status, notes }),
+  });
+}
+
+export async function remindManager(requestId: string): Promise<{ success: boolean; message: string }> {
+  return fetchWithAuth<{ success: boolean; message: string }>(`/api/core/requests/${requestId}/remind`, {
+    method: "POST",
+  });
+}
+
+export async function dispatchReminder(payload: {
+  recipientMembershipIds?: string[];
+  recipientUserIds?: string[];
+  title: string;
+  body: string;
+  link?: string;
+  priority?: "low" | "medium" | "high";
+  createTask?: boolean;
+}): Promise<{ success: boolean; message: string; notificationsSent?: number; tasksCreated?: number }> {
+  return fetchWithAuth<{ success: boolean; message: string; notificationsSent?: number; tasksCreated?: number }>(
+    "/api/core/dispatch-reminder",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+// ============================================================
+// LIVE DASHBOARD PERIOD TELEMETRY API
+// ============================================================
+
+export async function fetchLivePeriods(): Promise<LivePeriodData> {
+  return fetchWithAuth<LivePeriodData>("/api/core/live-periods");
+}
+
+// ============================================================
+// UNIVERSAL BULK OPERATIONS API
+// ============================================================
+
+export async function bulkAssignManager(data: {
+  membershipIds?: string[];
+  memberIds?: string[];
+  managerMembershipId: string | null;
+}): Promise<{ success: boolean; count: number }> {
+  const ids = data.membershipIds || data.memberIds || [];
+  return fetchWithAuth<{ success: boolean; count: number }>("/api/core/members/bulk-assign-manager", {
+    method: "POST",
+    body: JSON.stringify({ membershipIds: ids, managerMembershipId: data.managerMembershipId }),
+  });
+}
+
+export async function bulkUpdateMemberRole(data: {
+  membershipIds?: string[];
+  memberIds?: string[];
+  roleId: string;
+}): Promise<{ success: boolean; count: number }> {
+  const ids = data.membershipIds || data.memberIds || [];
+  return fetchWithAuth<{ success: boolean; count: number }>("/api/core/members/bulk-update-role", {
+    method: "POST",
+    body: JSON.stringify({ membershipIds: ids, roleId: data.roleId }),
+  });
+}
+
+export async function bulkUpdateStudentStatus(data: {
+  studentIds: string[];
+  status: string;
+}): Promise<{ success: boolean; count: number }> {
+  return fetchWithAuth<{ success: boolean; count: number }>("/api/core/students/bulk-status", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function bulkTransferStudentSection(data: {
+  studentIds: string[];
+  classId: string;
+  sectionId: string;
+  academicYearId?: string;
+}): Promise<{ success: boolean; count: number }> {
+  return fetchWithAuth<{ success: boolean; count: number }>("/api/core/students/bulk-transfer-section", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// ============================================================
+// FINANCE, INVOICING & BILLING
+// ============================================================
+
+export async function fetchFinanceSummary(): Promise<FinanceSummaryData> {
+  return fetchWithAuth<FinanceSummaryData>('/api/finance/summary');
+}
+
+export async function fetchInvoices(options?: {
+  status?: string;
+  recipientType?: string;
+  category?: string;
+  studentId?: string;
+  employeeMembershipId?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ invoices: Invoice[]; total: number }> {
+  const query = new URLSearchParams();
+  if (options?.status && options.status !== 'all') query.set('status', options.status);
+  if (options?.recipientType && options.recipientType !== 'all') query.set('recipientType', options.recipientType);
+  if (options?.category && options.category !== 'all') query.set('category', options.category);
+  if (options?.studentId) query.set('studentId', options.studentId);
+  if (options?.employeeMembershipId) query.set('employeeMembershipId', options.employeeMembershipId);
+  if (options?.search) query.set('search', options.search);
+  if (options?.limit) query.set('limit', String(options.limit));
+  if (options?.offset) query.set('offset', String(options.offset));
+
+  const qs = query.toString();
+  return fetchWithAuth<{ invoices: Invoice[]; total: number }>(`/api/finance/invoices${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchInvoiceById(id: string): Promise<Invoice> {
+  return fetchWithAuth<Invoice>(`/api/finance/invoices/${id}`);
+}
+
+export async function createInvoice(data: {
+  recipientType: 'student' | 'employee' | 'institution';
+  studentId?: string;
+  employeeMembershipId?: string;
+  category: string;
+  title: string;
+  description?: string;
+  totalAmount: number;
+  discountAmount?: number;
+  dueDate: string;
+  items?: InvoiceItem[];
+  notes?: string;
+}): Promise<Invoice> {
+  return fetchWithAuth<Invoice>('/api/finance/invoices', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function createBulkInvoices(data: {
+  classId: string;
+  sectionId?: string;
+  category: string;
+  title: string;
+  amount: number;
+  dueDate: string;
+  notes?: string;
+}): Promise<{ count: number; invoices: Invoice[] }> {
+  return fetchWithAuth<{ count: number; invoices: Invoice[] }>('/api/finance/invoices/bulk', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function recordInvoicePayment(
+  invoiceId: string,
+  data: {
+    amount: number;
+    paymentDate?: string;
+    method: string;
+    transactionId?: string;
+    notes?: string;
+  }
+): Promise<{ payment: PaymentRecord; invoice: Invoice }> {
+  return fetchWithAuth<{ payment: PaymentRecord; invoice: Invoice }>(`/api/finance/invoices/${invoiceId}/payments`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function fetchReceiptData(paymentId: string): Promise<ReceiptData> {
+  return fetchWithAuth<ReceiptData>(`/api/finance/receipts/${paymentId}`);
+}
+

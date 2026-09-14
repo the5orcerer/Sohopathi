@@ -9,6 +9,7 @@ export interface User {
 
 export interface ActiveMembership {
   id: string;
+  membershipId?: string;
   institutionId: string;
   institutionName?: string;
   institutionSubdomain?: string;
@@ -140,6 +141,8 @@ export interface SectionItem {
   name: string;
   capacity: number | null;
   studentCount?: number;
+  classTeacherMembershipId?: string | null;
+  classTeacherName?: string | null;
 }
 
 export interface SubjectItem {
@@ -176,6 +179,7 @@ export interface StudentItem {
   classId?: string;
   sectionId?: string;
   rollNo?: string;
+  rollNumber?: string;
   customFields?: Record<string, any>;
   guardianName?: string;
   guardianPhone?: string;
@@ -261,6 +265,8 @@ export interface UserTaskItem {
   creatorName?: string | null;
   assigneeName?: string | null;
   assigneeRole?: string | null;
+  assigneeMembershipIds?: string[];
+  assigneeNames?: string[];
 }
 
 // Institution Settings & Feature Controls
@@ -269,6 +275,7 @@ export interface InstitutionSettingsData {
     id: string;
     name: string;
     subdomain: string;
+    instituteCode?: string;
     branding: any;
     status: string;
     createdAt: string;
@@ -282,12 +289,19 @@ export interface InstitutionSettingsData {
     timezone?: string;
     academicYearName?: string;
     attendanceThreshold?: number;
+    instituteCode?: string;
     enableExaminations?: boolean;
     enableAssignments?: boolean;
     enableTransport?: boolean;
     enableFinance?: boolean;
     enableTimetable?: boolean;
     notificationSmsEnabled?: boolean;
+    featureLimitations?: Record<string, { enabled: boolean; allowedRoles?: string[] }>;
+    principalSignatureUrl?: string;
+    officialSealUrl?: string;
+    examControllerSignatureUrl?: string;
+    institutionAffiliationNo?: string;
+    officialWatermarkText?: string;
     [key: string]: any;
   };
 }
@@ -428,6 +442,15 @@ export interface ExamItem {
   endDate?: string | null;
   isPublished?: boolean;
   paperCount?: number;
+  examType?: 'term' | 'class_test';
+  examControllerMembershipId?: string | null;
+  examControllerName?: string | null;
+  classId?: string | null;
+  className?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  syllabusRemarks?: string | null;
+  eligibleStudentIds?: string[] | null;
 }
 
 export interface ExamPaperItem {
@@ -437,6 +460,9 @@ export interface ExamPaperItem {
   examName?: string;
   subjectId: string;
   subjectName?: string;
+  teacherMembershipId?: string | null;
+  teacherName?: string | null;
+  syllabus?: string | null;
   examDate: string | null;
   startTime: string | null;
   endTime: string | null;
@@ -447,6 +473,51 @@ export interface ExamPaperItem {
   practicalWeight: number;
   vivaWeight: number;
   createdAt: string;
+}
+
+export interface ExamRoomItem {
+  id: string;
+  institutionId: string;
+  examId: string;
+  classroomId?: string | null;
+  roomNumber: string;
+  capacity?: number | null;
+  guardMembershipIds?: string[];
+  guardNames?: string[];
+  rollRangeStart?: number | null;
+  rollRangeEnd?: number | null;
+  studentIds?: string[];
+  studentCount?: number;
+  remarks?: string | null;
+}
+
+export interface ExamPaperProgress {
+  paperId: string;
+  subjectName: string;
+  teacherName?: string | null;
+  teacherMembershipId?: string | null;
+  totalEligible: number;
+  enteredMarks: number;
+  missingCount: number;
+  missingStudents: { studentId: string; name: string; rollNumber?: string }[];
+  isComplete: boolean;
+}
+
+export interface ExamProgressData {
+  examId: string;
+  examName: string;
+  isPublished: boolean;
+  totalEligibleStudents: number;
+  overallCompletionPercentage: number;
+  papers: ExamPaperProgress[];
+}
+
+export interface OfficialSignatureSettings {
+  principalSignatureUrl?: string;
+  officialSealUrl?: string;
+  examControllerSignatureUrl?: string;
+  institutionAffiliationNo?: string;
+  signatureLocked?: boolean;
 }
 
 export interface MarkItem {
@@ -461,6 +532,9 @@ export interface MarkItem {
   marksObtained: number | null;
   maxMarks: number;
   grade: string | null;
+  remarks?: string | null;
+  isRechecked?: boolean;
+  recheckedByMembershipId?: string | null;
 }
 
 export interface Notice {
@@ -468,6 +542,10 @@ export interface Notice {
   title: string;
   body: string;
   audienceScope?: string;
+  targetRoles?: string[];
+  targetClassIds?: string[];
+  targetSectionIds?: string[];
+  audienceFilters?: Record<string, any>;
   publishedAt?: string;
   createdAt?: string;
   isRead?: boolean;
@@ -500,11 +578,17 @@ export interface AssignmentSubmissionItem {
   studentId: string;
   studentName?: string;
   admissionNo?: string;
+  rollNumber?: string;
+  sectionName?: string;
+  className?: string;
   fileKey: string | null;
+  fileUrl?: string | null;
+  submissionNotes?: string | null;
   submittedAt: string;
   status: string;
   grade?: string | null;
   feedback?: string | null;
+  gradedAt?: string | null;
 }
 
 export interface AssignmentStatisticsData {
@@ -546,14 +630,16 @@ export interface FinanceSummaryData {
   totalBilled: number;
   totalCollected: number;
   totalPending: number;
+  totalDisbursements?: number;
   collectionRate: number;
-  recentTransactions: {
+  recentTransactions?: {
     id: string;
     studentName: string;
     amount: number;
     date: string;
     method: string;
   }[];
+  monthlyCollection?: Array<{ month: string; amount: number }>;
 }
 
 export interface ClassPerformanceItem {
@@ -699,14 +785,73 @@ export interface AdmissionStatsData {
   };
 }
 
+export interface InvoiceItem {
+  label: string;
+  amount: number;
+  description?: string;
+}
+
+export interface PaymentRecord {
+  id: string;
+  institutionId: string;
+  invoiceId: string;
+  receiptNumber: string;
+  amount: number;
+  paymentDate: string;
+  method: string;
+  transactionId?: string | null;
+  notes?: string | null;
+  recordedByName?: string | null;
+  recordedByRole?: string | null;
+  createdAt: string;
+}
+
 export interface Invoice {
   id: string;
+  institutionId?: string;
+  invoiceNumber?: string;
+  recipientType?: 'student' | 'employee' | 'institution';
+  studentId?: string | null;
+  studentName?: string | null;
+  studentRollNo?: string | null;
+  className?: string | null;
+  sectionName?: string | null;
+  employeeMembershipId?: string | null;
+  employeeName?: string | null;
+  employeeRole?: string | null;
+  category?: string;
   title: string;
-  amount: number;
+  description?: string | null;
+  totalAmount?: number;
+  amount?: number; // legacy compatibility fallback
+  discountAmount?: number;
+  paidAmount?: number;
+  dueAmount?: number;
   dueDate?: string;
-  status: 'paid' | 'unpaid' | 'overdue';
-  studentName?: string;
+  status: 'pending' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled' | 'unpaid';
+  items?: InvoiceItem[];
+  notes?: string | null;
   paidAt?: string;
+  createdAt?: string;
+  payments?: PaymentRecord[];
+}
+
+export interface ReceiptData {
+  payment: PaymentRecord;
+  invoice: Invoice;
+  institution: {
+    id: string;
+    name: string;
+    instituteCode?: string;
+    address?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    currency?: string;
+    branding?: any;
+    principalSignatureUrl?: string;
+    officialSealUrl?: string;
+    officialWatermarkText?: string;
+  };
 }
 
 export interface Persona {
@@ -729,4 +874,131 @@ export interface ApiLog {
   headers: Record<string, string>;
   responsePayload: any;
   durationMs: number;
+}
+
+
+// Physical Classroom
+export interface ClassroomItem {
+  id: string;
+  institutionId: string;
+  roomNumber: string;
+  name: string | null;
+  building: string | null;
+  floor: string | null;
+  capacity: number;
+  facilities: string[];
+  status: string;
+  createdAt: string;
+}
+
+// Period Substitutions
+export interface ScheduleSubstitutionItem {
+  id: string;
+  scheduleId: string;
+  date: string;
+  substituteTeacherMembershipId: string | null;
+  substituteTeacherName?: string | null;
+  status: "normal" | "substitute" | "cancelled";
+  reason: string | null;
+  recordedByMembershipId?: string | null;
+  createdAt: string;
+}
+
+// Member Requests
+export interface MemberRequestItem {
+  id: string;
+  institutionId: string;
+  requesterMembershipId: string;
+  requesterName?: string;
+  requesterRole?: string;
+  requesterStudentId?: string | null;
+  requesterStudentName?: string | null;
+  managerMembershipId: string;
+  targetManagerMembershipId?: string;
+  managerName?: string;
+  targetManagerName?: string;
+  category: "leave" | "break" | "schedule_change" | "resource" | "general";
+  requestType?: "leave" | "break" | "schedule_change" | "resource" | "general";
+  title: string;
+  description: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  reviewerNotes: string | null;
+  managerRemarks?: string | null;
+  reviewedAt: string | null;
+  metadata?: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Class Overview Telemetry
+export interface ClassOverviewData {
+  classId: string;
+  className: string;
+  totalStudents: number;
+  sections: Array<{
+    id: string;
+    name: string;
+    capacity: number;
+    classTeacherMembershipId?: string | null;
+    classTeacherName?: string | null;
+    studentCount: number;
+  }>;
+  todayAttendance: {
+    totalStudents: number;
+    marked: number;
+    present: number;
+    absent: number;
+    late: number;
+    excused: number;
+    attendanceRate: number;
+  };
+  currentPeriod: {
+    id: string;
+    sectionId: string;
+    sectionName: string;
+    subjectId: string;
+    subjectName: string;
+    teacherMembershipId: string | null;
+    teacherName: string | null;
+    startTime: string;
+    endTime: string;
+    roomNumber: string;
+    isOngoing: boolean;
+    subStatus?: string | null;
+    subReason?: string | null;
+    substituteTeacherName?: string | null;
+  } | null;
+  nextPeriod: {
+    id: string;
+    sectionId: string;
+    sectionName: string;
+    subjectId: string;
+    subjectName: string;
+    teacherMembershipId: string | null;
+    teacherName: string | null;
+    startTime: string;
+    endTime: string;
+    roomNumber: string;
+  } | null;
+  todaySchedules: any[];
+  assignedTeachers: Array<{
+    teacherName: string;
+    subjectName: string;
+    sectionName: string;
+  }>;
+}
+
+// Live Dashboard Period Telemetry
+export interface LivePeriodData {
+  role: "student" | "teacher" | "admin";
+  studentName?: string;
+  className?: string;
+  sectionName?: string;
+  currentPeriod: any | null;
+  nextPeriod: any | null;
+  todaySchedule: any[];
+  runningNow?: any[];
+  activeClassroomsCount?: number;
 }

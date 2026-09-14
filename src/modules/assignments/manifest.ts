@@ -14,6 +14,7 @@ export const assignmentsManifest: ModuleManifest = {
     { key: 'assignments.update', description: 'Edit an assignment', scopeOptions: ['assigned_sections', 'self'] },
     { key: 'assignments.delete', description: 'Delete an assignment', scopeOptions: ['assigned_sections'] },
     { key: 'assignments.submit', description: 'Submit work', scopeOptions: ['self'] },
+    { key: 'assignments.submission.read', description: 'View assignment submissions', scopeOptions: ['institution', 'assigned_sections'] },
     { key: 'assignments.grade', description: 'Grade a submission', scopeOptions: ['assigned_sections'] },
   ],
 
@@ -37,6 +38,8 @@ export const assignmentsManifest: ModuleManifest = {
     },
     { method: 'PATCH', path: '/:id', requiredPermission: 'assignments.update', handler: routes.updateAssignment },
     { method: 'DELETE', path: '/:id', requiredPermission: 'assignments.delete', handler: routes.deleteAssignment },
+    { method: 'GET', path: '/:id/submissions', requiredPermission: 'assignments.submission.read', handler: routes.listSubmissions },
+    { method: 'POST', path: '/:id/remind-pending', requiredPermission: 'assignments.create', handler: routes.remindPendingStudents },
     {
       method: 'POST',
       path: '/:id/attachments/presigned-url',
@@ -65,6 +68,14 @@ export const assignmentsManifest: ModuleManifest = {
       method: 'POST',
       path: '/:id/submit',
       requiredPermission: 'assignments.submit',
+      validation: {
+        body: z.object({
+          fileKey: z.string().optional(),
+          fileUrl: z.string().optional(),
+          submissionNotes: z.string().optional(),
+          studentId: z.string().uuid().optional(),
+        }).optional(),
+      },
       handler: routes.submitAssignment,
     },
     {

@@ -16,13 +16,28 @@ import {
   Phone,
   MapPin,
   Layers,
-  ExternalLink,
+  Shield,
+  FileCheck,
 } from 'lucide-react';
-import { Button } from '../components/common';
+import { Button, Badge } from '../components/common';
+
+const SYSTEM_FEATURES = [
+  { key: 'examinations', label: 'Examinations & Grading', description: 'Marks entry, term schedules, seat plans, and report cards' },
+  { key: 'finance', label: 'Tuition & Fee Billing', description: 'Student fee invoices, receipts, payment recording, and ledger' },
+  { key: 'timetable', label: 'Class Timetable Schedules', description: 'Weekly period slots, room assignments, and substitutions' },
+  { key: 'transport', label: 'Transport Fleet & Routes', description: 'Buses, stops, and driver allocation' },
+  { key: 'assignments', label: 'Curriculum Assignments', description: 'Homework tasks and student assignment submissions' },
+  { key: 'admissions', label: 'Online Student Admissions', description: 'Public admission applications and verification workflow' },
+  { key: 'attendance', label: 'Daily Attendance System', description: 'Student & staff daily attendance check-in rosters' },
+  { key: 'notices', label: 'Campus Notice Board', description: 'Official announcements and circular broadcasting' },
+  { key: 'tasks', label: 'Staff Work Order Delegation', description: 'Internal staff task assignments and tracking' },
+];
+
+const AVAILABLE_ROLES = ['Teacher', 'Staff', 'Student'];
 
 export const InstitutionSettingsPage: React.FC = () => {
   const { hasPermission, refreshSession } = useSession();
-  const [data, setData] = useState<InstitutionSettingsData | null>(null);
+  const [, setData] = useState<InstitutionSettingsData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -30,6 +45,7 @@ export const InstitutionSettingsPage: React.FC = () => {
 
   // Form State
   const [name, setName] = useState<string>('');
+  const [instituteCode, setInstituteCode] = useState<string>('');
   const [address, setAddress] = useState<string>('');
   const [contactEmail, setContactEmail] = useState<string>('');
   const [contactPhone, setContactPhone] = useState<string>('');
@@ -38,13 +54,23 @@ export const InstitutionSettingsPage: React.FC = () => {
   const [timezone, setTimezone] = useState<string>('Asia/Dhaka');
   const [attendanceThreshold, setAttendanceThreshold] = useState<number>(75);
 
-  // Feature Toggles
-  const [enableExaminations, setEnableExaminations] = useState<boolean>(true);
-  const [enableAssignments, setEnableAssignments] = useState<boolean>(true);
-  const [enableTransport, setEnableTransport] = useState<boolean>(false);
-  const [enableFinance, setEnableFinance] = useState<boolean>(true);
-  const [enableTimetable, setEnableTimetable] = useState<boolean>(true);
-  const [notificationSmsEnabled, setNotificationSmsEnabled] = useState<boolean>(false);
+  // Sensitive Institutional Artifacts
+  const [principalSignatureUrl, setPrincipalSignatureUrl] = useState<string>('');
+  const [officialSealUrl, setOfficialSealUrl] = useState<string>('');
+  const [officialWatermarkText, setOfficialWatermarkText] = useState<string>('');
+
+  // Feature Limitations Matrix: { [featureKey]: { enabled: boolean; allowedRoles?: string[] } }
+  const [featureLimitations, setFeatureLimitations] = useState<Record<string, { enabled: boolean; allowedRoles?: string[] }>>({
+    examinations: { enabled: true },
+    finance: { enabled: true },
+    timetable: { enabled: true },
+    transport: { enabled: false },
+    assignments: { enabled: true },
+    admissions: { enabled: true },
+    attendance: { enabled: true },
+    notices: { enabled: true },
+    tasks: { enabled: true },
+  });
 
   const canManageSettings = hasPermission('settings.manage') || hasPermission('institution.manage') || hasPermission('roles.manage');
 
@@ -55,6 +81,7 @@ export const InstitutionSettingsPage: React.FC = () => {
       const res = await fetchInstitutionSettings();
       setData(res);
       setName(res.institution?.name || '');
+      setInstituteCode(res.institution?.instituteCode || res.settings?.instituteCode || '');
       setAddress(res.settings?.address || '');
       setContactEmail(res.settings?.contactEmail || '');
       setContactPhone(res.settings?.contactPhone || '');
@@ -63,12 +90,24 @@ export const InstitutionSettingsPage: React.FC = () => {
       setTimezone(res.settings?.timezone || 'Asia/Dhaka');
       setAttendanceThreshold(res.settings?.attendanceThreshold ?? 75);
 
-      setEnableExaminations(res.settings?.enableExaminations ?? true);
-      setEnableAssignments(res.settings?.enableAssignments ?? true);
-      setEnableTransport(res.settings?.enableTransport ?? false);
-      setEnableFinance(res.settings?.enableFinance ?? true);
-      setEnableTimetable(res.settings?.enableTimetable ?? true);
-      setNotificationSmsEnabled(res.settings?.notificationSmsEnabled ?? false);
+      setPrincipalSignatureUrl(res.settings?.principalSignatureUrl || '');
+      setOfficialSealUrl(res.settings?.officialSealUrl || '');
+      setOfficialWatermarkText(res.settings?.officialWatermarkText || '');
+
+      // Load feature limitations
+      const rawLimits = res.settings?.featureLimitations || {};
+      const merged: Record<string, { enabled: boolean; allowedRoles?: string[] }> = {};
+      for (const feat of SYSTEM_FEATURES) {
+        if (rawLimits[feat.key]) {
+          merged[feat.key] = rawLimits[feat.key];
+        } else {
+          // Fallback legacy boolean
+          const legacyKey = `enable${feat.key.charAt(0).toUpperCase() + feat.key.slice(1)}`;
+          const isEnabled = res.settings?.[legacyKey] ?? (feat.key !== 'transport');
+          merged[feat.key] = { enabled: Boolean(isEnabled), allowedRoles: undefined };
+        }
+      }
+      setFeatureLimitations(merged);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to load institution settings');
     } finally {
@@ -80,6 +119,42 @@ export const InstitutionSettingsPage: React.FC = () => {
     loadSettings();
   }, []);
 
+  const toggleFeatureEnabled = (key: string) => {
+    setFeatureLimitations((prev) => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        enabled: !prev[key]?.enabled,
+      },
+    }));
+  };
+
+  const setFeatureRoleLimitation = (key: string, isRestricted: boolean) => {
+    setFeatureLimitations((prev) => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        allowedRoles: isRestricted ? ['Teacher'] : undefined,
+      },
+    }));
+  };
+
+  const toggleFeatureRole = (featureKey: string, role: string) => {
+    setFeatureLimitations((prev) => {
+      const current = prev[featureKey]?.allowedRoles || [];
+      const updated = current.includes(role)
+        ? current.filter((r) => r !== role)
+        : [...current, role];
+      return {
+        ...prev,
+        [featureKey]: {
+          ...prev[featureKey],
+          allowedRoles: updated.length === 0 ? ['Institution Admin'] : updated,
+        },
+      };
+    });
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -89,6 +164,7 @@ export const InstitutionSettingsPage: React.FC = () => {
 
       await updateInstitutionSettings({
         name: name.trim(),
+        instituteCode: instituteCode.trim(),
         settings: {
           address: address.trim(),
           contactEmail: contactEmail.trim(),
@@ -97,16 +173,20 @@ export const InstitutionSettingsPage: React.FC = () => {
           currency,
           timezone,
           attendanceThreshold: Number(attendanceThreshold),
-          enableExaminations,
-          enableAssignments,
-          enableTransport,
-          enableFinance,
-          enableTimetable,
-          notificationSmsEnabled,
+          principalSignatureUrl: principalSignatureUrl.trim(),
+          officialSealUrl: officialSealUrl.trim(),
+          officialWatermarkText: officialWatermarkText.trim(),
+          featureLimitations,
+          // Sync boolean flags for backward compatibility
+          enableExaminations: featureLimitations.examinations?.enabled ?? true,
+          enableAssignments: featureLimitations.assignments?.enabled ?? true,
+          enableTransport: featureLimitations.transport?.enabled ?? false,
+          enableFinance: featureLimitations.finance?.enabled ?? true,
+          enableTimetable: featureLimitations.timetable?.enabled ?? true,
         },
       });
 
-      setSuccessMsg('Institution configurations and feature limits saved successfully.');
+      setSuccessMsg('Institution configurations, EIIN code, and feature limitations saved successfully.');
       await refreshSession();
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to save settings');
@@ -120,7 +200,7 @@ export const InstitutionSettingsPage: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1000px', margin: '0 auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1000px', margin: '0 auto', paddingBottom: '3rem' }}>
       {/* Header */}
       <div>
         <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -128,7 +208,7 @@ export const InstitutionSettingsPage: React.FC = () => {
           Institution Settings & Feature Controls
         </h1>
         <p style={{ margin: '0.25rem 0 0', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-          Configure institution profile, academic policies, feature toggles, and notification preferences.
+          Configure EIIN code, school profile, academic thresholds, sensitive artifacts, and granular role feature limits.
         </p>
       </div>
 
@@ -147,11 +227,11 @@ export const InstitutionSettingsPage: React.FC = () => {
       )}
 
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        {/* Section 1: School Profile & Branding */}
+        {/* Section 1: School Profile & EIIN Code */}
         <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem' }}>
             <Building2 size={20} style={{ color: 'var(--primary)' }} />
-            <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>School Profile & Contact Details</h2>
+            <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>School Profile & Identity</h2>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
@@ -169,37 +249,20 @@ export const InstitutionSettingsPage: React.FC = () => {
               />
             </div>
 
+            {/* Institute Code (EIIN) - Replaced unchangeable subdomain */}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
-                <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>
-                  Subdomain / Institution Code
-                </label>
-                {data?.institution?.subdomain && (
-                  <a
-                    href={`https://${data.institution.subdomain}.biddyapith.tech`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      fontSize: '0.78rem',
-                      color: 'var(--primary)',
-                      textDecoration: 'none',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.25rem',
-                      fontWeight: 500,
-                    }}
-                  >
-                    <span>{data.institution.subdomain}.biddyapith.tech</span>
-                    <ExternalLink size={12} />
-                  </a>
-                )}
-              </div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                Institute Code (EIIN) <span style={{ color: 'var(--primary)' }}>*</span>
+              </label>
               <input
                 type="text"
-                disabled
-                value={data?.institution?.subdomain || ''}
-                style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', cursor: 'not-allowed' }}
+                disabled={!canManageSettings}
+                placeholder="e.g. 108542 or Official EIIN"
+                value={instituteCode}
+                onChange={(e) => setInstituteCode(e.target.value)}
+                style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
               />
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Official Educational Institution Identification Number</span>
             </div>
 
             <div>
@@ -274,7 +337,62 @@ export const InstitutionSettingsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Section 2: Academic Thresholds & Localization */}
+        {/* Section 2: Sensitive Official Artifacts */}
+        <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem' }}>
+            <FileCheck size={20} style={{ color: 'var(--primary)' }} />
+            <div>
+              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>Official Signatures & Watermarks</h2>
+              <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>Sensitive assets embedded in student transcripts, certificates, and billing receipts.</p>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                Principal Official Signature URL
+              </label>
+              <input
+                type="text"
+                disabled={!canManageSettings}
+                placeholder="https://.../principal-signature.png"
+                value={principalSignatureUrl}
+                onChange={(e) => setPrincipalSignatureUrl(e.target.value)}
+                style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                Official Seal / Stamp Stamp URL
+              </label>
+              <input
+                type="text"
+                disabled={!canManageSettings}
+                placeholder="https://.../official-seal.png"
+                value={officialSealUrl}
+                onChange={(e) => setOfficialSealUrl(e.target.value)}
+                style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                Official Watermark Text
+              </label>
+              <input
+                type="text"
+                disabled={!canManageSettings}
+                placeholder="e.g. SOHOPATHI SECURE CAMPUS"
+                value={officialWatermarkText}
+                onChange={(e) => setOfficialWatermarkText(e.target.value)}
+                style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Section 3: Academic Policies & Regional Settings */}
         <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem' }}>
             <Sliders size={20} style={{ color: 'var(--primary)' }} />
@@ -295,7 +413,7 @@ export const InstitutionSettingsPage: React.FC = () => {
                 onChange={(e) => setAttendanceThreshold(Number(e.target.value))}
                 style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
               />
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Students below this % will trigger attendance warning chips.</span>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Students below this % will trigger attendance warning indicators.</span>
             </div>
 
             <div>
@@ -336,112 +454,124 @@ export const InstitutionSettingsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Section 3: Feature Toggles & Module Licensing */}
+        {/* Section 4: Feature-Based Settings & Limitation Matrix */}
         <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem' }}>
-            <Layers size={20} style={{ color: 'var(--primary)' }} />
-            <div>
-              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>Feature Controls & Module Toggles</h2>
-              <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>Enable or disable modular features for this school institution.</p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Layers size={20} style={{ color: 'var(--primary)' }} />
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>Feature Controls & Granular Limitation Matrix</h2>
+                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Disable features entirely or limit feature access to specific roles across the institution.
+                </p>
+              </div>
             </div>
+            <Badge tone="info">Enterprise Feature Policy</Badge>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-            {/* Examination Suite */}
-            <div style={{ padding: '0.85rem 1rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>Examinations & Grading</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Marks entry, term schedules, weightages</div>
-              </div>
-              <button
-                type="button"
-                disabled={!canManageSettings}
-                onClick={() => setEnableExaminations(!enableExaminations)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: enableExaminations ? 'var(--primary)' : 'var(--text-muted)' }}
-              >
-                {enableExaminations ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
-              </button>
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            {SYSTEM_FEATURES.map((feat) => {
+              const current = featureLimitations[feat.key] || { enabled: true };
+              const isEnabled = current.enabled;
+              const isRestricted = Array.isArray(current.allowedRoles) && current.allowedRoles.length > 0;
+              const allowedRoles = current.allowedRoles || [];
 
-            {/* Assignments */}
-            <div style={{ padding: '0.85rem 1rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>Curriculum Assignments</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Homework and student deliverables</div>
-              </div>
-              <button
-                type="button"
-                disabled={!canManageSettings}
-                onClick={() => setEnableAssignments(!enableAssignments)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: enableAssignments ? 'var(--primary)' : 'var(--text-muted)' }}
-              >
-                {enableAssignments ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
-              </button>
-            </div>
+              return (
+                <div
+                  key={feat.key}
+                  style={{
+                    padding: '1rem',
+                    background: isEnabled ? 'var(--surface)' : 'var(--surface-sunken)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.75rem',
+                    opacity: isEnabled ? 1 : 0.65,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontWeight: 600, fontSize: '0.92rem', color: 'var(--text-primary)' }}>{feat.label}</span>
+                        <Badge tone={isEnabled ? 'success' : 'neutral'}>
+                          {isEnabled ? (isRestricted ? 'RESTRICTED TO ROLES' : 'ENABLED') : 'DISABLED COMPLETELY'}
+                        </Badge>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                        {feat.description}
+                      </div>
+                    </div>
 
-            {/* Timetable Schedules */}
-            <div style={{ padding: '0.85rem 1rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>Class Timetable Schedules</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Weekly period slots & room scheduling</div>
-              </div>
-              <button
-                type="button"
-                disabled={!canManageSettings}
-                onClick={() => setEnableTimetable(!enableTimetable)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: enableTimetable ? 'var(--primary)' : 'var(--text-muted)' }}
-              >
-                {enableTimetable ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
-              </button>
-            </div>
+                    <button
+                      type="button"
+                      disabled={!canManageSettings}
+                      onClick={() => toggleFeatureEnabled(feat.key)}
+                      title={isEnabled ? 'Disable Feature Completely' : 'Enable Feature'}
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isEnabled ? 'var(--primary)' : 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+                    >
+                      {isEnabled ? <ToggleRight size={34} /> : <ToggleLeft size={34} />}
+                    </button>
+                  </div>
 
-            {/* Fees & Finance */}
-            <div style={{ padding: '0.85rem 1rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>Tuition & Fee Billing</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Invoices, receipts, online collections</div>
-              </div>
-              <button
-                type="button"
-                disabled={!canManageSettings}
-                onClick={() => setEnableFinance(!enableFinance)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: enableFinance ? 'var(--primary)' : 'var(--text-muted)' }}
-              >
-                {enableFinance ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
-              </button>
-            </div>
+                  {/* Role Limitation Config (Visible when feature is enabled) */}
+                  {isEnabled && (
+                    <div style={{ borderTop: '1px dashed var(--border-subtle)', paddingTop: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.8rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <Shield size={14} style={{ color: 'var(--text-muted)' }} />
+                        <span style={{ color: 'var(--text-secondary)' }}>Audience Access:</span>
+                        <select
+                          disabled={!canManageSettings}
+                          value={isRestricted ? 'restricted' : 'everyone'}
+                          onChange={(e) => setFeatureRoleLimitation(feat.key, e.target.value === 'restricted')}
+                          style={{
+                            padding: '0.25rem 0.5rem',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'var(--surface-sunken)',
+                            border: '1px solid var(--border-subtle)',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.78rem',
+                          }}
+                        >
+                          <option value="everyone">All Allowed Roles (Standard)</option>
+                          <option value="restricted">Limit to Specific Roles Only</option>
+                        </select>
+                      </div>
 
-            {/* Transport Fleet */}
-            <div style={{ padding: '0.85rem 1rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>Transport & Route Fleet</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Buses, stops, driver allocation</div>
-              </div>
-              <button
-                type="button"
-                disabled={!canManageSettings}
-                onClick={() => setEnableTransport(!enableTransport)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: enableTransport ? 'var(--primary)' : 'var(--text-muted)' }}
-              >
-                {enableTransport ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
-              </button>
-            </div>
-
-            {/* SMS Notifications */}
-            <div style={{ padding: '0.85rem 1rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>SMS / Push Alert Dispatch</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Push notices to guardians & staff</div>
-              </div>
-              <button
-                type="button"
-                disabled={!canManageSettings}
-                onClick={() => setNotificationSmsEnabled(!notificationSmsEnabled)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: notificationSmsEnabled ? 'var(--primary)' : 'var(--text-muted)' }}
-              >
-                {notificationSmsEnabled ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
-              </button>
-            </div>
+                      {isRestricted && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Allowed:</span>
+                          {AVAILABLE_ROLES.map((r) => {
+                            const isAllowed = allowedRoles.includes(r);
+                            return (
+                              <button
+                                key={r}
+                                type="button"
+                                disabled={!canManageSettings}
+                                onClick={() => toggleFeatureRole(feat.key, r)}
+                                style={{
+                                  padding: '0.2rem 0.5rem',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: isAllowed ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
+                                  background: isAllowed ? 'rgba(79, 70, 229, 0.15)' : 'var(--surface-sunken)',
+                                  color: isAllowed ? 'var(--primary)' : 'var(--text-muted)',
+                                  fontSize: '0.72rem',
+                                  fontWeight: isAllowed ? 600 : 400,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {isAllowed ? `✓ ${r}` : `+ ${r}`}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 

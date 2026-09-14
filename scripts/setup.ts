@@ -151,13 +151,20 @@ async function waitForPostgres(maxAttempts = 30): Promise<boolean> {
   return false;
 }
 
-async function initializeDatabase() {
+async function initializeDatabase(hasDocker: boolean) {
   console.log('🚀 Initializing database schema and seed data...');
   const { runDatabaseInit } = await import('../db/init');
-  await runDatabaseInit({
-    reset: isFresh,
-    connectionString: 'postgresql://postgres:postgres@127.0.0.1:5433/biddyapith_dev',
-  });
+  const connStr = hasDocker
+    ? 'postgresql://postgres:postgres@127.0.0.1:5433/biddyapith_dev'
+    : process.env.DATABASE_URL;
+  if (hasDocker || isFresh) {
+    await runDatabaseInit({
+      reset: isFresh,
+      connectionString: connStr,
+    });
+  }
+  const { runMigration } = await import('./migrate-academic-security');
+  await runMigration();
 }
 
 async function main() {
@@ -206,7 +213,7 @@ async function main() {
 
   // Step 5: Database Migration and Seed
   logStep(5, 'Applying Canonical Schema & Seed Data');
-  await initializeDatabase();
+  await initializeDatabase(hasDocker);
 
   // Step 6: Vhosts Information
   logStep(6, 'Local Virtual Hosts (biddyapith.local)');

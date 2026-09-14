@@ -40,46 +40,42 @@ export async function onboardInstitution(req: Request, res: Response, client: Po
       [institutionId]
     );
 
-    // 3. Clone template roles (institution_id is null) into institution-owned roles
-    const { rows: templateRoles } = await client.query(
-      `select id, name from role where institution_id is null`
+    // 3. Provision tenant roles by copying canonical template roles
+    await client.query(
+      `insert into role (institution_id, name, is_system)
+       select $1, name, true
+       from role
+       where institution_id is null
+       on conflict do nothing`,
+      [institutionId]
     );
 
-    let adminRoleId: string | null = null;
+    // Copy template role permissions to the newly created institution roles
+    await client.query(
+      `insert into role_permission (institution_id, role_id, permission_id, scope)
+       select $1, new_r.id, rp.permission_id, rp.scope
+       from role_permission rp
+       join role tmpl_r on tmpl_r.id = rp.role_id and tmpl_r.institution_id is null
+       join role new_r on new_r.institution_id = $1 and lower(new_r.name) = lower(tmpl_r.name)
+       on conflict (role_id, permission_id) do nothing`,
+      [institutionId]
+    );
 
-    for (const tRole of templateRoles) {
-      const { rows: newRoleRows } = await client.query(
-        `insert into role (institution_id, name, is_system)
-         values ($1, $2, false)
-         returning id`,
-        [institutionId, tRole.name]
-      );
-      const newRoleId = newRoleRows[0].id;
-
-      if (tRole.name === 'Admin' || tRole.name === 'Institution Admin') {
-        adminRoleId = newRoleId;
-      }
-
-      // Copy template role permissions into institution role
-      await client.query(
-        `insert into role_permission (institution_id, role_id, permission_id, scope)
-         select $1, $2, permission_id, scope
-         from role_permission
-         where role_id = $3
-         on conflict (role_id, permission_id) do nothing`,
-        [institutionId, newRoleId, tRole.id]
-      );
-    }
-
+    // Resolve canonical Institution Admin system role for this tenant
+    const { rows: adminRoleRows } = await client.query(
+      `select id from role where institution_id = $1 and lower(name) in ('institution admin', 'admin') limit 1`,
+      [institutionId]
+    );
+    let adminRoleId: string = adminRoleRows[0]?.id;
     if (!adminRoleId) {
       const { rows: fallbackRows } = await client.query(
-        `insert into role (institution_id, name, is_system) values ($1, 'Institution Admin', false) returning id`,
+        `insert into role (institution_id, name, is_system) values ($1, 'Institution Admin', true) returning id`,
         [institutionId]
       );
       adminRoleId = fallbackRows[0].id;
     }
 
-    // Ensure the new Institution Admin role has full grants across all enabled permissions
+    // Ensure the Institution Admin role has full grants across all enabled permissions
     await client.query(
       `insert into role_permission (institution_id, role_id, permission_id, scope)
        select $1, $2, p.id,

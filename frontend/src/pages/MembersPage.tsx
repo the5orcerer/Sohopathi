@@ -6,6 +6,8 @@ import {
   updateMember,
   deleteMember,
   bulkDeleteMembers,
+  bulkAssignManager,
+  bulkUpdateMemberRole,
   fetchCustomFields,
   exportToCsv,
 } from '../services/api';
@@ -19,10 +21,14 @@ import {
   Edit2,
   Users,
   Download,
+  LogIn,
 } from 'lucide-react';
 import { Button, Badge, Modal, SearchBar, EmptyState, CustomFieldsRenderer } from '../components/common';
+import { useSession } from '../context/SessionContext';
 
 export const MembersPage: React.FC = () => {
+  const { user, hasPermission, impersonateUser } = useSession();
+  const canImpersonate = hasPermission('users.impersonate') || hasPermission('memberships.manage');
   const [members, setMembers] = useState<Member[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
@@ -114,6 +120,34 @@ export const MembersPage: React.FC = () => {
       alert(err.message || 'Failed to bulk delete staff members');
     } finally {
       setBulkDeleting(false);
+    }
+  };
+
+  const handleBulkAssignManager = async (managerMembershipId: string | null) => {
+    if (selectedIds.length === 0) return;
+    try {
+      setLoading(true);
+      await bulkAssignManager({ memberIds: selectedIds, managerMembershipId });
+      setSelectedIds([]);
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to bulk assign manager');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkUpdateRole = async (roleId: string) => {
+    if (selectedIds.length === 0 || !roleId) return;
+    try {
+      setLoading(true);
+      await bulkUpdateMemberRole({ memberIds: selectedIds, roleId });
+      setSelectedIds([]);
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to bulk update role');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -281,20 +315,70 @@ export const MembersPage: React.FC = () => {
             justifyContent: 'space-between',
             alignItems: 'center',
             borderRadius: 'var(--radius-md)',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
           }}
         >
           <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
             {selectedIds.length} staff member{selectedIds.length > 1 ? 's' : ''} selected
           </span>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setSelectedIds([])}
-              style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none' }}
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              onChange={(e) => {
+                if (e.target.value !== '') {
+                  handleBulkAssignManager(e.target.value === 'none' ? null : e.target.value);
+                  e.target.value = '';
+                }
+              }}
+              style={{
+                padding: '0.35rem 0.6rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.8rem',
+                background: '#fff',
+                color: '#111',
+                border: 'none',
+              }}
             >
-              Deselect All
-            </Button>
+              <option value="">Assign Manager...</option>
+              <option value="none">No Manager (Direct to Institution)</option>
+              {members
+                .filter(
+                  (m) =>
+                    (m.roleName.toLowerCase().includes('admin') ||
+                      m.roleName.toLowerCase().includes('teacher')) &&
+                    !selectedIds.includes(m.id)
+                )
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.roleName})
+                  </option>
+                ))}
+            </select>
+
+            <select
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBulkUpdateRole(e.target.value);
+                  e.target.value = '';
+                }
+              }}
+              style={{
+                padding: '0.35rem 0.6rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.8rem',
+                background: '#fff',
+                color: '#111',
+                border: 'none',
+              }}
+            >
+              <option value="">Change Role...</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+
             <Button
               variant="danger"
               size="sm"
@@ -303,6 +387,14 @@ export const MembersPage: React.FC = () => {
               loading={bulkDeleting}
             >
               Bulk Delete
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSelectedIds([])}
+              style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none' }}
+            >
+              Deselect All
             </Button>
           </div>
         </div>
@@ -434,7 +526,24 @@ export const MembersPage: React.FC = () => {
                       </Badge>
                     </td>
                     <td style={{ padding: '0.65rem 0.5rem', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'flex-end' }}>
+                        {canImpersonate && m.userId && m.userId !== user?.id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              if (confirm(`Log in as ${m.name} (${m.roleName}) without password? You can return to your admin account at any time via the banner.`)) {
+                                try {
+                                  await impersonateUser(m.userId);
+                                } catch (err: any) {
+                                  alert(err.message || 'Failed to impersonate user');
+                                }
+                              }
+                            }}
+                            icon={<LogIn size={13} style={{ color: 'var(--primary)' }} />}
+                            title="Login As (Support & Password Recovery)"
+                          />
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"

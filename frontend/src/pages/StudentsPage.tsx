@@ -9,6 +9,8 @@ import {
   deleteStudent,
   bulkDeleteStudents,
   bulkImportStudents,
+  bulkUpdateStudentStatus,
+  bulkTransferStudentSection,
   fetchCustomFields,
   createCustomField,
   exportToCsv,
@@ -28,13 +30,15 @@ import {
   Upload,
   CheckCircle2,
   FileText,
+  LogIn,
 } from 'lucide-react';
 import { Button, Badge, Modal, SearchBar, EmptyState, Student360Modal, CustomFieldsRenderer } from '../components/common';
 import { AcademicMigrationModal } from '../components/academic/AcademicMigrationModal';
 import { StudentDocumentModal } from '../components/students/StudentDocumentModal';
 
 export const StudentsPage: React.FC = () => {
-  const { activeMembership, user } = useSession();
+  const { activeMembership, user, hasPermission, impersonateUser } = useSession();
+  const canImpersonate = hasPermission('users.impersonate') || hasPermission('memberships.manage');
   
   // Role detection
   const role = activeMembership?.roleName?.toLowerCase() || '';
@@ -295,6 +299,41 @@ ADM-2026-103,Shadman Sakib,Male,07`
     }
   };
 
+  const handleBulkStatusUpdate = async (status: 'active' | 'inactive' | 'graduated' | 'suspended') => {
+    if (selectedIds.length === 0) return;
+    try {
+      setLoading(true);
+      await bulkUpdateStudentStatus({ studentIds: selectedIds, status });
+      setSelectedIds([]);
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update student status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkTransferSection = async (sectionId: string) => {
+    if (selectedIds.length === 0 || !sectionId) return;
+    const sec = sections.find((s) => s.id === sectionId);
+    if (!sec) return;
+    try {
+      setLoading(true);
+      await bulkTransferStudentSection({
+        studentIds: selectedIds,
+        academicYearId: (classes.find((c) => c.id === sec.classId) as any)?.academicYearId || '',
+        classId: sec.classId,
+        sectionId: sec.id,
+      });
+      setSelectedIds([]);
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to transfer students to section');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCreateCustomField = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFieldLabel.trim()) return;
@@ -488,20 +527,61 @@ ADM-2026-103,Shadman Sakib,Male,07`
             justifyContent: 'space-between',
             alignItems: 'center',
             borderRadius: 'var(--radius-md)',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
           }}
         >
           <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
             {selectedIds.length} student{selectedIds.length > 1 ? 's' : ''} selected
           </span>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setSelectedIds([])}
-              style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none' }}
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBulkStatusUpdate(e.target.value as any);
+                  e.target.value = '';
+                }
+              }}
+              style={{
+                padding: '0.35rem 0.6rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.8rem',
+                background: '#fff',
+                color: '#111',
+                border: 'none',
+              }}
             >
-              Deselect All
-            </Button>
+              <option value="">Bulk Status...</option>
+              <option value="active">Set Active</option>
+              <option value="inactive">Set Inactive</option>
+              <option value="suspended">Set Suspended</option>
+              <option value="graduated">Set Graduated</option>
+            </select>
+
+            <select
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBulkTransferSection(e.target.value);
+                  e.target.value = '';
+                }
+              }}
+              style={{
+                padding: '0.35rem 0.6rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.8rem',
+                background: '#fff',
+                color: '#111',
+                border: 'none',
+              }}
+            >
+              <option value="">Transfer Section...</option>
+              {sections.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.className} — {s.name}
+                </option>
+              ))}
+            </select>
+
             <Button
               variant="danger"
               size="sm"
@@ -510,6 +590,14 @@ ADM-2026-103,Shadman Sakib,Male,07`
             >
               <Trash2 size={14} style={{ marginRight: '0.3rem' }} />
               Bulk Delete
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSelectedIds([])}
+              style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none' }}
+            >
+              Deselect All
             </Button>
           </div>
         </div>
@@ -684,6 +772,24 @@ ADM-2026-103,Shadman Sakib,Male,07`
                     </td>
                     <td style={{ padding: '0.65rem 0.5rem', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'flex-end' }}>
+                        {canImpersonate && st.userId && st.userId !== user?.id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              if (confirm(`Log in as student ${st.name} without password? You can return to your admin account at any time via the banner.`)) {
+                                try {
+                                  await impersonateUser(st.userId!);
+                                } catch (err: any) {
+                                  alert(err.message || 'Failed to impersonate student');
+                                }
+                              }
+                            }}
+                            title="Login As Student (Support / Password Recovery)"
+                          >
+                            <LogIn size={13} style={{ color: 'var(--primary)' }} />
+                          </Button>
+                        )}
                         {/* ✅ Document Generator - TC, Marksheet, Certificate */}
                         <Button
                           variant="ghost"
