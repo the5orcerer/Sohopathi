@@ -19,6 +19,8 @@ import {
   fetchExamProgress,
   notifyPendingExamTeachers,
   publishExam,
+  reopenExam,
+  snapshotCandidates,
   fetchMembers,
   fetchClasses,
 } from '../services/api';
@@ -102,6 +104,11 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
   const [notifyFeedback, setNotifyFeedback] = useState<string | null>(null);
   const [publishing, setPublishing] = useState<boolean>(false);
   const [publishFeedback, setPublishFeedback] = useState<string | null>(null);
+  const [showReopenModal, setShowReopenModal] = useState<boolean>(false);
+  const [reopenReason, setReopenReason] = useState<string>('');
+  const [reopening, setReopening] = useState<boolean>(false);
+  const [snapshotting, setSnapshotting] = useState<boolean>(false);
+  const [snapshotFeedback, setSnapshotFeedback] = useState<string | null>(null);
 
   // Scoring Sheet State
   const [students, setStudents] = useState<StudentItem[]>([]);
@@ -373,13 +380,51 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
         const res = await publishExam(selectedExamId);
         setPublishFeedback(res.message);
         setTimeout(() => setPublishFeedback(null), 6000);
-        setExams((prev) => prev.map((e) => (e.id === selectedExamId ? { ...e, isPublished: true } : e)));
+        setExams((prev) => prev.map((e) => (e.id === selectedExamId ? { ...e, isPublished: true, status: 'published' } : e)));
         loadProgress(selectedExamId);
       } catch (err: any) {
         alert(err.message || 'Failed to publish exam');
       } finally {
         setPublishing(false);
       }
+    }
+  };
+
+  const handleSnapshotCandidates = async () => {
+    if (!selectedExamId) return;
+    try {
+      setSnapshotting(true);
+      const res = await snapshotCandidates(selectedExamId);
+      setSnapshotFeedback(`Successfully snapshotted ${res.candidateCount} eligible candidate(s) for this examination.`);
+      setTimeout(() => setSnapshotFeedback(null), 5000);
+      loadProgress(selectedExamId);
+    } catch (err: any) {
+      alert(err.message || 'Failed to snapshot candidates');
+    } finally {
+      setSnapshotting(false);
+    }
+  };
+
+  const handleReopenExam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedExamId) return;
+    if (!reopenReason.trim()) {
+      alert('A valid reason is required to reopen an examination session.');
+      return;
+    }
+    try {
+      setReopening(true);
+      const res = await reopenExam(selectedExamId, reopenReason);
+      setShowReopenModal(false);
+      setReopenReason('');
+      setPublishFeedback(res.message);
+      setTimeout(() => setPublishFeedback(null), 6000);
+      setExams((prev) => prev.map((e) => (e.id === selectedExamId ? { ...e, isPublished: false, status: 'reopened' } : e)));
+      loadProgress(selectedExamId);
+    } catch (err: any) {
+      alert(err.message || 'Failed to reopen exam');
+    } finally {
+      setReopening(false);
     }
   };
 
@@ -795,12 +840,29 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
                 </div>
 
                 {selectedExamId && canManage && (
-                  <Button variant="primary" size="sm" onClick={() => setShowAddPaperModal(true)}>
-                    <Plus size={14} style={{ marginRight: '0.2rem' }} />
-                    Add Subject Paper
-                  </Button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleSnapshotCandidates}
+                      disabled={snapshotting}
+                      icon={snapshotting ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />}
+                    >
+                      {snapshotting ? 'Snapshotting...' : 'Snapshot Candidates'}
+                    </Button>
+                    <Button variant="primary" size="sm" onClick={() => setShowAddPaperModal(true)}>
+                      <Plus size={14} style={{ marginRight: '0.2rem' }} />
+                      Add Subject Paper
+                    </Button>
+                  </div>
                 )}
               </div>
+
+              {snapshotFeedback && (
+                <div style={{ padding: '0.6rem 0.8rem', borderRadius: 'var(--radius-sm)', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid var(--status-success)', color: 'var(--status-success)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <CheckCircle2 size={16} /> {snapshotFeedback}
+                </div>
+              )}
 
               {examPapers.length === 0 ? (
                 <EmptyState
@@ -1160,6 +1222,15 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
                 >
                   {progressData?.isPublished ? 'Results Published (Locked)' : 'Publish & Release Results'}
                 </Button>
+                {progressData?.isPublished && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => setShowReopenModal(true)}
+                  >
+                    Reopen Exam (Unlock)
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -1761,6 +1832,38 @@ export const ExaminationsPage: React.FC<{ onNavigateHome: () => void }> = ({ onN
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
               <Button variant="secondary" onClick={() => setShowAddRoomModal(false)}>Cancel</Button>
               <Button variant="primary" type="submit">Allocate Room</Button>
+            </div>
+          </form>
+        </Modal>
+
+        {/* Reopen Exam Modal */}
+        <Modal
+          isOpen={showReopenModal}
+          onClose={() => setShowReopenModal(false)}
+          title="Reopen Examination Session"
+        >
+          <form onSubmit={handleReopenExam} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--status-danger)', color: 'var(--status-danger)', fontSize: '0.85rem' }}>
+              <strong>Caution:</strong> Reopening an exam unlocks all marks for reassessment. An audit log entry will be permanently recorded with your user credentials and the reason specified below.
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Reason for Reopening *</label>
+              <textarea
+                required
+                rows={3}
+                placeholder="Specify the detailed administrative reason for unlocking marks (e.g. Scrutiny committee re-evaluation request)..."
+                value={reopenReason}
+                onChange={(e) => setReopenReason(e.target.value)}
+                style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', resize: 'vertical' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <Button variant="secondary" onClick={() => setShowReopenModal(false)}>Cancel</Button>
+              <Button variant="danger" type="submit" disabled={reopening}>
+                {reopening ? 'Unlocking...' : 'Confirm Reopen'}
+              </Button>
             </div>
           </form>
         </Modal>

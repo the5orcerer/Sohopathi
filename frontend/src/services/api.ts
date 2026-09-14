@@ -17,6 +17,7 @@ import type {
   AttendanceSheetItem,
   AttendanceSummaryData,
   ExamItem,
+  ExamCandidateItem,
   ExamPaperItem,
   ExamRoomItem,
   ExamProgressData,
@@ -829,6 +830,34 @@ export async function publishExam(examId: string): Promise<{ success: boolean; m
   });
 }
 
+export async function reopenExam(examId: string, reason: string): Promise<{ success: boolean; message: string }> {
+  return fetchWithAuth<{ success: boolean; message: string }>(`/api/attendance/exams/${examId}/reopen`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function snapshotCandidates(
+  examId: string,
+  data?: {
+    classId?: string;
+    sectionId?: string;
+    gender?: string;
+    rollRangeStart?: number;
+    rollRangeEnd?: number;
+    studentIds?: string[];
+  }
+): Promise<{ success: boolean; candidateCount: number }> {
+  return fetchWithAuth<{ success: boolean; candidateCount: number }>(`/api/attendance/exams/${examId}/candidates/snapshot`, {
+    method: 'POST',
+    body: JSON.stringify(data || {}),
+  });
+}
+
+export async function fetchExamCandidates(examId: string): Promise<ExamCandidateItem[]> {
+  return fetchWithAuth<ExamCandidateItem[]>(`/api/attendance/exams/${examId}/candidates`);
+}
+
 export async function fetchExamRooms(examId: string): Promise<ExamRoomItem[]> {
   return fetchWithAuth<ExamRoomItem[]>(`/api/attendance/exams/${examId}/rooms`);
 }
@@ -896,9 +925,18 @@ export async function recordMarks(marks: Array<{
   examId: string;
   studentId: string;
   subjectId: string;
-  marksObtained?: number;
+  marksObtained?: number | null;
   maxMarks: number;
   grade?: string;
+  theoryMarks?: number | null;
+  practicalMarks?: number | null;
+  vivaMarks?: number | null;
+  mcqMarks?: number | null;
+  attendanceMarks?: number | null;
+  graceMarks?: number | null;
+  isAbsent?: boolean;
+  isExempt?: boolean;
+  remarks?: string | null;
 }>): Promise<any> {
   return fetchWithAuth('/api/attendance/marks', {
     method: 'POST',

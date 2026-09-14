@@ -360,7 +360,29 @@ create table if not exists public.exam (
   term text,
   start_date date,
   end_date date,
-  is_published boolean not null default false
+  is_published boolean not null default false,
+  status text not null default 'draft' check (status in ('draft', 'scheduled', 'running', 'marks_collection', 'under_review', 'ready_to_publish', 'published', 'reopened', 'archived')),
+  exam_type text not null default 'term',
+  exam_controller_membership_id uuid references public.membership(id) on delete set null,
+  class_id uuid references public.class(id) on delete cascade,
+  section_id uuid references public.section(id) on delete set null,
+  description text,
+  instructions text,
+  grading_system text not null default 'gpa',
+  syllabus_remarks text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.exam_candidate (
+  id uuid primary key default gen_random_uuid(),
+  institution_id uuid not null references public.institution(id) on delete cascade,
+  exam_id uuid not null references public.exam(id) on delete cascade,
+  student_id uuid not null references public.student(id) on delete cascade,
+  roll_number text,
+  status text not null default 'eligible' check (status in ('eligible', 'registered', 'withheld', 'exempted', 'absent')),
+  created_at timestamptz not null default now(),
+  unique (exam_id, student_id)
 );
 
 create table if not exists public.exam_paper (
@@ -368,6 +390,7 @@ create table if not exists public.exam_paper (
   institution_id uuid not null references public.institution(id) on delete cascade,
   exam_id uuid not null references public.exam(id) on delete cascade,
   subject_id uuid not null references public.subject(id) on delete cascade,
+  teacher_membership_id uuid references public.membership(id) on delete set null,
   exam_date date,
   start_time text,
   end_time text,
@@ -377,8 +400,30 @@ create table if not exists public.exam_paper (
   theory_weight numeric default 70,
   practical_weight numeric default 30,
   viva_weight numeric default 0,
+  syllabus text,
+  status text not null default 'scheduled' check (status in ('scheduled', 'ongoing', 'completed', 'cancelled')),
   created_at timestamptz not null default now(),
   unique (exam_id, subject_id)
+);
+
+create table if not exists public.exam_room (
+  id uuid primary key default gen_random_uuid(),
+  institution_id uuid not null references public.institution(id) on delete cascade,
+  exam_id uuid not null references public.exam(id) on delete cascade,
+  room_number text not null,
+  building text,
+  floor text,
+  capacity int not null default 40,
+  guard_membership_ids text[] default array[]::text[],
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.exam_room_candidate (
+  id uuid primary key default gen_random_uuid(),
+  exam_room_id uuid not null references public.exam_room(id) on delete cascade,
+  student_id uuid not null references public.student(id) on delete cascade,
+  seat_number text,
+  unique (exam_room_id, student_id)
 );
 
 create table if not exists public.mark (
@@ -391,6 +436,21 @@ create table if not exists public.mark (
   max_marks numeric not null,
   grade text,
   recorded_by_membership_id uuid references public.membership(id),
+  status text not null default 'entered' check (status in ('draft', 'entered', 'locked', 'reopened')),
+  theory_marks numeric,
+  practical_marks numeric,
+  viva_marks numeric,
+  mcq_marks numeric,
+  attendance_marks numeric,
+  grace_marks numeric,
+  is_absent boolean not null default false,
+  is_exempt boolean not null default false,
+  gpa numeric,
+  letter_grade text,
+  remarks text,
+  reopen_reason text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique (exam_id, student_id, subject_id)
 );
 

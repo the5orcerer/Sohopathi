@@ -13,6 +13,7 @@ import { coreManifest } from './modules/core/manifest';
 import { attendanceManifest } from './modules/attendance/manifest';
 import { noticesManifest } from './modules/notices/manifest';
 import { assignmentsManifest } from './modules/assignments/manifest';
+import { examsManifest } from './modules/exams/manifest';
 import { admissionManifest } from './modules/admission/manifest';
 import { financeManifest } from './modules/finance/manifest';
 import { authRouter } from './core/auth/auth-routes';
@@ -226,6 +227,7 @@ export function bootApp(): express.Application {
   registerModule(attendanceManifest, router);
   registerModule(noticesManifest, router);
   registerModule(assignmentsManifest, router);
+  registerModule(examsManifest, router);
   registerModule(admissionManifest, router);
   registerModule(financeManifest, router);
 

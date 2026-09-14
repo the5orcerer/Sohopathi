@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { attendanceManifest } from '../../src/modules/attendance/manifest';
-import { attendanceRepository } from '../../src/modules/attendance/repository';
+import { attendanceRepository, EmployeeAttendanceRecordInput } from '../../src/modules/attendance/repository';
 import { auditLogger, logAudit } from '../../src/core/audit/audit-logger';
 
 describe('Chunk 2: Attendance Operations & Audit Log System', () => {
@@ -310,20 +310,22 @@ describe('Chunk 2: Attendance Operations & Audit Log System', () => {
 
       const client = { query: mockQuery } as any;
 
+      const records: EmployeeAttendanceRecordInput[] = [
+        {
+          membershipId: 'mem-staff-1',
+          date: '2026-09-15',
+          status: 'present',
+          checkInTime: '08:55',
+          notes: 'Corrected check-in timestamp',
+          reason: 'Staff was present at security gate on time, card reader was offline',
+        },
+      ];
+
       await attendanceRepository.markEmployeeAttendanceBatch(
         client,
         'inst-1',
         'actor-admin',
-        [
-          {
-            membershipId: 'mem-staff-1',
-            date: '2026-09-15',
-            status: 'present',
-            checkInTime: '08:55',
-            notes: 'Corrected check-in timestamp',
-            reason: 'Staff was present at security gate on time, card reader was offline',
-          },
-        ]
+        records
       );
 
       const auditCalls = mockQuery.mock.calls.filter((c: any) =>

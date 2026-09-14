@@ -442,16 +442,37 @@ export interface ExamItem {
   startDate?: string | null;
   endDate?: string | null;
   isPublished?: boolean;
+  status?: 'draft' | 'scheduled' | 'running' | 'marks_collection' | 'under_review' | 'ready_to_publish' | 'published' | 'reopened' | 'archived';
   paperCount?: number;
-  examType?: 'term' | 'class_test';
+  candidateCount?: number;
+  examType?: string;
   examControllerMembershipId?: string | null;
   examControllerName?: string | null;
   classId?: string | null;
   className?: string | null;
   sectionId?: string | null;
   sectionName?: string | null;
+  description?: string | null;
+  instructions?: string | null;
+  gradingSystem?: string;
   syllabusRemarks?: string | null;
   eligibleStudentIds?: string[] | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ExamCandidateItem {
+  id: string;
+  institutionId: string;
+  examId: string;
+  studentId: string;
+  studentName?: string;
+  admissionNo?: string;
+  rollNumber?: string;
+  className?: string;
+  sectionName?: string;
+  status: 'eligible' | 'registered' | 'withheld' | 'exempted' | 'absent';
+  createdAt?: string;
 }
 
 export interface ExamPaperItem {
@@ -473,6 +494,7 @@ export interface ExamPaperItem {
   theoryWeight: number;
   practicalWeight: number;
   vivaWeight: number;
+  status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
   createdAt: string;
 }
 
@@ -482,6 +504,8 @@ export interface ExamRoomItem {
   examId: string;
   classroomId?: string | null;
   roomNumber: string;
+  building?: string | null;
+  floor?: string | null;
   capacity?: number | null;
   guardMembershipIds?: string[];
   guardNames?: string[];
@@ -490,6 +514,7 @@ export interface ExamRoomItem {
   studentIds?: string[];
   studentCount?: number;
   remarks?: string | null;
+  createdAt?: string;
 }
 
 export interface ExamPaperProgress {
@@ -508,6 +533,7 @@ export interface ExamProgressData {
   examId: string;
   examName: string;
   isPublished: boolean;
+  status?: string;
   totalEligibleStudents: number;
   overallCompletionPercentage: number;
   papers: ExamPaperProgress[];
@@ -528,12 +554,25 @@ export interface MarkItem {
   studentId: string;
   studentName?: string;
   admissionNo?: string;
+  rollNumber?: string;
   subjectId: string;
   subjectName?: string;
   marksObtained: number | null;
   maxMarks: number;
   grade: string | null;
+  status?: 'draft' | 'entered' | 'locked' | 'reopened';
+  theoryMarks?: number | null;
+  practicalMarks?: number | null;
+  vivaMarks?: number | null;
+  mcqMarks?: number | null;
+  attendanceMarks?: number | null;
+  graceMarks?: number | null;
+  isAbsent?: boolean;
+  isExempt?: boolean;
+  gpa?: number | null;
+  letterGrade?: string | null;
   remarks?: string | null;
+  reopenReason?: string | null;
   isRechecked?: boolean;
   recheckedByMembershipId?: string | null;
 }

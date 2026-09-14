@@ -40,6 +40,16 @@ export interface AttendanceSummary {
   excusedCount: number;
 }
 
+export interface EmployeeAttendanceRecordInput {
+  membershipId: string;
+  date: string;
+  status: string;
+  checkInTime?: string;
+  checkOutTime?: string;
+  notes?: string;
+  reason?: string;
+}
+
 export interface Exam {
   id: string;
   institutionId: string;
@@ -1175,15 +1185,7 @@ export const attendanceRepository = {
     client: PoolClient,
     institutionId: string,
     recordedByMembershipId: string | undefined,
-    records: Array<{
-      membershipId: string;
-      date: string;
-      status: string;
-      checkInTime?: string;
-      checkOutTime?: string;
-      notes?: string;
-      reason?: string;
-    }>
+    records: EmployeeAttendanceRecordInput[]
   ): Promise<any[]> {
     const results: any[] = [];
     let updatedCount = 0;
