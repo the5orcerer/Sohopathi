@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  fetchTemplate,
   createTemplate,
   updateTemplate,
+  duplicateTemplate,
+  fetchVariables,
   fetchInstitutionSettings,
 } from '../services/api';
+import type { VariableItem } from '../services/api';
 import {
   ArrowLeft,
   Save,
@@ -14,8 +18,17 @@ import {
   Award,
   Building2,
   Calendar,
+  Users,
+  Briefcase,
+  DollarSign,
+  ClipboardList,
+  Layers,
+  Settings,
+  ShieldCheck,
+  Check,
+  Search,
 } from 'lucide-react';
-import { Button } from '../components/common';
+import { Button, Badge } from '../components/common';
 import { useSession } from '../context/SessionContext';
 
 interface DocumentTemplateBuilderProps {
@@ -23,300 +36,40 @@ interface DocumentTemplateBuilderProps {
   onNavigate?: (path: string) => void;
 }
 
-const VARIABLE_CATEGORIES = [
-  {
-    name: 'Student Info',
-    icon: BookOpen,
-    variables: [
-      { key: '{{student.name}}', desc: 'Full Name' },
-      { key: '{{student.admissionNo}}', desc: 'Admission ID' },
-      { key: '{{student.rollNo}}', desc: 'Roll Number' },
-      { key: '{{student.className}}', desc: 'Class Name' },
-      { key: '{{student.sectionName}}', desc: 'Section Name' },
-      { key: '{{student.dateOfBirth}}', desc: 'Date of Birth' },
-      { key: '{{student.fatherName}}', desc: 'Father / Guardian Name' },
-      { key: '{{student.motherName}}', desc: 'Mother Name' },
-    ],
-  },
-  {
-    name: 'Examinations & Marks',
-    icon: Award,
-    variables: [
-      { key: '{{exam.name}}', desc: 'Examination Name' },
-      { key: '{{exam.term}}', desc: 'Academic Term' },
-      { key: '{{exam.date}}', desc: 'Exam Schedule Date' },
-      { key: '{{marks.obtained}}', desc: 'Marks Obtained' },
-      { key: '{{marks.max}}', desc: 'Maximum Total Marks' },
-      { key: '{{marks.grade}}', desc: 'Letter Grade (e.g. A+)' },
-      { key: '{{marks.percentage}}', desc: 'Calculated Percentage %' },
-      { key: '{{marks.gpa}}', desc: 'GPA Point' },
-      { key: '{{marks.remarks}}', desc: 'Evaluator Remarks' },
-    ],
-  },
-  {
-    name: 'Official Assets & Signatures',
-    icon: Building2,
-    variables: [
-      { key: '{{institution.name}}', desc: 'Institute Legal Name' },
-      { key: '{{institution.address}}', desc: 'Institute Campus Address' },
-      { key: '{{institution.affiliationNo}}', desc: 'Affiliation / Code No.' },
-      { key: '{{principalSignature}}', desc: 'Principal Official Signature (Img)' },
-      { key: '{{officialSeal}}', desc: 'Official Institutional Seal (Img)' },
-      { key: '{{examControllerSignature}}', desc: 'Exam Controller Signature (Img)' },
-    ],
-  },
-  {
-    name: 'Date & System',
-    icon: Calendar,
-    variables: [
-      { key: '{{issueDate}}', desc: 'Document Issue Date' },
-      { key: '{{academicYear}}', desc: 'Current Academic Session' },
-      { key: '{{certificateNo}}', desc: 'Auto Unique Certificate Serial' },
-    ],
-  },
+const TEMPLATE_CONTEXTS = [
+  { value: 'marksheet', label: 'Student Marksheet & Transcript', defaultType: 'marksheet' },
+  { value: 'id_card', label: 'Student ID Card (Pocket)', defaultType: 'id_card' },
+  { value: 'admission_form', label: 'Admission Application Form', defaultType: 'certificate' },
+  { value: 'tc', label: 'Transfer Certificate (TC)', defaultType: 'tc' },
+  { value: 'certificate', label: 'Character / Testimonial Certificate', defaultType: 'certificate' },
+  { value: 'employee_id_card', label: 'Staff & Faculty ID Card', defaultType: 'id_card' },
+  { value: 'appointment_letter', label: 'Employee Appointment Letter', defaultType: 'certificate' },
+  { value: 'salary_slip', label: 'Monthly Employee Salary Slip', defaultType: 'certificate' },
+  { value: 'invoice', label: 'Student Tuition & Fee Invoice', defaultType: 'certificate' },
+  { value: 'receipt', label: 'Official Payment / Money Receipt', defaultType: 'certificate' },
+  { value: 'fee_statement', label: 'Annual Fee Account Statement', defaultType: 'certificate' },
+  { value: 'exam_attendance', label: 'Exam Hall Attendance Sheet', defaultType: 'admit_card' },
+  { value: 'exam_room_list', label: 'Exam Room Seating List', defaultType: 'admit_card' },
+  { value: 'result_summary', label: 'Result Tabulation Summary', defaultType: 'marksheet' },
+  { value: 'custom', label: 'Custom Institutional Document', defaultType: 'custom' },
 ];
 
-const STARTER_TEMPLATES: Record<string, { name: string; type: string; description: string; content: string }> = {
-  marksheet: {
-    name: 'Official Student Marksheet & Academic Transcript',
-    type: 'marksheet',
-    description: 'Standard term & examination marksheet with grades, GPA, and authorized signatures.',
-    content: `<div style="font-family: 'Helvetica Neue', Arial, sans-serif; color: #1e293b; line-height: 1.5; padding: 10px;">
-  <!-- Institute Header -->
-  <div style="text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 16px; margin-bottom: 20px;">
-    <h1 style="margin: 0; font-size: 26px; text-transform: uppercase; letter-spacing: 1px; color: #0f172a;">{{institution.name}}</h1>
-    <p style="margin: 4px 0 0 0; font-size: 13px; color: #64748b;">{{institution.address}}</p>
-    <p style="margin: 2px 0 0 0; font-size: 12px; font-weight: 600; color: #3b82f6;">Affiliation / Board Code: {{institution.affiliationNo}}</p>
-    <div style="display: inline-block; margin-top: 12px; padding: 4px 18px; background: #f1f5f9; border-radius: 20px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
-      Academic Transcript &bull; {{exam.name}} ({{academicYear}})
-    </div>
-  </div>
-
-  <!-- Student Meta Grid -->
-  <table style="width: 100%; margin-bottom: 20px; font-size: 13px; border-collapse: collapse;">
-    <tr>
-      <td style="padding: 6px 0; width: 20%; font-weight: 600; color: #475569;">Student Name:</td>
-      <td style="padding: 6px 0; width: 30%; font-weight: 700; color: #0f172a;">{{student.name}}</td>
-      <td style="padding: 6px 0; width: 20%; font-weight: 600; color: #475569;">Admission No:</td>
-      <td style="padding: 6px 0; width: 30%; font-weight: 700; color: #0f172a;">{{student.admissionNo}}</td>
-    </tr>
-    <tr>
-      <td style="padding: 6px 0; font-weight: 600; color: #475569;">Class & Section:</td>
-      <td style="padding: 6px 0; font-weight: 700; color: #0f172a;">{{student.className}} - {{student.sectionName}}</td>
-      <td style="padding: 6px 0; font-weight: 600; color: #475569;">Roll Number:</td>
-      <td style="padding: 6px 0; font-weight: 700; color: #0f172a;">{{student.rollNo}}</td>
-    </tr>
-    <tr>
-      <td style="padding: 6px 0; font-weight: 600; color: #475569;">Guardian Name:</td>
-      <td style="padding: 6px 0;">{{student.fatherName}}</td>
-      <td style="padding: 6px 0; font-weight: 600; color: #475569;">Date of Issue:</td>
-      <td style="padding: 6px 0;">{{issueDate}}</td>
-    </tr>
-  </table>
-
-  <!-- Performance Table -->
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 13px;">
-    <thead>
-      <tr style="background: #0f172a; color: #ffffff; text-align: left;">
-        <th style="padding: 10px; border: 1px solid #0f172a;">Subject / Paper</th>
-        <th style="padding: 10px; border: 1px solid #0f172a; text-align: center;">Max Marks</th>
-        <th style="padding: 10px; border: 1px solid #0f172a; text-align: center;">Marks Obtained</th>
-        <th style="padding: 10px; border: 1px solid #0f172a; text-align: center;">Grade</th>
-        <th style="padding: 10px; border: 1px solid #0f172a; text-align: center;">Grade Point</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1;">Bangla</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center;">100</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 600;">88</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a; font-weight: 700;">A+</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center;">5.00</td>
-      </tr>
-      <tr style="background: #f8fafc;">
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1;">English</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center;">100</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 600;">84</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a; font-weight: 700;">A+</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center;">5.00</td>
-      </tr>
-      <tr>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1;">Mathematics</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center;">100</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 600;">95</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a; font-weight: 700;">A+</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center;">5.00</td>
-      </tr>
-      <tr style="background: #f8fafc;">
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1;">General Science</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center;">100</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 600;">82</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a; font-weight: 700;">A+</td>
-        <td style="padding: 9px 10px; border: 1px solid #cbd5e1; text-align: center;">5.00</td>
-      </tr>
-      <tr style="font-weight: 700; background: #e2e8f0;">
-        <td style="padding: 10px; border: 1px solid #cbd5e1;">Cumulative Summary</td>
-        <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: center;">{{marks.max}}</td>
-        <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: center; color: #0284c7;">{{marks.obtained}}</td>
-        <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: center; color: #16a34a;">{{marks.grade}}</td>
-        <td style="padding: 10px; border: 1px solid #cbd5e1; text-align: center;">GPA: {{marks.gpa}}</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <!-- Result Summary & Remarks -->
-  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 16px; margin-bottom: 40px; font-size: 13px;">
-    <p style="margin: 0; font-weight: 600;">Remarks: <span style="font-weight: 400; color: #334155;">{{marks.remarks}}</span></p>
-  </div>
-
-  <!-- Signatures Grid -->
-  <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 50px; padding: 0 10px;">
-    <div style="text-align: center; width: 180px;">
-      <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-        {{{examControllerSignature}}}
-      </div>
-      <div style="border-top: 1px solid #64748b; padding-top: 6px; font-size: 12px; font-weight: 600;">
-        Exam Controller
-      </div>
-    </div>
-
-    <div style="text-align: center; width: 120px;">
-      <div style="height: 65px; display: flex; align-items: center; justify-content: center;">
-        {{{officialSeal}}}
-      </div>
-      <div style="font-size: 11px; color: #64748b; font-weight: 600;">Official Seal</div>
-    </div>
-
-    <div style="text-align: center; width: 180px;">
-      <div style="height: 55px; display: flex; align-items: center; justify-content: center;">
-        {{{principalSignature}}}
-      </div>
-      <div style="border-top: 1px solid #64748b; padding-top: 6px; font-size: 12px; font-weight: 600;">
-        Head of Institution
-      </div>
-    </div>
-  </div>
-</div>`,
-  },
-  admit_card: {
-    name: 'Examination Admit Card & Hall Ticket',
-    type: 'admit_card',
-    description: 'Student hall ticket with room assignment, roll number, and exam rules.',
-    content: `<div style="font-family: 'Helvetica Neue', Arial, sans-serif; color: #1e293b; line-height: 1.5; padding: 10px; border: 2px dashed #0284c7; border-radius: 8px;">
-  <!-- Header -->
-  <div style="text-align: center; border-bottom: 2px solid #0284c7; padding-bottom: 12px; margin-bottom: 15px;">
-    <h2 style="margin: 0; font-size: 22px; text-transform: uppercase; color: #0284c7;">{{institution.name}}</h2>
-    <p style="margin: 3px 0 0 0; font-size: 12px; color: #64748b;">{{institution.address}}</p>
-    <div style="display: inline-block; margin-top: 8px; padding: 3px 14px; background: #e0f2fe; color: #0369a1; border-radius: 12px; font-size: 12px; font-weight: 700; text-transform: uppercase;">
-      EXAM ADMIT CARD &bull; {{exam.name}}
-    </div>
-  </div>
-
-  <!-- Student Info Card -->
-  <table style="width: 100%; margin-bottom: 18px; font-size: 13px; border-collapse: collapse;">
-    <tr>
-      <td style="padding: 5px 0; font-weight: 600; color: #475569; width: 22%;">Candidate Name:</td>
-      <td style="padding: 5px 0; font-weight: 700; width: 28%;">{{student.name}}</td>
-      <td style="padding: 5px 0; font-weight: 600; color: #475569; width: 22%;">Roll Number:</td>
-      <td style="padding: 5px 0; font-weight: 700; width: 28%; font-size: 16px; color: #0284c7;">{{student.rollNo}}</td>
-    </tr>
-    <tr>
-      <td style="padding: 5px 0; font-weight: 600; color: #475569;">Class & Section:</td>
-      <td style="padding: 5px 0; font-weight: 700;">{{student.className}} - {{student.sectionName}}</td>
-      <td style="padding: 5px 0; font-weight: 600; color: #475569;">Admission No:</td>
-      <td style="padding: 5px 0; font-weight: 600;">{{student.admissionNo}}</td>
-    </tr>
-    <tr>
-      <td style="padding: 5px 0; font-weight: 600; color: #475569;">Exam Schedule:</td>
-      <td style="padding: 5px 0;">{{exam.date}}</td>
-      <td style="padding: 5px 0; font-weight: 600; color: #475569;">Academic Session:</td>
-      <td style="padding: 5px 0;">{{academicYear}}</td>
-    </tr>
-  </table>
-
-  <!-- Examination Instructions -->
-  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 16px; margin-bottom: 25px; font-size: 12px;">
-    <h4 style="margin: 0 0 6px 0; font-size: 12px; text-transform: uppercase; color: #334155;">Candidate Instructions:</h4>
-    <ol style="margin: 0; padding-left: 18px; color: #475569; line-height: 1.6;">
-      <li>Candidate must bring this physical Admit Card and institutional ID to every examination.</li>
-      <li>Electronic devices, smartphones, and programmable calculators are strictly prohibited.</li>
-      <li>Students must be seated in their designated examination hall 15 minutes before the exam starts.</li>
-    </ol>
-  </div>
-
-  <!-- Signatures -->
-  <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 30px; padding: 0 10px;">
-    <div style="text-align: center; width: 140px;">
-      <div style="border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 11px; font-weight: 600;">
-        Student Signature
-      </div>
-    </div>
-    <div style="text-align: center; width: 120px;">
-      <div style="height: 50px; display: flex; align-items: center; justify-content: center;">
-        {{{officialSeal}}}
-      </div>
-      <div style="font-size: 10px; color: #64748b; font-weight: 600;">Institution Seal</div>
-    </div>
-    <div style="text-align: center; width: 160px;">
-      <div style="height: 45px; display: flex; align-items: center; justify-content: center;">
-        {{{principalSignature}}}
-      </div>
-      <div style="border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 11px; font-weight: 600;">
-        Principal / Controller
-      </div>
-    </div>
-  </div>
-</div>`,
-  },
-  tc: {
-    name: 'Student Transfer Certificate (TC)',
-    type: 'tc',
-    description: 'Official academic departure and transfer certification document.',
-    content: `<div style="font-family: 'Times New Roman', Times, serif; color: #1e293b; line-height: 1.6; padding: 15px;">
-  <!-- Header -->
-  <div style="text-align: center; border-bottom: 2px double #0f172a; padding-bottom: 14px; margin-bottom: 25px;">
-    <h2 style="margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px;">{{institution.name}}</h2>
-    <p style="margin: 4px 0 0 0; font-size: 13px;">{{institution.address}} &bull; Affiliation No: {{institution.affiliationNo}}</p>
-    <h3 style="margin: 14px 0 0 0; font-size: 18px; text-decoration: underline; letter-spacing: 0.5px;">TRANSFER CERTIFICATE</h3>
-    <div style="display: flex; justify-content: space-between; font-size: 13px; margin-top: 10px;">
-      <span><strong>Certificate No:</strong> {{certificateNo}}</span>
-      <span><strong>Date:</strong> {{issueDate}}</span>
-    </div>
-  </div>
-
-  <!-- Certificate Body Paragraphs -->
-  <div style="font-size: 14px; text-align: justify; line-height: 1.8;">
-    <p>This is to certify that <strong>{{student.name}}</strong>, Son/Daughter of <strong>{{student.fatherName}}</strong> and <strong>{{student.motherName}}</strong>, was a bona fide student of this institution holding Admission Number <strong>{{student.admissionNo}}</strong>.</p>
-    
-    <p>According to school records, the student was enrolled in <strong>{{student.className}} ({{student.sectionName}})</strong> with Roll Number <strong>{{student.rollNo}}</strong> during the academic session <strong>{{academicYear}}</strong>.</p>
-
-    <p>All institutional dues, library books, and examination obligations have been fully satisfied. The student bears an exemplary moral character and active academic record during the tenure at this institution.</p>
-  </div>
-
-  <!-- Footer Signatures -->
-  <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 70px; padding: 0 10px;">
-    <div style="text-align: center; width: 160px;">
-      <div style="border-top: 1px solid #000; padding-top: 6px; font-size: 13px; font-weight: bold;">
-        Prepared by
-      </div>
-    </div>
-    <div style="text-align: center; width: 120px;">
-      <div style="height: 60px; display: flex; align-items: center; justify-content: center;">
-        {{{officialSeal}}}
-      </div>
-      <div style="font-size: 11px; font-weight: bold;">Official Seal</div>
-    </div>
-    <div style="text-align: center; width: 180px;">
-      <div style="height: 50px; display: flex; align-items: center; justify-content: center;">
-        {{{principalSignature}}}
-      </div>
-      <div style="border-top: 1px solid #000; padding-top: 6px; font-size: 13px; font-weight: bold;">
-        Principal / Headmaster
-      </div>
-    </div>
-  </div>
-</div>`,
-  },
+const CATEGORY_ICONS: Record<string, any> = {
+  institution: Building2,
+  academic: Calendar,
+  student: BookOpen,
+  guardian: Users,
+  employee: Briefcase,
+  teacher: Award,
+  class: Layers,
+  section: Layers,
+  subject: BookOpen,
+  exam: Award,
+  result: Award,
+  finance: DollarSign,
+  invoice: DollarSign,
+  attendance: ClipboardList,
+  assignment: ClipboardList,
 };
 
 export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = ({
@@ -326,119 +79,232 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
   const { institutionName } = useSession();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const [name, setName] = useState('Official Student Marksheet');
-  const [type, setType] = useState('marksheet');
-  const [description, setDescription] = useState('Official term marksheet template');
-  const [content, setContent] = useState(STARTER_TEMPLATES.marksheet.content);
   const [templateId, setTemplateId] = useState<string | null>(initialTemplateId || null);
+  const [name, setName] = useState('New Document Template');
+  const [type, setType] = useState('marksheet');
+  const [context, setContext] = useState('marksheet');
+  const [description, setDescription] = useState('');
+  const [content, setContent] = useState('');
+  const [version, setVersion] = useState<number>(1);
+  const [isSystem, setIsSystem] = useState(false);
+  const [isDefault, setIsDefault] = useState(false);
 
+  // Page Controls
+  const [pageSize, setPageSize] = useState<'A4' | 'Letter' | 'Legal' | 'ID_CARD'>('A4');
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [margins, setMargins] = useState({
+    top: '20mm',
+    bottom: '20mm',
+    left: '20mm',
+    right: '20mm',
+  });
+
+  const [showPageSettings, setShowPageSettings] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
-  const [activeCategory, setActiveCategory] = useState(VARIABLE_CATEGORIES[0].name);
-
-  // Settings for signatures / official seal
   const [officialSignatures, setOfficialSignatures] = useState<any>({});
 
+  // Variable Registry State
+  const [groupedVariables, setGroupedVariables] = useState<Record<string, VariableItem[]>>({});
+  const [activeCategory, setActiveCategory] = useState<string>('student');
+  const [tokenSearch, setTokenSearch] = useState('');
+
+  // Load existing template if ID provided
+  useEffect(() => {
+    if (initialTemplateId) {
+      fetchTemplate(initialTemplateId)
+        .then((tmpl) => {
+          setName(tmpl.name);
+          setType(tmpl.type);
+          setContext(tmpl.context || tmpl.type || 'marksheet');
+          setDescription(tmpl.description || '');
+          setContent(tmpl.content);
+          setVersion(tmpl.version || 1);
+          setIsSystem(Boolean(tmpl.isSystem || !tmpl.institutionId));
+          setIsDefault(Boolean(tmpl.isDefault));
+          if (tmpl.pageSize) setPageSize(tmpl.pageSize as any);
+          if (tmpl.orientation) setOrientation(tmpl.orientation as any);
+          if (tmpl.margins) setMargins(tmpl.margins);
+        })
+        .catch((e) => console.error('Failed to load template', e));
+    }
+  }, [initialTemplateId]);
+
+  // Load variables dynamically based on current context
+  useEffect(() => {
+    fetchVariables(context)
+      .then((res) => {
+        setGroupedVariables(res.grouped || {});
+        const catKeys = Object.keys(res.grouped || {});
+        if (catKeys.length > 0 && !res.grouped[activeCategory]) {
+          setActiveCategory(catKeys[0]);
+        }
+      })
+      .catch((e) => console.error('Failed to load variables', e));
+  }, [context]);
+
+  // Load institutional settings (signatures / seals / watermark)
   useEffect(() => {
     fetchInstitutionSettings()
-      .then((data) => {
-        setOfficialSignatures(data || {});
-      })
+      .then((data) => setOfficialSignatures(data || {}))
       .catch(() => {});
   }, []);
 
-  // Update live preview whenever content or templateId changes
+  // Update live preview whenever content, variables, or layout settings change
   useEffect(() => {
     generatePreview(content);
-  }, [content, officialSignatures]);
+  }, [content, officialSignatures, pageSize, orientation, margins]);
 
   const generatePreview = (rawContent: string) => {
-    // Inject mock preview variables
-    let rendered = rawContent
-      .replace(/\{\{student\.name\}\}/g, 'Tahmid Rahman')
-      .replace(/\{\{student\.admissionNo\}\}/g, 'ADM-2026-0841')
-      .replace(/\{\{student\.rollNo\}\}/g, '12')
-      .replace(/\{\{student\.className\}\}/g, 'Class 10')
-      .replace(/\{\{student\.sectionName\}\}/g, 'Section B')
-      .replace(/\{\{student\.dateOfBirth\}\}/g, '14 May 2010')
-      .replace(/\{\{student\.fatherName\}\}/g, 'Mr. Anisur Rahman')
-      .replace(/\{\{student\.motherName\}\}/g, 'Mrs. Shamima Rahman')
-      .replace(/\{\{exam\.name\}\}/g, 'Annual Final Examination 2026')
-      .replace(/\{\{exam\.term\}\}/g, 'Final Term')
-      .replace(/\{\{exam\.date\}\}/g, 'October 15, 2026')
-      .replace(/\{\{marks\.obtained\}\}/g, '349')
-      .replace(/\{\{marks\.max\}\}/g, '400')
-      .replace(/\{\{marks\.grade\}\}/g, 'A+')
-      .replace(/\{\{marks\.percentage\}\}/g, '87.25%')
-      .replace(/\{\{marks\.gpa\}\}/g, '5.00')
-      .replace(/\{\{marks\.remarks\}\}/g, 'Exemplary scholastic diligence and analytical excellence.')
-      .replace(/\{\{institution\.name\}\}/g, institutionName || 'Dhaka Model International Academy')
-      .replace(/\{\{institution\.address\}\}/g, 'House 42, Road 11, Dhanmondi, Dhaka 1209')
-      .replace(/\{\{institution\.affiliationNo\}\}/g, officialSignatures.institutionAffiliationNo || 'AFF-8942-BD')
-      .replace(/\{\{issueDate\}\}/g, new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))
-      .replace(/\{\{academicYear\}\}/g, '2026-2027')
-      .replace(/\{\{certificateNo\}\}/g, 'CERT-2026-0924');
+    if (!rawContent) {
+      setPreviewHtml('<p style="color:#94a3b8; text-align:center; padding: 40px;">Template is empty. Write or paste HTML to preview.</p>');
+      return;
+    }
 
-    // Signatures
+    let rendered = rawContent;
+
+    // 1. Process Repeating Blocks mock
+    const loopRegex = /\{\{#([a-zA-Z0-9_.]+)\}\}([\s\S]*?)\{\{\/\1\}\}/g;
+    rendered = rendered.replace(loopRegex, (_match, _key, innerContent) => {
+      const mockItems: any[] = [
+        { name: 'Bangla Language', maxMarks: '100', mark: '88', grade: 'A+', rollNo: '01', admissionNo: 'ADM-001', seatNo: 'A-12', totalMarks: '540', gpa: '5.00', position: '1st', status: 'Passed' },
+        { name: 'English Literature', maxMarks: '100', mark: '84', grade: 'A+', rollNo: '02', admissionNo: 'ADM-002', seatNo: 'A-13', totalMarks: '520', gpa: '4.85', position: '2nd', status: 'Passed' },
+        { name: 'Mathematics', maxMarks: '100', mark: '95', grade: 'A+', rollNo: '03', admissionNo: 'ADM-003', seatNo: 'A-14', totalMarks: '512', gpa: '4.75', position: '3rd', status: 'Passed' },
+        { name: 'General Science', maxMarks: '100', mark: '82', grade: 'A+', rollNo: '04', admissionNo: 'ADM-004', seatNo: 'A-15', totalMarks: '490', gpa: '4.50', position: '4th', status: 'Passed' },
+      ];
+      return mockItems
+        .map((item, idx) => {
+          let row = innerContent
+            .replace(/\{\{@number\}\}/g, String(idx + 1))
+            .replace(/\{\{@index\}\}/g, String(idx));
+          for (const [p, v] of Object.entries(item)) {
+            row = row
+              .replace(new RegExp(`\\{\\{\\{\\s*${p}\\s*\\}\\}\\}`, 'g'), String(v))
+              .replace(new RegExp(`\\{\\{\\s*${p}\\s*\\}\\}`, 'g'), String(v));
+          }
+          return row;
+        })
+        .join('');
+    });
+
+    // 2. Process Conditionals mock
+    const ifRegex = /\{\{#if\s+([a-zA-Z0-9_.]+)\}\}([\s\S]*?)(?:\{\{else\}\}([\s\S]*?))?\{\{\/if\}\}/g;
+    rendered = rendered.replace(ifRegex, (_match, _key, truthy) => truthy);
+
+    // 3. Inject standard preview variables
+    const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const mockVals: Record<string, string> = {
+      'institution.name': institutionName || 'Dhaka Model International Academy',
+      'institution.code': 'DMIA-2026',
+      'institution.address': 'House 42, Road 11, Dhanmondi, Dhaka 1209',
+      'institution.phone': '+880 2 9876543',
+      'institution.email': 'info@dmia.edu.bd',
+      'institution.affiliationNo': officialSignatures.institutionAffiliationNo || 'BD-EDU-10492',
+      'student.name': 'Tahmid Rahman',
+      'student.admissionNo': 'ADM-2026-0841',
+      'student.rollNo': '07',
+      'student.roll': '07',
+      'student.className': 'Class 10',
+      'student.sectionName': 'Section A',
+      'student.gender': 'Male',
+      'student.dateOfBirth': 'October 12, 2010',
+      'student.bloodGroup': 'B+ Positive',
+      'student.address': 'Flat 4B, Green Road, Dhanmondi, Dhaka',
+      'guardian.name': 'Mr. Anisur Rahman',
+      'guardian.phone': '+880 1711-234567',
+      'student.fatherName': 'Mr. Anisur Rahman',
+      'student.motherName': 'Mrs. Shamima Rahman',
+      'employee.name': 'Dr. Shahab Uddin',
+      'employee.code': 'EMP-4019',
+      'employee.designation': 'Senior Lecturer in Physics',
+      'employee.department': 'Faculty of Natural Sciences',
+      'employee.joiningDate': 'January 15, 2022',
+      'employee.salary': '৳ 55,000',
+      'teacher.name': 'Prof. Farhana Haque',
+      'class.name': 'Class 10',
+      'section.name': 'Section A',
+      'exam.name': 'Annual Examination 2026',
+      'exam.term': 'Final Term',
+      'exam.date': 'November 15, 2026',
+      'exam.room': 'Hall 304',
+      'result.total': '542',
+      'result.maxTotal': '600',
+      'result.percentage': '90.33%',
+      'result.grade': 'A+',
+      'result.gpa': '5.00',
+      'result.remarks': 'Exemplary scholastic diligence and analytical excellence.',
+      'invoice.number': 'INV-2026-0924',
+      'invoice.date': today,
+      'invoice.dueDate': 'September 30, 2026',
+      'invoice.amount': '৳ 6,500',
+      'receipt.number': 'RCP-2026-0819',
+      'receipt.date': today,
+      'receipt.amount': '৳ 6,500',
+      'receipt.method': 'bKash Merchant Pay',
+      'attendance.presentDays': '194',
+      'attendance.totalDays': '205',
+      'attendance.percentage': '94.63%',
+      issueDate: today,
+      academicYear: '2026-2027',
+      certificateNo: 'CERT-2026-894102',
+    };
+
+    for (const [k, v] of Object.entries(mockVals)) {
+      const reg3 = new RegExp(`\\{\\{\\{\\s*${k}\\s*\\}\\}\\}`, 'g');
+      const reg2 = new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, 'g');
+      rendered = rendered.replace(reg3, v).replace(reg2, v);
+    }
+
+    // Signatures & Seals
     const sigImg = officialSignatures.principalSignatureUrl
       ? `<img src="${officialSignatures.principalSignatureUrl}" alt="Principal Signature" style="max-height: 48px; max-width: 140px; object-fit: contain;" />`
       : `<span style="font-family: cursive; font-size: 18px; color: #1e3a8a; font-weight: bold;">Dr. M. Rahman</span>`;
-    
     const sealImg = officialSignatures.officialSealUrl
       ? `<img src="${officialSignatures.officialSealUrl}" alt="Official Seal" style="max-height: 60px; max-width: 60px; object-fit: contain;" />`
       : `<div style="width: 52px; height: 52px; border: 2px dashed #0284c7; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; text-transform: uppercase; font-weight: bold; color: #0284c7;">SEAL</div>`;
-
     const controllerImg = officialSignatures.examControllerSignatureUrl
       ? `<img src="${officialSignatures.examControllerSignatureUrl}" alt="Exam Controller Signature" style="max-height: 48px; max-width: 140px; object-fit: contain;" />`
       : `<span style="font-family: cursive; font-size: 16px; color: #334155; font-weight: bold;">K. H. Faruk</span>`;
 
     rendered = rendered
-      .replace(/\{\{\{principalSignature\}\}\}/g, sigImg)
-      .replace(/\{\{principalSignature\}\}/g, sigImg)
-      .replace(/\{\{\{officialSeal\}\}\}/g, sealImg)
-      .replace(/\{\{officialSeal\}\}/g, sealImg)
-      .replace(/\{\{\{examControllerSignature\}\}\}/g, controllerImg)
-      .replace(/\{\{examControllerSignature\}\}/g, controllerImg);
+      .replace(/\{\{\{?principalSignature\}\}\}?/g, sigImg)
+      .replace(/\{\{\{?institution\.principalSignature\}\}\}?/g, sigImg)
+      .replace(/\{\{\{?officialSeal\}\}\}?/g, sealImg)
+      .replace(/\{\{\{?institution\.officialSeal\}\}\}?/g, sealImg)
+      .replace(/\{\{\{?examControllerSignature\}\}\}?/g, controllerImg)
+      .replace(/\{\{\{?institution\.examControllerSignature\}\}\}?/g, controllerImg);
 
-    // Enforce mandatory non-removable Biddyapith watermark
-    const watermark = `<div class="biddyapith-footer-watermark" style="position: absolute; bottom: 8mm; left: 0; right: 0; text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 6px; font-family: sans-serif; letter-spacing: 0.5px;">Powered by Sohopathi &bull; Verified Academic Document</div>`;
+    // Mandatory System Watermark Layer (Blueprint Section 32)
+    const watermarkText =
+      officialSignatures.officialWatermarkText ||
+      'Powered by Biddyapith • Official Institutional Document';
+    const watermarkHtml = `<div class="biddyapith-footer-watermark" style="margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid #e2e8f0; text-align: center; font-size: 0.72rem; color: #94a3b8; font-family: sans-serif; letter-spacing: 0.05em; text-transform: uppercase;">${watermarkText}</div>`;
 
     if (!rendered.includes('biddyapith-footer-watermark')) {
-      rendered += `\n${watermark}`;
+      rendered += `\n${watermarkHtml}`;
     }
 
     setPreviewHtml(rendered);
   };
 
-  const insertVariable = (varKey: string) => {
+  const insertVariable = (textToInsert: string) => {
     const textarea = textareaRef.current;
     if (!textarea) {
-      setContent((prev) => prev + varKey);
+      setContent((prev) => prev + textToInsert);
       return;
     }
 
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const current = textarea.value;
-    const updated = current.substring(0, start) + varKey + current.substring(end);
+    const updated = current.substring(0, start) + textToInsert + current.substring(end);
     setContent(updated);
 
     setTimeout(() => {
       textarea.focus();
-      textarea.setSelectionRange(start + varKey.length, start + varKey.length);
+      textarea.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
     }, 50);
-  };
-
-  const handleLoadStarter = (starterKey: string) => {
-    const starter = STARTER_TEMPLATES[starterKey];
-    if (!starter) return;
-    if (confirm(`Load starter template for "${starter.name}"? This will overwrite the current editor content.`)) {
-      setName(starter.name);
-      setType(starter.type);
-      setDescription(starter.description);
-      setContent(starter.content);
-    }
   };
 
   const handleSave = async () => {
@@ -446,14 +312,58 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
       alert('Please enter a template name');
       return;
     }
+
     try {
       setSaving(true);
-      if (templateId) {
-        await updateTemplate(templateId, { name, type, description, content });
+
+      // If viewing a system template, duplicate it to customize
+      if (isSystem && templateId) {
+        const cloned = await duplicateTemplate(templateId, name);
+        // Apply updated content, context, margins, page size to the newly cloned template
+        const updated = await updateTemplate(cloned.id, {
+          name,
+          type,
+          context,
+          description,
+          content,
+          pageSize,
+          orientation,
+          margins,
+          isDefault,
+        });
+        setTemplateId(updated.id);
+        setIsSystem(false);
+        setVersion(updated.version || 1);
+      } else if (templateId) {
+        const updated = await updateTemplate(templateId, {
+          name,
+          type,
+          context,
+          description,
+          content,
+          pageSize,
+          orientation,
+          margins,
+          isDefault,
+        });
+        setVersion(updated.version || version + 1);
       } else {
-        const created = await createTemplate({ name, type, description, content });
+        const created = await createTemplate({
+          name,
+          type,
+          context,
+          description,
+          content,
+          pageSize,
+          orientation,
+          margins,
+          isDefault,
+        });
         setTemplateId(created.id);
+        setIsSystem(false);
+        setVersion(1);
       }
+
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 4000);
     } catch (err: any) {
@@ -466,6 +376,14 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
+
+    const pageCssSize =
+      pageSize === 'ID_CARD'
+        ? orientation === 'landscape'
+          ? '85.6mm 54mm'
+          : '54mm 85.6mm'
+        : `${pageSize} ${orientation}`;
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -473,8 +391,8 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
           <title>${name}</title>
           <style>
             @page {
-              size: A4;
-              margin: 15mm;
+              size: ${pageCssSize};
+              margin: ${margins.top} ${margins.right} ${margins.bottom} ${margins.left};
             }
             body {
               margin: 0;
@@ -483,15 +401,14 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
-            .a4-container {
+            .document-container {
               width: 100%;
               position: relative;
-              min-height: 260mm;
             }
           </style>
         </head>
         <body>
-          <div class="a4-container">
+          <div class="document-container">
             ${previewHtml}
           </div>
           <script>
@@ -506,8 +423,65 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
     printWindow.document.close();
   };
 
+  // Dimensions for live preview container
+  const getCanvasDimensions = () => {
+    if (pageSize === 'ID_CARD') {
+      return orientation === 'landscape'
+        ? { width: '85.6mm', minHeight: '54mm', scale: 1.2 }
+        : { width: '54mm', minHeight: '85.6mm', scale: 1.2 };
+    }
+    if (pageSize === 'Letter') {
+      return orientation === 'landscape'
+        ? { width: '279.4mm', minHeight: '215.9mm', scale: 0.8 }
+        : { width: '215.9mm', minHeight: '279.4mm', scale: 0.85 };
+    }
+    if (pageSize === 'Legal') {
+      return orientation === 'landscape'
+        ? { width: '355.6mm', minHeight: '215.9mm', scale: 0.7 }
+        : { width: '215.9mm', minHeight: '355.6mm', scale: 0.8 };
+    }
+    // Default A4
+    return orientation === 'landscape'
+      ? { width: '297mm', minHeight: '210mm', scale: 0.78 }
+      : { width: '210mm', minHeight: '297mm', scale: 0.88 };
+  };
+
+  const canvasDims = getCanvasDimensions();
+
+  // Filtered variables in active category
+  const filteredCategoryVars = (groupedVariables[activeCategory] || []).filter(
+    (v) =>
+      !tokenSearch ||
+      v.key.toLowerCase().includes(tokenSearch.toLowerCase()) ||
+      v.label.toLowerCase().includes(tokenSearch.toLowerCase())
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 70px)', background: 'var(--bg)' }}>
+      {/* System Template Readonly Warning Banner */}
+      {isSystem && (
+        <div
+          style={{
+            background: '#eff6ff',
+            borderBottom: '1px solid #bfdbfe',
+            color: '#1e40af',
+            padding: '6px 1.5rem',
+            fontSize: '0.8rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ShieldCheck size={16} />
+            <span>
+              <strong>System Template (Protected):</strong> Built-in system templates are read-only. Modifying and clicking "Save" will create a customized clone for your institution.
+            </span>
+          </div>
+          <Badge tone="info">System Template</Badge>
+        </div>
+      )}
+
       {/* Top Action Header */}
       <div
         style={{
@@ -530,6 +504,7 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
           >
             Back
           </Button>
+
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <input
@@ -545,13 +520,20 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
                   border: 'none',
                   borderBottom: '1px dashed var(--border)',
                   padding: '2px 4px',
-                  minWidth: '280px',
+                  minWidth: '260px',
                   outline: 'none',
                 }}
               />
+
+              {/* Context Selector */}
               <select
-                value={type}
-                onChange={(e) => setType(e.target.value)}
+                value={context}
+                onChange={(e) => {
+                  const newCtx = e.target.value;
+                  setContext(newCtx);
+                  const matched = TEMPLATE_CONTEXTS.find((c) => c.value === newCtx);
+                  if (matched) setType(matched.defaultType);
+                }}
                 style={{
                   fontSize: '0.8rem',
                   padding: '4px 8px',
@@ -559,51 +541,37 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
                   border: '1px solid var(--border)',
                   background: 'var(--bg)',
                   color: 'var(--text-primary)',
+                  fontWeight: 600,
                 }}
               >
-                <option value="marksheet">Marksheet & Transcript</option>
-                <option value="admit_card">Exam Admit Card</option>
-                <option value="tc">Transfer Certificate (TC)</option>
-                <option value="id_card">Student ID Card</option>
-                <option value="receipt">Fee Receipt</option>
-                <option value="custom">Custom Document</option>
+                {TEMPLATE_CONTEXTS.map((ctx) => (
+                  <option key={ctx.value} value={ctx.value}>
+                    Context: {ctx.label}
+                  </option>
+                ))}
               </select>
+
+              <Badge tone="neutral">v{version}</Badge>
             </div>
             <p style={{ margin: '2px 0 0 4px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Full-Page Split Screen Document Template Builder with Live A4 Preview
+              Context determines available variables &bull; Immutable branding layer applied automatically
             </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {/* Starter Template Preset Dropdown */}
-          <select
-            onChange={(e) => {
-              if (e.target.value) {
-                handleLoadStarter(e.target.value);
-                e.target.value = '';
-              }
-            }}
-            defaultValue=""
-            style={{
-              fontSize: '0.85rem',
-              padding: '6px 10px',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border)',
-              background: 'var(--bg)',
-              color: 'var(--text-primary)',
-            }}
+        {/* Right Header Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowPageSettings(!showPageSettings)}
+            icon={<Settings size={15} />}
           >
-            <option value="" disabled>
-              Load Starter Template...
-            </option>
-            <option value="marksheet">Academic Marksheet & Transcript</option>
-            <option value="admit_card">Exam Admit Card / Hall Ticket</option>
-            <option value="tc">Transfer Certificate (TC)</option>
-          </select>
+            Page: {pageSize} ({orientation})
+          </Button>
 
           <Button variant="secondary" size="sm" onClick={handlePrint} icon={<Printer size={15} />}>
-            Print / Export PDF
+            Print / PDF
           </Button>
 
           <Button
@@ -611,16 +579,94 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
             size="sm"
             onClick={handleSave}
             disabled={saving}
-            icon={saving ? <span className="animate-spin">&bull;</span> : <Save size={15} />}
+            icon={saving ? <span className="animate-spin">&bull;</span> : saveSuccess ? <Check size={15} /> : <Save size={15} />}
           >
-            {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save Template'}
+            {saving ? 'Saving...' : saveSuccess ? 'Saved!' : isSystem ? 'Duplicate & Save' : 'Save Template'}
           </Button>
         </div>
       </div>
 
+      {/* Page Setup Drawer */}
+      {showPageSettings && (
+        <div
+          style={{
+            background: 'var(--card-bg)',
+            borderBottom: '1px solid var(--border)',
+            padding: '0.75rem 1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1.5rem',
+            flexWrap: 'wrap',
+            fontSize: '0.85rem',
+          }}
+        >
+          <div>
+            <label style={{ fontWeight: 600, marginRight: '6px' }}>Paper Size:</label>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(e.target.value as any)}
+              style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+            >
+              <option value="A4">A4 (210 x 297 mm)</option>
+              <option value="Letter">Letter (8.5 x 11 in)</option>
+              <option value="Legal">Legal (8.5 x 14 in)</option>
+              <option value="ID_CARD">Standard ID Card (85.6 x 54 mm)</option>
+            </select>
+          </div>
+
+          <div>
+            <label style={{ fontWeight: 600, marginRight: '6px' }}>Orientation:</label>
+            <select
+              value={orientation}
+              onChange={(e) => setOrientation(e.target.value as any)}
+              style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+            >
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <label style={{ fontWeight: 600 }}>Margins:</label>
+            <input
+              type="text"
+              value={margins.top}
+              onChange={(e) => setMargins({ ...margins, top: e.target.value })}
+              placeholder="Top (e.g. 15mm)"
+              style={{ width: '65px', padding: '3px 6px', fontSize: '0.8rem', border: '1px solid var(--border)' }}
+            />
+            <input
+              type="text"
+              value={margins.bottom}
+              onChange={(e) => setMargins({ ...margins, bottom: e.target.value })}
+              placeholder="Bottom"
+              style={{ width: '65px', padding: '3px 6px', fontSize: '0.8rem', border: '1px solid var(--border)' }}
+            />
+            <input
+              type="text"
+              value={margins.left}
+              onChange={(e) => setMargins({ ...margins, left: e.target.value })}
+              placeholder="Left"
+              style={{ width: '65px', padding: '3px 6px', fontSize: '0.8rem', border: '1px solid var(--border)' }}
+            />
+            <input
+              type="text"
+              value={margins.right}
+              onChange={(e) => setMargins({ ...margins, right: e.target.value })}
+              placeholder="Right"
+              style={{ width: '65px', padding: '3px 6px', fontSize: '0.8rem', border: '1px solid var(--border)' }}
+            />
+          </div>
+
+          <Button variant="ghost" size="sm" onClick={() => setShowPageSettings(false)}>
+            Done
+          </Button>
+        </div>
+      )}
+
       {/* Split Workspace */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* LEFT PANE: Editor & Variable Chips */}
+        {/* LEFT PANE: Editor & Variable Registry */}
         <div
           style={{
             flex: '0 0 50%',
@@ -631,73 +677,137 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
             overflow: 'hidden',
           }}
         >
-          {/* Variable Category Pills */}
+          {/* Quick Snippet Insert Bar */}
           <div
             style={{
-              padding: '0.65rem 1rem',
+              padding: '0.4rem 1rem',
               borderBottom: '1px solid var(--border)',
               background: 'var(--bg)',
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
-              overflowX: 'auto',
+              fontSize: '0.75rem',
             }}
           >
-            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Tokens:
-            </span>
-            {VARIABLE_CATEGORIES.map((cat) => {
-              const Icon = cat.icon;
-              const isSelected = activeCategory === cat.name;
+            <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>Insert Logic:</span>
+            <button
+              type="button"
+              onClick={() => insertVariable('{{#subjects}}\n  <tr>\n    <td>{{name}}</td>\n    <td>{{mark}}</td>\n  </tr>\n{{/subjects}}')}
+              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '0.75rem' }}
+            >
+              + Loop Block (&#123;&#123;#subjects&#125;&#125;)
+            </button>
+            <button
+              type="button"
+              onClick={() => insertVariable('{{#if result.grade}}\n  <span>Grade: {{result.grade}}</span>\n{{/if}}')}
+              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '0.75rem' }}
+            >
+              + If Block (&#123;&#123;#if&#125;&#125;)
+            </button>
+            <button
+              type="button"
+              onClick={() => insertVariable('<div style="page-break-before: always;"></div>\n')}
+              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '0.75rem' }}
+            >
+              + Page Break
+            </button>
+          </div>
+
+          {/* Variable Category Pills */}
+          <div
+            style={{
+              padding: '0.5rem 1rem',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              overflowX: 'auto',
+              background: 'var(--card-bg)',
+            }}
+          >
+            {Object.keys(groupedVariables).map((catKey) => {
+              const Icon = CATEGORY_ICONS[catKey] || Layers;
+              const isSelected = activeCategory === catKey;
               return (
                 <button
-                  key={cat.name}
-                  onClick={() => setActiveCategory(cat.name)}
+                  key={catKey}
+                  type="button"
+                  onClick={() => setActiveCategory(catKey)}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.35rem',
-                    padding: '4px 10px',
-                    borderRadius: '20px',
+                    padding: '3px 8px',
+                    borderRadius: '16px',
                     fontSize: '0.75rem',
                     fontWeight: 600,
                     cursor: 'pointer',
                     border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border)',
-                    background: isSelected ? 'var(--primary-subtle)' : 'var(--card-bg)',
-                    color: isSelected ? 'var(--primary)' : 'var(--text-secondary)',
+                    background: isSelected ? 'var(--primary-subtle, #e0f2fe)' : 'var(--bg)',
+                    color: isSelected ? 'var(--primary, #0284c7)' : 'var(--text-secondary)',
                     whiteSpace: 'nowrap',
+                    textTransform: 'capitalize',
                   }}
                 >
-                  <Icon size={13} />
-                  {cat.name}
+                  <Icon size={12} />
+                  {catKey} ({groupedVariables[catKey]?.length || 0})
                 </button>
               );
             })}
           </div>
 
-          {/* Active Chips Strip */}
+          {/* Variable Search Bar */}
           <div
             style={{
-              padding: '0.6rem 1rem',
+              padding: '0.35rem 1rem',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              background: 'var(--bg)',
+            }}
+          >
+            <Search size={14} color="var(--text-muted)" />
+            <input
+              type="text"
+              value={tokenSearch}
+              onChange={(e) => setTokenSearch(e.target.value)}
+              placeholder="Search variables in category..."
+              style={{
+                border: 'none',
+                background: 'transparent',
+                outline: 'none',
+                fontSize: '0.75rem',
+                width: '100%',
+                color: 'var(--text-primary)',
+              }}
+            />
+          </div>
+
+          {/* Active Category Tokens Strip */}
+          <div
+            style={{
+              padding: '0.5rem 1rem',
               borderBottom: '1px solid var(--border)',
               display: 'flex',
               flexWrap: 'wrap',
-              gap: '0.4rem',
-              maxHeight: '110px',
+              gap: '0.35rem',
+              maxHeight: '120px',
               overflowY: 'auto',
-              background: 'rgba(0,0,0,0.02)',
+              background: 'rgba(0,0,0,0.015)',
             }}
           >
-            {VARIABLE_CATEGORIES.find((c) => c.name === activeCategory)?.variables.map((v) => (
+            {filteredCategoryVars.map((v) => (
               <button
                 key={v.key}
-                onClick={() => insertVariable(v.key)}
-                title={`Click to insert: ${v.desc}`}
+                type="button"
+                onClick={() => insertVariable(`{{${v.key}}}`)}
+                title={`${v.label} (${v.type}) - ${v.description}`}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '0.3rem',
-                  padding: '3px 8px',
+                  padding: '3px 7px',
                   borderRadius: 'var(--radius-sm)',
                   fontSize: '0.75rem',
                   fontFamily: 'monospace',
@@ -707,9 +817,9 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
                   cursor: 'pointer',
                 }}
               >
-                <span style={{ color: 'var(--primary)', fontWeight: 700 }}>+</span>
-                <span>{v.key}</span>
-                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>({v.desc})</span>
+                <span style={{ color: 'var(--primary, #0284c7)', fontWeight: 700 }}>+</span>
+                <span>{`{{${v.key}}}`}</span>
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>({v.label})</span>
               </button>
             ))}
           </div>
@@ -730,10 +840,11 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 <FileCode size={13} />
-                <span>HTML & CSS Template Code</span>
+                <span>HTML & CSS Template Markup</span>
               </div>
               <span>Click any token above to insert at cursor</span>
             </div>
+
             <textarea
               ref={textareaRef}
               value={content}
@@ -758,20 +869,20 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
           </div>
         </div>
 
-        {/* RIGHT PANE: Live A4 Document Preview */}
+        {/* RIGHT PANE: Scaled Live Canvas Preview */}
         <div
           style={{
             flex: '0 0 50%',
             display: 'flex',
             flexDirection: 'column',
-            background: '#475569',
+            background: '#334155',
             overflow: 'hidden',
           }}
         >
           <div
             style={{
               padding: '0.5rem 1rem',
-              background: '#334155',
+              background: '#1e293b',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -781,10 +892,12 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Eye size={15} />
-              <span style={{ fontWeight: 600 }}>Live A4 Preview (Standard Document Dimensions)</span>
+              <span style={{ fontWeight: 600 }}>
+                Live Canvas Preview &bull; {pageSize} ({orientation})
+              </span>
             </div>
             <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-              Official Signatures & Watermark injected automatically
+              Watermark injected at final rendering
             </span>
           </div>
 
@@ -798,19 +911,20 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
               alignItems: 'flex-start',
             }}
           >
-            {/* A4 Canvas Page */}
+            {/* Canvas Page matching configured paper size & margins */}
             <div
               style={{
-                width: '210mm',
-                minHeight: '297mm',
+                width: canvasDims.width,
+                minHeight: canvasDims.minHeight,
                 background: '#ffffff',
                 color: '#1e293b',
-                boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
-                padding: '20mm 15mm 25mm 15mm',
+                boxShadow: '0 10px 35px rgba(0,0,0,0.4)',
+                padding: `${margins.top} ${margins.right} ${margins.bottom} ${margins.left}`,
                 position: 'relative',
                 boxSizing: 'border-box',
                 transformOrigin: 'top center',
-                transform: 'scale(0.88)',
+                transform: `scale(${canvasDims.scale})`,
+                transition: 'all 0.2s ease',
               }}
             >
               <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
@@ -821,4 +935,5 @@ export const DocumentTemplateBuilder: React.FC<DocumentTemplateBuilderProps> = (
     </div>
   );
 };
+
 export default DocumentTemplateBuilder;

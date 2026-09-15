@@ -1277,11 +1277,19 @@ export async function deleteAdmission(id: string): Promise<{ success: boolean }>
 
 export interface DocumentTemplateItem {
   id: string;
-  institutionId?: string;
-  type: 'tc' | 'marksheet' | 'certificate' | 'testimonial' | 'admit_card' | 'id_card';
+  institutionId?: string | null;
+  type: string;
+  context?: string;
   name: string;
-  description?: string;
+  description?: string | null;
   content: string;
+  version?: number;
+  isSystem?: boolean;
+  isDefault?: boolean;
+  isArchived?: boolean;
+  pageSize?: 'A4' | 'Letter' | 'Legal' | 'ID_CARD' | string;
+  orientation?: 'portrait' | 'landscape';
+  margins?: { top: string; bottom: string; left: string; right: string };
   metadata?: {
     orientation?: 'portrait' | 'landscape';
     variables?: string[];
@@ -1291,23 +1299,67 @@ export interface DocumentTemplateItem {
   updatedAt: string;
 }
 
-export async function fetchTemplates(type?: string): Promise<DocumentTemplateItem[]> {
-  const qs = type ? `?type=${type}` : '';
-  return fetchWithAuth<DocumentTemplateItem[]>(`/api/core/templates${qs}`);
+export interface GeneratedDocumentItem {
+  id: string;
+  institutionId: string;
+  templateId?: string;
+  templateVersion: number;
+  documentType: string;
+  title: string;
+  entityType?: string;
+  entityId?: string;
+  renderedContent?: string;
+  variablesSnapshot: Record<string, any>;
+  generatedByMembershipId?: string;
+  createdAt: string;
+}
+
+export interface VariableItem {
+  key: string;
+  label: string;
+  category: string;
+  type: string;
+  source: string;
+  availability: string[];
+  description: string;
+  example?: string;
+}
+
+export async function fetchTemplates(
+  filters?: string | { type?: string; context?: string; isArchived?: boolean; search?: string }
+): Promise<DocumentTemplateItem[]> {
+  let qs = '';
+  if (typeof filters === 'string') {
+    qs = filters ? `?type=${filters}` : '';
+  } else if (filters) {
+    const params = new URLSearchParams();
+    if (filters.type) params.set('type', filters.type);
+    if (filters.context) params.set('context', filters.context);
+    if (filters.isArchived !== undefined) params.set('isArchived', String(filters.isArchived));
+    if (filters.search) params.set('search', filters.search);
+    const s = params.toString();
+    qs = s ? `?${s}` : '';
+  }
+  return fetchWithAuth<DocumentTemplateItem[]>(`/api/documents/templates${qs}`);
 }
 
 export async function fetchTemplate(id: string): Promise<DocumentTemplateItem> {
-  return fetchWithAuth<DocumentTemplateItem>(`/api/core/templates/${id}`);
+  return fetchWithAuth<DocumentTemplateItem>(`/api/documents/templates/${id}`);
 }
 
 export async function createTemplate(data: {
   type: string;
+  context?: string;
   name: string;
   description?: string;
   content: string;
+  pageSize?: string;
+  orientation?: string;
+  margins?: any;
+  isDefault?: boolean;
   metadata?: any;
 }): Promise<DocumentTemplateItem> {
-  return fetchWithAuth<DocumentTemplateItem>('/api/core/templates', {
+  return fetchWithAuth<DocumentTemplateItem>('/api/documents/templates', {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -1317,21 +1369,47 @@ export async function updateTemplate(
   id: string,
   data: {
     type?: string;
+    context?: string;
     name?: string;
     description?: string;
     content?: string;
+    pageSize?: string;
+    orientation?: string;
+    margins?: any;
+    isDefault?: boolean;
+    isArchived?: boolean;
     metadata?: any;
   }
 ): Promise<DocumentTemplateItem> {
-  return fetchWithAuth<DocumentTemplateItem>(`/api/core/templates/${id}`, {
+  return fetchWithAuth<DocumentTemplateItem>(`/api/documents/templates/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
 }
 
 export async function deleteTemplate(id: string): Promise<{ success: boolean }> {
-  return fetchWithAuth<{ success: boolean }>(`/api/core/templates/${id}`, {
+  return fetchWithAuth<{ success: boolean }>(`/api/documents/templates/${id}`, {
     method: 'DELETE',
+  });
+}
+
+export async function duplicateTemplate(id: string, name?: string): Promise<DocumentTemplateItem> {
+  return fetchWithAuth<DocumentTemplateItem>(`/api/documents/templates/${id}/duplicate`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function setDefaultTemplate(id: string): Promise<DocumentTemplateItem> {
+  return fetchWithAuth<DocumentTemplateItem>(`/api/documents/templates/${id}/set-default`, {
+    method: 'POST',
+  });
+}
+
+export async function archiveTemplate(id: string, archive = true): Promise<DocumentTemplateItem> {
+  return fetchWithAuth<DocumentTemplateItem>(`/api/documents/templates/${id}/archive`, {
+    method: 'POST',
+    body: JSON.stringify({ archive }),
   });
 }
 
@@ -1339,16 +1417,72 @@ export async function renderTemplate(
   id: string,
   payload: {
     studentId?: string;
-    variables?: Record<string, string>;
+    entityId?: string;
+    entityType?: string;
+    variables?: Record<string, any>;
+    saveSnapshot?: boolean;
+    title?: string;
   }
-): Promise<{ template: DocumentTemplateItem; rendered: string; variables: Record<string, string> }> {
-  return fetchWithAuth<{ template: DocumentTemplateItem; rendered: string; variables: Record<string, string> }>(
-    `/api/core/templates/${id}/render`,
+): Promise<{ template: DocumentTemplateItem; rendered: string; variables: Record<string, any>; generatedDocumentId?: string }> {
+  return fetchWithAuth<{ template: DocumentTemplateItem; rendered: string; variables: Record<string, any>; generatedDocumentId?: string }>(
+    `/api/documents/templates/${id}/render`,
     {
       method: 'POST',
       body: JSON.stringify(payload),
     }
   );
+}
+
+export async function bulkRenderTemplate(
+  id: string,
+  payload: {
+    entityType: 'student' | 'employee' | 'generic';
+    entityIds: string[];
+    customVariables?: Record<string, any>;
+    saveSnapshots?: boolean;
+  }
+): Promise<{
+  template: DocumentTemplateItem;
+  totalRendered: number;
+  items: Array<{ entityId: string; rendered: string; variables: Record<string, any>; generatedDocumentId?: string }>;
+}> {
+  return fetchWithAuth(`/api/documents/templates/${id}/bulk-render`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchVariables(context?: string): Promise<{
+  context: string;
+  total: number;
+  variables: VariableItem[];
+  grouped: Record<string, VariableItem[]>;
+}> {
+  const qs = context ? `?context=${context}` : '';
+  return fetchWithAuth(`/api/documents/variables${qs}`);
+}
+
+export async function fetchGeneratedDocuments(filters?: {
+  entityType?: string;
+  entityId?: string;
+  documentType?: string;
+  templateId?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<GeneratedDocumentItem[]> {
+  const params = new URLSearchParams();
+  if (filters?.entityType) params.set('entityType', filters.entityType);
+  if (filters?.entityId) params.set('entityId', filters.entityId);
+  if (filters?.documentType) params.set('documentType', filters.documentType);
+  if (filters?.templateId) params.set('templateId', filters.templateId);
+  if (filters?.limit) params.set('limit', String(filters.limit));
+  if (filters?.offset) params.set('offset', String(filters.offset));
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return fetchWithAuth<GeneratedDocumentItem[]>(`/api/documents/generated-documents${qs}`);
+}
+
+export async function fetchGeneratedDocument(id: string): Promise<GeneratedDocumentItem> {
+  return fetchWithAuth<GeneratedDocumentItem>(`/api/documents/generated-documents/${id}`);
 }
 
 // ============================================================

@@ -1,28 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import {
   fetchTemplates,
-  createTemplate,
-  updateTemplate,
   deleteTemplate,
   renderTemplate,
+  duplicateTemplate,
+  setDefaultTemplate,
+  archiveTemplate,
+  bulkRenderTemplate,
+  fetchGeneratedDocuments,
+  fetchGeneratedDocument,
 } from '../services/api';
-import type { DocumentTemplateItem } from '../services/api';
+import type { DocumentTemplateItem, GeneratedDocumentItem } from '../services/api';
 import {
   FileText,
-  Plus,
   Eye,
   Edit2,
   Trash2,
   Printer,
   Copy,
   Check,
-  Award,
   Sparkles,
-  CreditCard,
-  CalendarCheck,
-  Search,
+  Lock,
+  Star,
+  Archive,
+  Layers,
+  History,
+  Users,
 } from 'lucide-react';
-import { Button, Badge, Modal } from '../components/common';
+import { Button, Badge, Modal, GlobalFilterBar } from '../components/common';
+import type { GlobalFilterValues } from '../components/common';
 import { useSession } from '../context/SessionContext';
 
 interface TemplatesPageProps {
@@ -33,10 +39,17 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
   const { activeMembership, institutionName } = useSession();
   const canManage = activeMembership?.roleName?.toLowerCase().includes('admin');
 
+  // Navigation tab: 'templates' | 'archive'
+  const [activeTab, setActiveTab] = useState<'templates' | 'archive'>('templates');
+
   const [templates, setTemplates] = useState<DocumentTemplateItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeType, setActiveType] = useState<string>('all');
-  const [searchTerm, setSearchTerm] = useState('');
+
+  // Global Filters for Templates
+  const [filters, setFilters] = useState<GlobalFilterValues>({
+    status: 'active',
+  });
+  const [selectedContext, setSelectedContext] = useState<string>('all');
 
   // Preview Modal State
   const [previewTemplate, setPreviewTemplate] = useState<DocumentTemplateItem | null>(null);
@@ -44,21 +57,28 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Edit / Create Modal State
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<DocumentTemplateItem | null>(null);
-  const [formData, setFormData] = useState({
-    type: 'tc' as any,
-    name: '',
-    description: '',
-    content: '',
-  });
-  const [saving, setSaving] = useState(false);
+  // Bulk Generation Modal State
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [bulkTemplate, setBulkTemplate] = useState<DocumentTemplateItem | null>(null);
+  const [bulkEntityType, setBulkEntityType] = useState<'student' | 'employee'>('student');
+  const [bulkEntityIds, setBulkEntityIds] = useState<string>('ADM-2026-001, ADM-2026-002, ADM-2026-003');
+  const [bulkGenerating, setBulkGenerating] = useState(false);
+  const [bulkResults, setBulkResults] = useState<any[]>([]);
+
+  // Generated Documents Archive State
+  const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocumentItem[]>([]);
+  const [selectedGenDoc, setSelectedGenDoc] = useState<GeneratedDocumentItem | null>(null);
+  const [archiveLoading, setArchiveLoading] = useState(false);
 
   const loadTemplatesData = async () => {
     try {
       setLoading(true);
-      const data = await fetchTemplates();
+      const isArchived = filters.status === 'archived';
+      const data = await fetchTemplates({
+        isArchived,
+        search: filters.search,
+        context: selectedContext !== 'all' ? selectedContext : undefined,
+      });
       setTemplates(data);
     } catch (e) {
       console.error('Failed to load templates', e);
@@ -67,9 +87,25 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
     }
   };
 
+  const loadArchiveData = async () => {
+    try {
+      setArchiveLoading(true);
+      const docs = await fetchGeneratedDocuments();
+      setGeneratedDocs(docs);
+    } catch (e) {
+      console.error('Failed to load generated documents archive', e);
+    } finally {
+      setArchiveLoading(false);
+    }
+  };
+
   useEffect(() => {
-    loadTemplatesData();
-  }, []);
+    if (activeTab === 'templates') {
+      loadTemplatesData();
+    } else {
+      loadArchiveData();
+    }
+  }, [activeTab, filters.status, filters.search, selectedContext]);
 
   const handleOpenPreview = async (tmpl: DocumentTemplateItem) => {
     setPreviewTemplate(tmpl);
@@ -85,13 +121,9 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
           'student.sectionName': 'Section A',
           'student.guardianName': 'Mr. Anisur Rahman',
           'student.guardianPhone': '+880 1711-234567',
-          'student.dateOfBirth': 'May 14, 2010',
           'academicYear': '2026-2027',
           'certificateNo': 'TC-2026-0842',
           'issueDate': new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
-          'conductRemarks': 'Exemplary moral discipline, scholastic diligence, and active leadership',
-          'reasonForLeaving': 'Parental transfer of residence',
-          'examName': 'Annual Board / Term Assessment 2026',
         },
       });
       setRenderedHtml(res.rendered);
@@ -103,107 +135,140 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
     }
   };
 
-  const handleOpenCreate = () => {
-    setEditingTemplate(null);
-    setFormData({
-      type: 'tc',
-      name: '',
-      description: '',
-      content: `<div class="custom-certificate" style="font-family: serif; padding: 40px; border: 3px double #0f172a;">
-  <h1 style="text-align: center; color: #1e3a8a;">{{institution.name}}</h1>
-  <h2 style="text-align: center; text-transform: uppercase;">Official Certificate</h2>
-  <p style="line-height: 2; font-size: 16px;">This is to certify that <strong>{{student.name}}</strong>, Admission No: <strong>{{student.admissionNo}}</strong>, has successfully met all institutional standards.</p>
-  <div style="margin-top: 60px; display: flex; justify-content: space-between;">
-    <span>Date: {{issueDate}}</span>
-    <span>Head of Institution</span>
-  </div>
-</div>`,
-    });
-    setShowEditModal(true);
-  };
-
-  const handleOpenEdit = (tmpl: DocumentTemplateItem) => {
-    setEditingTemplate(tmpl);
-    setFormData({
-      type: tmpl.type,
-      name: tmpl.name,
-      description: tmpl.description || '',
-      content: tmpl.content,
-    });
-    setShowEditModal(true);
-  };
-
-  const handleSaveTemplate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.name.trim() || !formData.content.trim()) return;
-
+  const handleDuplicate = async (tmpl: DocumentTemplateItem) => {
     try {
-      setSaving(true);
-      if (editingTemplate) {
-        await updateTemplate(editingTemplate.id, formData);
-      } else {
-        await createTemplate(formData);
-      }
-      setShowEditModal(false);
+      await duplicateTemplate(tmpl.id, `${tmpl.name} (Copy)`);
       await loadTemplatesData();
-    } catch (err) {
-      console.error('Failed to save template', err);
-    } finally {
-      setSaving(false);
+    } catch (err: any) {
+      alert(err.message || 'Failed to duplicate template');
     }
   };
 
-  const handleDeleteTemplate = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this document template?')) return;
+  const handleSetDefault = async (tmpl: DocumentTemplateItem) => {
     try {
-      await deleteTemplate(id);
-      setTemplates((prev) => prev.filter((t) => t.id !== id));
-    } catch (err) {
-      console.error('Failed to delete template', err);
+      await setDefaultTemplate(tmpl.id);
+      await loadTemplatesData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to set default template');
     }
   };
 
-  const handlePrintDocument = () => {
-    window.print();
-  };
-
-  const handleCopyHtml = () => {
-    if (renderedHtml) {
-      navigator.clipboard.writeText(renderedHtml);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+  const handleArchiveToggle = async (tmpl: DocumentTemplateItem) => {
+    try {
+      await archiveTemplate(tmpl.id, !tmpl.isArchived);
+      await loadTemplatesData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to toggle archive');
     }
   };
 
-  const getTypeBadgeTone = (type: string) => {
-    switch (type) {
-      case 'tc': return 'primary';
-      case 'marksheet': return 'info';
-      case 'testimonial': return 'warning';
-      case 'admit_card': return 'neutral';
-      case 'id_card': return 'success';
-      default: return 'neutral';
+  const handleDeleteTemplate = async (tmpl: DocumentTemplateItem) => {
+    if (tmpl.isSystem || !tmpl.institutionId) {
+      alert('System templates are read-only and protected from deletion.');
+      return;
+    }
+    if (!confirm(`Are you sure you want to delete "${tmpl.name}"?`)) return;
+    try {
+      await deleteTemplate(tmpl.id);
+      setTemplates((prev) => prev.filter((t) => t.id !== tmpl.id));
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete template');
     }
   };
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'tc': return <FileText size={18} style={{ color: '#3b82f6' }} />;
-      case 'marksheet': return <Award size={18} style={{ color: '#10b981' }} />;
-      case 'testimonial': return <Sparkles size={18} style={{ color: '#f59e0b' }} />;
-      case 'admit_card': return <CalendarCheck size={18} style={{ color: '#8b5cf6' }} />;
-      case 'id_card': return <CreditCard size={18} style={{ color: '#ec4899' }} />;
-      default: return <FileText size={18} />;
+  const handleOpenBulk = (tmpl: DocumentTemplateItem) => {
+    setBulkTemplate(tmpl);
+    setBulkResults([]);
+    setBulkModalOpen(true);
+  };
+
+  const handleExecuteBulkRender = async () => {
+    if (!bulkTemplate) return;
+    const ids = bulkEntityIds
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (ids.length === 0) {
+      alert('Please provide at least one ID');
+      return;
+    }
+
+    try {
+      setBulkGenerating(true);
+      const res = await bulkRenderTemplate(bulkTemplate.id, {
+        entityType: bulkEntityType,
+        entityIds: ids,
+        saveSnapshots: true,
+      });
+      setBulkResults(res.items || []);
+    } catch (err: any) {
+      alert(err.message || 'Failed to bulk render documents');
+    } finally {
+      setBulkGenerating(false);
     }
   };
 
-  const filteredTemplates = templates.filter((t) => {
-    const matchesType = activeType === 'all' || t.type === activeType;
-    const matchesSearch =
-      t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (t.description && t.description.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesType && matchesSearch;
-  });
+  const handlePrintBatch = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const allPagesHtml = bulkResults
+      .map(
+        (b) => `
+        <div class="page-container" style="page-break-after: always; min-height: 270mm; position: relative;">
+          ${b.rendered}
+        </div>
+      `
+      )
+      .join('\n');
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Bulk Print - ${bulkTemplate?.name}</title>
+          <style>
+            @page { size: A4; margin: 15mm; }
+            body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; }
+          </style>
+        </head>
+        <body>
+          ${allPagesHtml}
+          <script>
+            window.onload = function() { window.print(); window.close(); };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  const handleViewArchiveDoc = async (docId: string) => {
+    try {
+      const doc = await fetchGeneratedDocument(docId);
+      setSelectedGenDoc(doc);
+    } catch (e) {
+      console.error('Failed to load document snapshot', e);
+    }
+  };
+
+  const CONTEXT_OPTIONS = [
+    { value: 'all', label: 'All Document Categories' },
+    { value: 'marksheet', label: 'Marksheets & Transcripts' },
+    { value: 'id_card', label: 'Student ID Cards' },
+    { value: 'employee_id_card', label: 'Employee ID Cards' },
+    { value: 'tc', label: 'Transfer Certificates (TC)' },
+    { value: 'certificate', label: 'Character & Testimonials' },
+    { value: 'admission_form', label: 'Admission Applications' },
+    { value: 'salary_slip', label: 'Staff Salary Slips' },
+    { value: 'appointment_letter', label: 'Appointment Letters' },
+    { value: 'invoice', label: 'Tuition & Fee Invoices' },
+    { value: 'receipt', label: 'Payment Receipts' },
+    { value: 'fee_statement', label: 'Fee Account Statements' },
+    { value: 'exam_attendance', label: 'Exam Attendance Registers' },
+    { value: 'exam_room_list', label: 'Exam Room Seating Plans' },
+    { value: 'result_summary', label: 'Result Summaries' },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -215,441 +280,612 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: '1rem',
-          background: 'var(--surface)',
+          background: 'var(--surface, #ffffff)',
           padding: '1.25rem 1.5rem',
-          borderRadius: 'var(--radius-md)',
-          border: '1px solid var(--border-subtle)',
-          boxShadow: 'var(--shadow-sm)',
+          borderRadius: 'var(--radius-md, 8px)',
+          border: '1px solid var(--border-subtle, #e2e8f0)',
+          boxShadow: 'var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.05))',
         }}
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <FileText size={24} style={{ color: 'var(--brand-primary)' }} />
+            <FileText size={24} style={{ color: 'var(--primary, #0284c7)' }} />
             <h1 style={{ fontSize: '1.45rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-              Document & Certificate Templates
+              Document Templates & Generator
             </h1>
           </div>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0.3rem 0 0' }}>
-            Standard government, board, and institutional templates for Transfer Certificates (TC), Academic Marksheets, Admit Cards, and Testimonials.
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #64748b)', margin: '0.3rem 0 0' }}>
+            Centralized institutional templates, canonical variables, version-tracked snapshots, and high-volume client-side PDF rendering.
           </p>
         </div>
 
-        {canManage && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            {onNavigate && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => onNavigate('/templates/builder')}
-                icon={<Sparkles size={15} />}
-              >
-                Open Template Builder
-              </Button>
-            )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {canManage && onNavigate && (
             <Button
               variant="primary"
               size="sm"
-              onClick={handleOpenCreate}
-              icon={<Plus size={15} />}
+              onClick={() => onNavigate('/templates/builder')}
+              icon={<Sparkles size={15} />}
             >
-              Quick Create
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* Filter Tabs & Search Bar */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '0.75rem',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            gap: '0.35rem',
-            background: 'var(--surface-sunken)',
-            padding: '0.3rem',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--border-subtle)',
-            overflowX: 'auto',
-          }}
-        >
-          {[
-            { id: 'all', label: 'All Templates' },
-            { id: 'tc', label: 'Transfer Certificates (TC)' },
-            { id: 'marksheet', label: 'Marksheets / Transcripts' },
-            { id: 'testimonial', label: 'Character Testimonials' },
-            { id: 'admit_card', label: 'Admit Cards' },
-            { id: 'id_card', label: 'ID Badges' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveType(tab.id)}
-              style={{
-                padding: '0.35rem 0.75rem',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.8rem',
-                fontWeight: activeType === tab.id ? 600 : 450,
-                background: activeType === tab.id ? 'var(--brand-primary)' : 'transparent',
-                color: activeType === tab.id ? '#ffffff' : 'var(--text-secondary)',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ position: 'relative', width: '240px' }}>
-          <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input
-            type="text"
-            placeholder="Search templates..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '0.45rem 0.75rem 0.45rem 2.1rem',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
-              background: 'var(--surface)',
-              fontSize: '0.82rem',
-              color: 'var(--text-primary)',
-              boxSizing: 'border-box',
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Templates Grid */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-          Loading document templates...
-        </div>
-      ) : filteredTemplates.length === 0 ? (
-        <div
-          style={{
-            background: 'var(--surface)',
-            padding: '3rem',
-            textAlign: 'center',
-            borderRadius: 'var(--radius-md)',
-            border: '1px dashed var(--border)',
-          }}
-        >
-          <FileText size={36} style={{ color: 'var(--text-muted)', margin: '0 auto 0.75rem' }} />
-          <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>No templates found</h3>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0.35rem 0 1.25rem' }}>
-            No document templates match the selected criteria.
-          </p>
-          {canManage && (
-            <Button variant="primary" size="sm" onClick={handleOpenCreate} icon={<Plus size={14} />}>
-              Create Template
+              Open Template Builder
             </Button>
           )}
         </div>
-      ) : (
-        <div
+      </div>
+
+      {/* Primary Tab Selector */}
+      <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border, #e2e8f0)' }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('templates')}
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-            gap: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.65rem 1.25rem',
+            border: 'none',
+            borderBottom: activeTab === 'templates' ? '2px solid var(--primary, #0284c7)' : '2px solid transparent',
+            background: 'transparent',
+            color: activeTab === 'templates' ? 'var(--primary, #0284c7)' : 'var(--text-secondary)',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
           }}
         >
-          {filteredTemplates.map((tmpl) => (
+          <Layers size={16} />
+          Template Library
+          <Badge tone="neutral">{templates.length}</Badge>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('archive')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.65rem 1.25rem',
+            border: 'none',
+            borderBottom: activeTab === 'archive' ? '2px solid var(--primary, #0284c7)' : '2px solid transparent',
+            background: 'transparent',
+            color: activeTab === 'archive' ? 'var(--primary, #0284c7)' : 'var(--text-secondary)',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+          }}
+        >
+          <History size={16} />
+          Historical Generated Documents
+        </button>
+      </div>
+
+      {/* TAB 1: TEMPLATE LIBRARY */}
+      {activeTab === 'templates' && (
+        <>
+          {/* Global Filter Bar */}
+          <GlobalFilterBar
+            filters={filters}
+            onChange={setFilters}
+            onReset={() => setFilters({ status: 'active' })}
+            searchPlaceholder="Search template names and descriptions..."
+            showStatus={true}
+            statusOptions={[
+              { value: 'active', label: 'Active Templates' },
+              { value: 'archived', label: 'Archived Templates' },
+            ]}
+            extraControls={
+              <select
+                value={selectedContext}
+                onChange={(e) => setSelectedContext(e.target.value)}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: 'var(--radius-sm, 6px)',
+                  border: '1px solid var(--border, #cbd5e1)',
+                  fontSize: '0.8rem',
+                  background: 'var(--bg, #f8fafc)',
+                  color: 'var(--text-primary)',
+                  fontWeight: 600,
+                }}
+              >
+                {CONTEXT_OPTIONS.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            }
+          />
+
+          {/* Templates Grid */}
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+              Loading document templates...
+            </div>
+          ) : templates.length === 0 ? (
             <div
-              key={tmpl.id}
               style={{
+                textAlign: 'center',
+                padding: '4rem',
                 background: 'var(--surface)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border-subtle)',
-                boxShadow: 'var(--shadow-sm)',
-                padding: '1.25rem',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = 'var(--shadow-md)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'none';
-                e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
+                borderRadius: 'var(--radius)',
+                border: '1px dashed var(--border)',
+                color: 'var(--text-muted)',
               }}
             >
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                    <div style={{ padding: '0.5rem', borderRadius: '8px', background: 'var(--surface-sunken)' }}>
-                      {getTypeIcon(tmpl.type)}
-                    </div>
+              <FileText size={40} style={{ opacity: 0.5, marginBottom: '0.75rem' }} />
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>No templates found</h3>
+              <p style={{ margin: '0.5rem 0 1.25rem', fontSize: '0.85rem' }}>
+                Try adjusting your search terms or category filters.
+              </p>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+                gap: '1.25rem',
+              }}
+            >
+              {templates.map((tmpl) => {
+                const isSys = tmpl.isSystem || !tmpl.institutionId;
+                return (
+                  <div
+                    key={tmpl.id}
+                    style={{
+                      background: 'var(--card-bg, #ffffff)',
+                      border: isSys ? '1px solid #bfdbfe' : '1px solid var(--border, #e2e8f0)',
+                      borderRadius: 'var(--radius, 8px)',
+                      padding: '1.25rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                      position: 'relative',
+                    }}
+                  >
                     <div>
-                      <h3 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {/* Top Badges */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          {isSys ? (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                background: '#dbeafe',
+                                color: '#1e40af',
+                                borderRadius: '12px',
+                                padding: '2px 8px',
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                              }}
+                            >
+                              <Lock size={11} />
+                              System Template
+                            </span>
+                          ) : (
+                            <Badge tone="neutral">Custom</Badge>
+                          )}
+
+                          {tmpl.isDefault && (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                background: '#fef3c7',
+                                color: '#92400e',
+                                borderRadius: '12px',
+                                padding: '2px 8px',
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                              }}
+                            >
+                              <Star size={10} />
+                              Default
+                            </span>
+                          )}
+
+                          <Badge tone="info">v{tmpl.version || 1}</Badge>
+                        </div>
+
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                          {tmpl.pageSize || 'A4'} &bull; {tmpl.orientation || 'portrait'}
+                        </span>
+                      </div>
+
+                      {/* Template Title & Description */}
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: '0 0 0.4rem', color: 'var(--text-primary)' }}>
                         {tmpl.name}
                       </h3>
-                      <div style={{ marginTop: '0.2rem' }}>
-                        <Badge tone={getTypeBadgeTone(tmpl.type)}>{tmpl.type.toUpperCase()}</Badge>
+                      <p
+                        style={{
+                          fontSize: '0.8rem',
+                          color: 'var(--text-secondary)',
+                          margin: 0,
+                          lineHeight: 1.4,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {tmpl.description || `Official ${tmpl.context || tmpl.type} template layout.`}
+                      </p>
+                    </div>
+
+                    {/* Bottom Actions Toolbar */}
+                    <div
+                      style={{
+                        marginTop: '1.25rem',
+                        paddingTop: '0.75rem',
+                        borderTop: '1px solid var(--border, #f1f5f9)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.5rem',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ display: 'flex', gap: '0.4rem' }}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenPreview(tmpl)}
+                          icon={<Eye size={14} />}
+                          title="Preview document"
+                        >
+                          Preview
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenBulk(tmpl)}
+                          icon={<Users size={14} />}
+                          title="Bulk Generate / Print"
+                        >
+                          Bulk
+                        </Button>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '0.4rem' }}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDuplicate(tmpl)}
+                          icon={<Copy size={14} />}
+                          title="Duplicate template"
+                        >
+                          Clone
+                        </Button>
+
+                        {!isSys && !tmpl.isDefault && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleSetDefault(tmpl)}
+                            icon={<Star size={14} />}
+                            title="Set as context default"
+                          >
+                            Default
+                          </Button>
+                        )}
+
+                        {!isSys && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleArchiveToggle(tmpl)}
+                            icon={<Archive size={14} />}
+                            title={tmpl.isArchived ? 'Unarchive template' : 'Archive template'}
+                          >
+                            {tmpl.isArchived ? 'Restore' : 'Archive'}
+                          </Button>
+                        )}
+
+                        {onNavigate && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => onNavigate(`/templates/builder?id=${tmpl.id}`)}
+                            icon={<Edit2 size={13} />}
+                          >
+                            {isSys ? 'Customize' : 'Edit'}
+                          </Button>
+                        )}
+
+                        {!isSys && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTemplate(tmpl)}
+                            title="Delete custom template"
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: '#ef4444',
+                              padding: '4px',
+                            }}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
-                </div>
-
-                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0.85rem 0 1rem 0', minHeight: '38px' }}>
-                  {tmpl.description || 'Pre-configured institutional certificate template with dynamic placeholder tokens.'}
-                </p>
-
-                {/* Tokens pill box */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '1rem' }}>
-                  {['student.name', 'student.admissionNo', 'student.rollNo', 'issueDate'].map((token) => (
-                    <span
-                      key={token}
-                      style={{
-                        fontSize: '0.68rem',
-                        fontFamily: 'monospace',
-                        padding: '0.2rem 0.45rem',
-                        background: 'var(--surface-sunken)',
-                        borderRadius: '4px',
-                        color: 'var(--text-secondary)',
-                      }}
-                    >
-                      &#123;&#123;{token}&#125;&#125;
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  paddingTop: '0.75rem',
-                  borderTop: '1px solid var(--border-subtle)',
-                }}
-              >
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => handleOpenPreview(tmpl)}
-                  icon={<Eye size={14} />}
-                >
-                  Preview Document
-                </Button>
-
-                <div style={{ display: 'flex', gap: '0.35rem' }}>
-                  {canManage && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleOpenEdit(tmpl)}
-                      title="Edit Template"
-                    >
-                      <Edit2 size={14} />
-                    </Button>
-                  )}
-                  {canManage && tmpl.institutionId && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteTemplate(tmpl.id)}
-                      title="Delete Template"
-                    >
-                      <Trash2 size={14} style={{ color: 'var(--status-danger)' }} />
-                    </Button>
-                  )}
-                </div>
-              </div>
+                );
+              })}
             </div>
-          ))}
+          )}
+        </>
+      )}
+
+      {/* TAB 2: HISTORICAL GENERATED DOCUMENTS */}
+      {activeTab === 'archive' && (
+        <div>
+          <div style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            These immutable snapshots record the exact visual layout and values of previously generated documents at their historical moment of generation.
+          </div>
+
+          {archiveLoading ? (
+            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+              Loading document archive...
+            </div>
+          ) : generatedDocs.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '4rem',
+                background: 'var(--surface)',
+                borderRadius: 'var(--radius)',
+                border: '1px dashed var(--border)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              <History size={40} style={{ opacity: 0.5, marginBottom: '0.75rem' }} />
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>No generated documents yet</h3>
+              <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
+                When you generate marksheets, ID cards, or certificates with "Save Snapshot", they appear here frozen forever.
+              </p>
+            </div>
+          ) : (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '10px 14px' }}>Document Title</th>
+                    <th style={{ padding: '10px 14px' }}>Type</th>
+                    <th style={{ padding: '10px 14px' }}>Template Version</th>
+                    <th style={{ padding: '10px 14px' }}>Generated Date</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {generatedDocs.map((doc) => (
+                    <tr key={doc.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {doc.title}
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <Badge tone="neutral">{doc.documentType}</Badge>
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>v{doc.templateVersion}</td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
+                        {new Date(doc.createdAt).toLocaleString()}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleViewArchiveDoc(doc.id)}
+                          icon={<Eye size={14} />}
+                        >
+                          View Frozen Snapshot
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Live Preview Modal */}
-      {previewTemplate && (
-        <Modal
-          isOpen={true}
-          onClose={() => setPreviewTemplate(null)}
-          title={`Document Preview: ${previewTemplate.name}`}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                Rendered with live institutional variables & sample student data.
-              </span>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleCopyHtml}
-                  icon={copied ? <Check size={14} /> : <Copy size={14} />}
-                >
-                  {copied ? 'Copied HTML!' : 'Copy HTML'}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handlePrintDocument}
-                  icon={<Printer size={14} />}
-                >
-                  Print / Save PDF
-                </Button>
-              </div>
-            </div>
-
-            {/* Document Render Container */}
-            <div
-              className="printable-document-area"
-              style={{
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                borderRadius: '8px',
-                padding: '1.5rem',
-                maxHeight: '65vh',
-                overflowY: 'auto',
-                boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.05)',
-              }}
-            >
-              {previewLoading ? (
-                <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
-                  Generating live certificate preview...
-                </div>
-              ) : (
-                <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
-              )}
+      {/* SINGLE DOCUMENT PREVIEW MODAL */}
+      <Modal
+        isOpen={Boolean(previewTemplate)}
+        onClose={() => setPreviewTemplate(null)}
+        title={previewTemplate ? `Document Preview: ${previewTemplate.name}` : ''}
+        maxWidth="900px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Mandatory Biddyapith footer watermark is permanently applied.
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  navigator.clipboard.writeText(renderedHtml);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+                icon={copied ? <Check size={14} /> : <Copy size={14} />}
+              >
+                {copied ? 'Copied HTML' : 'Copy HTML'}
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => window.print()} icon={<Printer size={14} />}>
+                Print Document
+              </Button>
             </div>
           </div>
-        </Modal>
-      )}
 
-      {/* Create / Edit Template Modal */}
-      {showEditModal && (
-        <Modal
-          isOpen={true}
-          onClose={() => setShowEditModal(false)}
-          title={editingTemplate ? 'Edit Document Template' : 'Create Document Template'}
-        >
-          <form onSubmit={handleSaveTemplate} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                  Template Type
-                </label>
-                <select
-                  value={formData.type}
-                  onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
-                  style={{
-                    width: '100%',
-                    padding: '0.55rem 0.75rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border-subtle)',
-                    background: 'var(--surface-sunken)',
-                    fontSize: '0.85rem',
-                    color: 'var(--text-primary)',
-                  }}
-                >
-                  <option value="tc">Transfer Certificate (TC)</option>
-                  <option value="marksheet">Marksheet / Transcript</option>
-                  <option value="testimonial">Testimonial / Character</option>
-                  <option value="admit_card">Examination Admit Card</option>
-                  <option value="id_card">Student ID Card</option>
-                </select>
-              </div>
+          <div
+            style={{
+              maxHeight: '65vh',
+              overflowY: 'auto',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              padding: '25px',
+              background: '#ffffff',
+              color: '#0f172a',
+            }}
+          >
+            {previewLoading ? (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>Rendering document...</div>
+            ) : (
+              <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+            )}
+          </div>
+        </div>
+      </Modal>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                  Template Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g. Official School Leaving Certificate"
-                  style={{
-                    width: '100%',
-                    padding: '0.55rem 0.75rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border-subtle)',
-                    background: 'var(--surface-sunken)',
-                    fontSize: '0.85rem',
-                    color: 'var(--text-primary)',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-            </div>
+      {/* BULK GENERATE & PRINT MODAL */}
+      <Modal
+        isOpen={bulkModalOpen}
+        onClose={() => setBulkModalOpen(false)}
+        title={bulkTemplate ? `Bulk Document Generation: ${bulkTemplate.name}` : ''}
+        maxWidth="800px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+            Batch-render official documents for multiple students or employees without sending hundreds of individual requests.
+          </p>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-                Description
-              </label>
-              <input
-                type="text"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Brief purpose and usage of this document"
-                style={{
-                  width: '100%',
-                  padding: '0.55rem 0.75rem',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--border-subtle)',
-                  background: 'var(--surface-sunken)',
-                  fontSize: '0.85rem',
-                  color: 'var(--text-primary)',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>
+              Target Entity Type:
+            </label>
+            <select
+              value={bulkEntityType}
+              onChange={(e) => setBulkEntityType(e.target.value as any)}
+              style={{
+                width: '100%',
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+              }}
+            >
+              <option value="student">Students (Class Cohort / Admissions)</option>
+              <option value="employee">Employees (Faculty / Staff)</option>
+            </select>
+          </div>
 
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>
-                  HTML Template & Interpolation Tokens
-                </label>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                  Use &#123;&#123;student.name&#125;&#125;, &#123;&#123;institution.name&#125;&#125;, &#123;&#123;issueDate&#125;&#125;, etc.
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>
+              Entity IDs / Admission Numbers (Comma separated):
+            </label>
+            <textarea
+              value={bulkEntityIds}
+              onChange={(e) => setBulkEntityIds(e.target.value)}
+              placeholder="e.g. ADM-2026-001, ADM-2026-002, ADM-2026-003..."
+              style={{
+                width: '100%',
+                height: '80px',
+                padding: '8px',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                fontFamily: 'monospace',
+                fontSize: '0.85rem',
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+            <Button
+              variant="primary"
+              onClick={handleExecuteBulkRender}
+              disabled={bulkGenerating}
+              icon={bulkGenerating ? <span className="animate-spin">&bull;</span> : <Sparkles size={14} />}
+            >
+              {bulkGenerating ? 'Generating Batch...' : 'Generate Batch'}
+            </Button>
+          </div>
+
+          {bulkResults.length > 0 && (
+            <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#16a34a' }}>
+                  ✓ Successfully generated {bulkResults.length} documents!
                 </span>
+                <Button variant="secondary" size="sm" onClick={handlePrintBatch} icon={<Printer size={14} />}>
+                  Print All {bulkResults.length} Pages
+                </Button>
               </div>
-              <textarea
-                rows={12}
-                required
-                value={formData.content}
-                onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--border-subtle)',
-                  background: 'var(--surface-sunken)',
-                  fontFamily: 'monospace',
-                  fontSize: '0.8rem',
-                  color: 'var(--text-primary)',
-                  boxSizing: 'border-box',
-                  resize: 'vertical',
-                }}
-              />
-            </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
-              <Button variant="secondary" size="sm" onClick={() => setShowEditModal(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" size="sm" type="submit" disabled={saving}>
-                {saving ? 'Saving...' : 'Save Template'}
-              </Button>
+              <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '6px', padding: '12px' }}>
+                {bulkResults.map((item, idx) => (
+                  <div key={idx} style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px dashed #cbd5e1' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>
+                      Document #{idx + 1} &bull; Entity ID: {item.entityId}
+                    </div>
+                    <div dangerouslySetInnerHTML={{ __html: item.rendered }} />
+                  </div>
+                ))}
+              </div>
             </div>
-          </form>
-        </Modal>
-      )}
+          )}
+        </div>
+      </Modal>
+
+      {/* FROZEN HISTORICAL SNAPSHOT MODAL */}
+      <Modal
+        isOpen={Boolean(selectedGenDoc)}
+        onClose={() => setSelectedGenDoc(null)}
+        title={selectedGenDoc ? `Historical Snapshot: ${selectedGenDoc.title}` : ''}
+        maxWidth="900px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Frozen Snapshot &bull; Template Version: {selectedGenDoc?.templateVersion} &bull; Generated: {selectedGenDoc?.createdAt ? new Date(selectedGenDoc.createdAt).toLocaleString() : ''}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const printWindow = window.open('', '_blank');
+                if (!printWindow) return;
+                printWindow.document.write(`
+                  <!DOCTYPE html>
+                  <html>
+                    <head><title>${selectedGenDoc?.title}</title></head>
+                    <body>${selectedGenDoc?.renderedContent}</body>
+                    <script>window.onload = function() { window.print(); window.close(); };</script>
+                  </html>
+                `);
+                printWindow.document.close();
+              }}
+              icon={<Printer size={14} />}
+            >
+              Print Snapshot
+            </Button>
+          </div>
+
+          <div
+            style={{
+              maxHeight: '65vh',
+              overflowY: 'auto',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              padding: '25px',
+              background: '#ffffff',
+              color: '#0f172a',
+            }}
+          >
+            {selectedGenDoc?.renderedContent ? (
+              <div dangerouslySetInnerHTML={{ __html: selectedGenDoc.renderedContent }} />
+            ) : (
+              <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No rendered content available</div>
+            )}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { PoolClient } from 'pg';
 import { coreRepository } from './repository';
+import { documentsRepo } from '../documents/repository.js';
 
 // --- Institutions ---
 export async function createInstitution(req: Request, res: Response, client: PoolClient) {
@@ -430,12 +431,13 @@ export async function bulkImportAcademicRoster(req: Request, res: Response, clie
 // --- Document & Certificate Templates ---
 export async function listTemplates(req: Request, res: Response, client: PoolClient) {
   const type = req.query.type as string | undefined;
-  const templates = await coreRepository.listTemplates(client, req.ctx!.institutionId, type);
+  const context = req.query.context as string | undefined;
+  const templates = await documentsRepo.listTemplates(client, req.ctx!.institutionId, { type, context });
   res.json(templates);
 }
 
 export async function getTemplate(req: Request, res: Response, client: PoolClient) {
-  const template = await coreRepository.getTemplateById(client, req.ctx!.institutionId, req.params.id);
+  const template = await documentsRepo.getTemplateById(client, req.ctx!.institutionId, req.params.id);
   if (!template) {
     return res.status(404).json({ error: 'Template not found' });
   }
@@ -443,7 +445,7 @@ export async function getTemplate(req: Request, res: Response, client: PoolClien
 }
 
 export async function createTemplate(req: Request, res: Response, client: PoolClient) {
-  const template = await coreRepository.createTemplate(
+  const template = await documentsRepo.createTemplate(
     client,
     req.ctx!.institutionId,
     req.body,
@@ -453,34 +455,55 @@ export async function createTemplate(req: Request, res: Response, client: PoolCl
 }
 
 export async function updateTemplate(req: Request, res: Response, client: PoolClient) {
-  const template = await coreRepository.updateTemplate(
-    client,
-    req.ctx!.institutionId,
-    req.params.id,
-    req.body,
-    req.ctx?.membershipId
-  );
-  res.json(template);
+  try {
+    const template = await documentsRepo.updateTemplate(
+      client,
+      req.ctx!.institutionId,
+      req.params.id,
+      req.body,
+      req.ctx?.membershipId
+    );
+    res.json(template);
+  } catch (err: any) {
+    if (err.message && err.message.includes('SYSTEM_TEMPLATE_READONLY')) {
+      return res.status(403).json({ error: err.message, code: 'SYSTEM_TEMPLATE_READONLY' });
+    }
+    throw err;
+  }
 }
 
 export async function deleteTemplate(req: Request, res: Response, client: PoolClient) {
-  const result = await coreRepository.deleteTemplate(
-    client,
-    req.ctx!.institutionId,
-    req.params.id,
-    req.ctx?.membershipId
-  );
-  res.json(result);
+  try {
+    const result = await documentsRepo.deleteTemplate(
+      client,
+      req.ctx!.institutionId,
+      req.params.id,
+      req.ctx?.membershipId
+    );
+    res.json(result);
+  } catch (err: any) {
+    if (err.message && err.message.includes('SYSTEM_TEMPLATE_READONLY')) {
+      return res.status(403).json({ error: err.message, code: 'SYSTEM_TEMPLATE_READONLY' });
+    }
+    throw err;
+  }
 }
 
 export async function renderTemplate(req: Request, res: Response, client: PoolClient) {
-  const { studentId, variables } = req.body || {};
-  const rendered = await coreRepository.renderTemplate(
+  const { studentId, entityId, entityType, variables, saveSnapshot, title } = req.body || {};
+  const rendered = await documentsRepo.renderTemplate(
     client,
     req.ctx!.institutionId,
     req.params.id,
-    studentId,
-    variables
+    {
+      studentId,
+      entityId,
+      entityType,
+      variables,
+      saveSnapshot,
+      title,
+    },
+    req.ctx?.membershipId
   );
   res.json(rendered);
 }

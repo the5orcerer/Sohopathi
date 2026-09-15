@@ -396,10 +396,14 @@ export const coreManifest: ModuleManifest = {
       requiredPermission: 'templates.manage',
       validation: {
         body: z.object({
-          type: z.enum(['tc', 'marksheet', 'certificate', 'testimonial', 'admit_card', 'id_card']),
+          type: z.string().min(1),
+          context: z.string().optional(),
           name: z.string().min(1),
           description: z.string().optional(),
           content: z.string().min(1),
+          pageSize: z.string().optional(),
+          orientation: z.string().optional(),
+          margins: z.any().optional(),
           metadata: z.any().optional(),
         }),
       },
@@ -411,10 +415,14 @@ export const coreManifest: ModuleManifest = {
       requiredPermission: 'templates.manage',
       validation: {
         body: z.object({
-          type: z.enum(['tc', 'marksheet', 'certificate', 'testimonial', 'admit_card', 'id_card']).optional(),
+          type: z.string().min(1).optional(),
+          context: z.string().optional(),
           name: z.string().min(1).optional(),
           description: z.string().optional(),
           content: z.string().min(1).optional(),
+          pageSize: z.string().optional(),
+          orientation: z.string().optional(),
+          margins: z.any().optional(),
           metadata: z.any().optional(),
         }),
       },

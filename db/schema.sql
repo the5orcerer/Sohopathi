@@ -709,10 +709,18 @@ create table if not exists public.sales_leads (
 create table if not exists public.template (
   id uuid primary key default gen_random_uuid(),
   institution_id uuid references public.institution(id) on delete cascade,
-  type text not null check (type in ('tc', 'marksheet', 'certificate', 'testimonial', 'admit_card', 'id_card')),
+  type text not null,
+  context text not null default 'custom',
   name text not null,
   description text,
   content text not null,
+  version int not null default 1,
+  is_system boolean not null default false,
+  is_default boolean not null default false,
+  is_archived boolean not null default false,
+  page_size text not null default 'A4',
+  orientation text not null default 'portrait',
+  margins jsonb default '{"top": "20mm", "bottom": "20mm", "left": "20mm", "right": "20mm"}'::jsonb,
   metadata jsonb default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -724,6 +732,25 @@ create trigger trg_template_updated_at
   for each row execute procedure public.set_updated_at();
 
 create index if not exists idx_template_inst_type on public.template (institution_id, type);
+create index if not exists idx_template_inst_context on public.template (institution_id, context);
+
+create table if not exists public.generated_document (
+  id uuid primary key default gen_random_uuid(),
+  institution_id uuid not null references public.institution(id) on delete cascade,
+  template_id uuid references public.template(id) on delete set null,
+  template_version int not null default 1,
+  document_type text not null,
+  title text not null,
+  entity_type text,
+  entity_id uuid,
+  rendered_content text not null,
+  variables_snapshot jsonb not null default '{}'::jsonb,
+  generated_by_membership_id uuid references public.membership(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_generated_doc_inst_entity on public.generated_document (institution_id, entity_type, entity_id);
+create index if not exists idx_generated_doc_template on public.generated_document (template_id);
 
 -- ----------------------------------------------------------------------------
 -- 13. INDEXES
@@ -741,7 +768,7 @@ declare
     'vehicle','transport_driver','transport_route','transport_stop','transport_route_stop',
     'student_transport_assignment','class_schedule','employee_attendance',
     'custom_field_definition','notification','user_task','institution_setting',
-    'admission_application','template'
+    'admission_application','generated_document'
   ];
 begin
   foreach t in array tenant_tables loop
@@ -788,7 +815,7 @@ declare
     'vehicle','transport_driver','transport_route','transport_stop','transport_route_stop',
     'student_transport_assignment','class_schedule','employee_attendance',
     'custom_field_definition','notification','user_task','institution_setting',
-    'admission_application','template'
+    'admission_application','generated_document'
   ];
 begin
   foreach t in array tenant_tables loop
@@ -801,6 +828,12 @@ begin
     );
   end loop;
 end $$;
+
+alter table public.template enable row level security;
+alter table public.template force row level security;
+drop policy if exists tenant_isolation on public.template;
+create policy tenant_isolation on public.template
+  using (institution_id = public.current_institution_id() or institution_id is null);
 
 alter table public.role_permission enable row level security;
 alter table public.role_permission force row level security;

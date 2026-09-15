@@ -11,3 +11,4 @@ export * from './Student360Modal';
 export * from './NotificationDrawer';
 export * from './UserProfileModal';
 export * from './Pagination';
+export * from './GlobalFilterBar';
