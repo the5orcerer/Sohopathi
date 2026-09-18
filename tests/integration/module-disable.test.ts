@@ -45,6 +45,7 @@ describe('Module Disable Tests', () => {
         ownerName: 'Admin Disable',
       }),
     });
+    expect(res.status).toBe(201);
     const body = (await res.json()) as any;
     instId = body.institutionId;
     adminUserId = body.ownerUserId;

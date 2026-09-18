@@ -1,6 +1,7 @@
 import { spawn, ChildProcess, execSync } from 'child_process';
 import path from 'path';
 import dotenv from 'dotenv';
+import { startContainers, isDockerAvailable } from './db-control';
 
 const rootDir = path.resolve(__dirname, '..');
 
@@ -96,13 +97,14 @@ async function main() {
 `);
 
   // Ensure Docker services are running if docker is available
-  try {
-    execSync('docker compose -f db/docker-compose.yml up -d --remove-orphans', {
-      cwd: rootDir,
-      stdio: 'ignore',
-    });
-    console.log('📦 Local Docker services (Postgres & MinIO) are active.');
-  } catch {
+  if (isDockerAvailable()) {
+    try {
+      startContainers();
+      console.log('📦 Local Docker services (Postgres & MinIO) are active.');
+    } catch (err: any) {
+      console.warn('⚠️  Could not automatically start Docker services:', err.message);
+    }
+  } else {
     console.log('ℹ️  Docker not detected or managed externally. Using configured local database.');
   }
 

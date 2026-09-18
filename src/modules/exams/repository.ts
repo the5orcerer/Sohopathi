@@ -331,7 +331,7 @@ export const examRepository = {
         e.id,
         e.institution_id as "institutionId",
         e.academic_year_id as "academicYearId",
-        ay.name as "academicYearLabel",
+        coalesce(ay.label, ay.name, '') as "academicYearLabel",
         e.name,
         e.term,
         e.start_date as "startDate",

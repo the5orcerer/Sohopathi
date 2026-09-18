@@ -38,15 +38,24 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
     grant all on all tables in schema auth to app_user;
 
     -- Update institution tenant isolation policy to allow creation / lookup when current_institution_id is NULL
-    drop policy if exists tenant_isolation on public.institution;
-    create policy tenant_isolation on public.institution
-      using (id = public.current_institution_id() or public.current_institution_id() is null)
-      with check (true);
+    do $$
+    begin
+      if not exists (
+        select 1 from pg_policies where schemaname = 'public' and tablename = 'institution' and policyname = 'tenant_isolation'
+      ) then
+        create policy tenant_isolation on public.institution
+          using (id = public.current_institution_id() or public.current_institution_id() is null)
+          with check (true);
+      end if;
 
-    -- Allow backend profile management
-    drop policy if exists own_profile on public.profile;
-    drop policy if exists all_profile on public.profile;
-    create policy all_profile on public.profile using (true) with check (true);
+      if not exists (
+        select 1 from pg_policies where schemaname = 'public' and tablename = 'profile' and policyname = 'all_profile'
+      ) then
+        create policy all_profile on public.profile using (true) with check (true);
+      end if;
+    exception
+      when others then null;
+    end $$;
 
     -- Ensure profile has email, status, password_hash, must_change_password, and custom_fields
     alter table public.profile add column if not exists email text;
@@ -393,19 +402,51 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
 
   for (const t of tenantTables) {
     await client.query(`alter table public.${t} force row level security;`);
-    // Ensure standard tenant policy exists for newly added tables
-    await client.query(`
-      do $$
-      begin
-        if not exists (
-          select 1 from pg_policies where schemaname = 'public' and tablename = '${t}' and policyname = 'tenant_isolation'
-        ) then
-          create policy tenant_isolation on public.${t} using (institution_id = public.current_institution_id());
-        end if;
-      exception
-        when others then null;
-      end $$;
-    `);
+    if (t === 'institution') {
+      await client.query(`
+        do $$
+        begin
+          if not exists (
+            select 1 from pg_policies where schemaname = 'public' and tablename = 'institution' and policyname = 'tenant_isolation'
+          ) then
+            create policy tenant_isolation on public.institution
+              using (id = public.current_institution_id() or public.current_institution_id() is null)
+              with check (true);
+          end if;
+        exception
+          when others then null;
+        end $$;
+      `);
+    } else if (['role', 'role_permission', 'template', 'dashboard_layout'].includes(t)) {
+      await client.query(`
+        do $$
+        begin
+          if not exists (
+            select 1 from pg_policies where schemaname = 'public' and tablename = '${t}' and policyname = 'tenant_isolation'
+          ) then
+            create policy tenant_isolation on public.${t}
+              using (institution_id = public.current_institution_id() or institution_id is null)
+              with check (true);
+          end if;
+        exception
+          when others then null;
+        end $$;
+      `);
+    } else {
+      // Ensure standard tenant policy exists for newly added tables
+      await client.query(`
+        do $$
+        begin
+          if not exists (
+            select 1 from pg_policies where schemaname = 'public' and tablename = '${t}' and policyname = 'tenant_isolation'
+          ) then
+            create policy tenant_isolation on public.${t} using (institution_id = public.current_institution_id());
+          end if;
+        exception
+          when others then null;
+        end $$;
+      `);
+    }
   }
 
   rlsInitialized = true;
@@ -417,8 +458,33 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
 export async function withTenantContext<T>(
   institutionId: string | null,
   fn: (client: PoolClient) => Promise<T>
+): Promise<T>;
+export async function withTenantContext<T>(
+  poolOrClient: Pool | PoolClient,
+  institutionId: string | null,
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T>;
+export async function withTenantContext<T>(
+  arg1: Pool | PoolClient | string | null,
+  arg2: string | null | ((client: PoolClient) => Promise<T>),
+  arg3?: (client: PoolClient) => Promise<T>
 ): Promise<T> {
-  const client = await pool.connect();
+  let targetPoolOrClient: Pool | PoolClient = pool;
+  let institutionId: string | null = null;
+  let fn: (client: PoolClient) => Promise<T>;
+
+  if (typeof arg2 === 'function') {
+    institutionId = arg1 as string | null;
+    fn = arg2;
+  } else {
+    targetPoolOrClient = (arg1 as Pool | PoolClient) || pool;
+    institutionId = arg2 as string | null;
+    fn = arg3!;
+  }
+
+  const isClient = typeof (targetPoolOrClient as any).release === 'function' && typeof (targetPoolOrClient as any).query === 'function';
+  const client: PoolClient = isClient ? (targetPoolOrClient as PoolClient) : await (targetPoolOrClient as Pool).connect();
+
   try {
     await client.query('BEGIN');
     if (institutionId) {
@@ -430,12 +496,19 @@ export async function withTenantContext<T>(
       await client.query(`SET LOCAL app.current_institution_id = '${institutionId}'`);
     }
     const result = await fn(client);
-    await client.query('COMMIT');
+    try {
+      await client.query('COMMIT');
+    } catch {
+      // Ignore if already committed
+    }
     return result;
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
-    client.release();
+    if (!isClient) {
+      client.release();
+    }
   }
 }
+

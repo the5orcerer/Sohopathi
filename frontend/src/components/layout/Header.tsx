@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSession } from '../../context/SessionContext';
-import { Sun, Moon, LogOut, Menu, Search, Building2, UserCheck, Bell, PanelLeftClose } from 'lucide-react';
+import { useLanguage } from '../../context/LanguageContext';
+import { Sun, Moon, LogOut, Menu, Search, Building2, UserCheck, Bell, PanelLeftClose, Languages } from 'lucide-react';
 import { UserProfileModal } from '../common/UserProfileModal';
 import { NotificationDrawer } from '../common/NotificationDrawer';
 import { fetchNotifications } from '../../services/api';
@@ -19,6 +20,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSidebar,
 }) => {
   const { user, activeMembership, institutionName, theme, toggleTheme, logout } = useSession();
+  const { locale, toggleLocale, t } = useLanguage();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showNotificationDrawer, setShowNotificationDrawer] = useState(false);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
@@ -158,7 +160,7 @@ export const Header: React.FC<HeaderProps> = ({
           }}
         >
           <Search size={16} />
-          <span style={{ flex: 1, textAlign: 'left' }}>Search or type a command...</span>
+          <span style={{ flex: 1, textAlign: 'left' }}>{t('common.search', 'Search or type a command...')}</span>
           <kbd
             style={{
               fontSize: '0.65rem',
@@ -175,6 +177,36 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right section */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {/* Language Switcher */}
+          <button
+            onClick={toggleLocale}
+            style={{
+              padding: '0.35rem 0.6rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-subtle)',
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+            aria-label="Change Language / ভাষা পরিবর্তন"
+            title="Change Language / ভাষা পরিবর্তন"
+          >
+            <Languages size={15} />
+            <span>{locale === 'en' ? 'বাংলা' : 'English'}</span>
+          </button>
+
           <button
             onClick={() => setShowNotificationDrawer(true)}
             style={{

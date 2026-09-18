@@ -18,15 +18,20 @@ import {
   Download,
   ArrowUpRight,
   Layers,
+  Receipt,
+  Bell,
+  FileCheck,
 } from 'lucide-react';
 import { Button, Badge } from '../common';
 import { useSession } from '../../context/SessionContext';
+import { useLanguage } from '../../context/LanguageContext';
 
 interface SchoolPulseBannerProps {
   onNavigate: (path: string) => void;
 }
 
 export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate }) => {
+  const { t } = useLanguage();
   const { activeMembership } = useSession();
   const role = activeMembership?.roleName?.toLowerCase() || '';
   const isStudent = role.includes('student');
@@ -35,7 +40,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
   const [studentCount, setStudentCount] = useState<number>(0);
   const [memberCount, setMemberCount] = useState<number>(0);
   const [classCount, setClassCount] = useState<number>(0);
-  const [attendanceRate, setAttendanceRate] = useState<number>(94);
+  const [attendanceRate, setAttendanceRate] = useState<number>(0);
   const [pendingAdmissions, setPendingAdmissions] = useState<number>(0);
   const [admittedCount, setAdmittedCount] = useState<number>(0);
   const [showAnalytics, setShowAnalytics] = useState(false);
@@ -128,7 +133,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-              Enrolled Students
+              {t('dashboard.students_enrolled', 'Enrolled Students')}
             </span>
             <div
               style={{
@@ -150,7 +155,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
               {loading ? '...' : studentCount}
             </span>
             <span style={{ fontSize: '0.75rem', color: 'var(--status-success)', display: 'flex', alignItems: 'center' }}>
-              <ArrowUpRight size={12} /> Active
+              <ArrowUpRight size={12} /> {t('dashboard.active_status', 'Active')}
             </span>
           </div>
         </div>
@@ -173,7 +178,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-              Faculty & Staff
+              {t('dashboard.faculty_staff', 'Faculty & Staff')}
             </span>
             <div
               style={{
@@ -194,7 +199,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
             <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
               {loading ? '...' : memberCount}
             </span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Members</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('dashboard.members_label', 'Members')}</span>
           </div>
         </div>
 
@@ -216,7 +221,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-              Academic Classes
+              {t('dashboard.active_classes', 'Academic Classes')}
             </span>
             <div
               style={{
@@ -237,7 +242,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
             <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
               {loading ? '...' : classCount}
             </span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Active</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('dashboard.active_status', 'Active')}</span>
           </div>
         </div>
 
@@ -259,7 +264,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-              Daily Attendance
+              {t('dashboard.attendance_rate', 'Daily Attendance')}
             </span>
             <div
               style={{
@@ -281,7 +286,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
               {loading ? '...' : `${attendanceRate}%`}
             </span>
             <span style={{ fontSize: '0.75rem', color: attendanceRate >= 80 ? 'var(--status-success)' : 'var(--status-danger)' }}>
-              {attendanceRate >= 80 ? 'Healthy' : 'Below Target'}
+              {attendanceRate >= 80 ? t('dashboard.healthy', 'Healthy') : t('dashboard.below_target', 'Below Target')}
             </span>
           </div>
         </div>
@@ -304,7 +309,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-              New Admissions
+              {t('dashboard.pending_admissions', 'New Admissions')}
             </span>
             <div
               style={{
@@ -325,7 +330,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
             <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
               {loading ? '...' : pendingAdmissions}
             </span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--status-warning)' }}>Pending Review</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--status-warning)' }}>{t('dashboard.pending_review', 'Pending Review')}</span>
           </div>
         </div>
       </div>
@@ -344,21 +349,30 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginRight: '0.25rem' }}>
-            Quick Operational Actions:
+            {t('dashboard.quick_actions', 'Quick Operational Shortcuts')}:
           </span>
           <Button variant="secondary" size="sm" onClick={() => onNavigate('/attendance')}>
-            <CalendarCheck size={13} style={{ marginRight: '0.35rem' }} /> Daily Attendance
+            <CalendarCheck size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.take_attendance', 'Take Attendance')}
           </Button>
           {!isStudent && (
             <>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/fees')}>
+                <Receipt size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.collect_fees', 'Collect Fees')}
+              </Button>
               <Button variant="secondary" size="sm" onClick={() => onNavigate('/admissions')}>
-                <UserPlus size={13} style={{ marginRight: '0.35rem' }} /> New Admission
+                <UserPlus size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.admissions', 'Admissions')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/notices')}>
+                <Bell size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.create_notice', 'New Notice')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/requests')}>
+                <FileCheck size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.review_requests', 'Review Requests')}
               </Button>
               <Button variant="secondary" size="sm" onClick={() => onNavigate('/students')}>
-                <GraduationCap size={13} style={{ marginRight: '0.35rem' }} /> Student Directory
+                <GraduationCap size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.students', 'Students')}
               </Button>
               <Button variant="secondary" size="sm" onClick={() => onNavigate('/academic')}>
-                <Layers size={13} style={{ marginRight: '0.35rem' }} /> Classes & Sections
+                <Layers size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.academic', 'Classes & Sections')}
               </Button>
             </>
           )}
@@ -371,7 +385,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
             onClick={() => onNavigate('/reports')}
           >
             <BarChart3 size={13} style={{ marginRight: '0.35rem' }} />
-            Reports Center
+            {t('dashboard.reports_center', 'Reports Center')}
           </Button>
           <Button
             variant={showAnalytics ? 'primary' : 'secondary'}
@@ -379,9 +393,9 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
             onClick={() => setShowAnalytics(!showAnalytics)}
           >
             <TrendingUp size={13} style={{ marginRight: '0.35rem' }} />
-            {showAnalytics ? 'Hide Quick Stats' : 'Quick Stats'}
+            {showAnalytics ? t('dashboard.hide_stats', 'Hide Quick Stats') : t('dashboard.quick_stats', 'Quick Stats')}
           </Button>
-          <Button variant="ghost" size="sm" onClick={handleExportFullSchoolReport} title="Export School Summary CSV">
+          <Button variant="ghost" size="sm" onClick={handleExportFullSchoolReport} title={t('dashboard.export_report', 'Download Executive Report')}>
             <Download size={14} />
           </Button>
         </div>

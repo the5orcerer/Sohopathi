@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { SessionProvider, useSession } from './context/SessionContext';
+import { LanguageProvider } from './context/LanguageContext';
 import AppLayout from './components/layout/AppLayout';
 import { AttendancePage } from './pages/AttendancePage';
 import { NoticesPage } from './pages/NoticesPage';
@@ -152,9 +153,11 @@ const MainAppContent: React.FC = () => {
 
 export function App() {
   return (
-    <SessionProvider>
-      <MainAppContent />
-    </SessionProvider>
+    <LanguageProvider>
+      <SessionProvider>
+        <MainAppContent />
+      </SessionProvider>
+    </LanguageProvider>
   );
 }
 

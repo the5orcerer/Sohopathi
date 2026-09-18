@@ -57,92 +57,116 @@ export const ClassOverviewModal: React.FC<ClassOverviewModalProps> = ({
 
   if (!classItem) return null;
 
+  const className = classItem.name;
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={`Class Pulse & Overview: ${classItem.name}`}
-      maxWidth="max-w-3xl"
+      title={`Class Overview: ${className}`}
+      maxWidth="780px"
     >
-      <div className="space-y-6">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         {loading && (
-          <div className="py-12 flex flex-col items-center justify-center text-gray-500">
-            <RefreshCw className="w-8 h-8 animate-spin text-indigo-600 mb-3" />
-            <p className="text-sm font-medium">Aggregating real-time class metrics & timetable...</p>
+          <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+            <RefreshCw size={28} className="animate-spin" style={{ margin: '0 auto 0.5rem', display: 'block', color: 'var(--brand-primary)' }} />
+            <p style={{ fontSize: '0.85rem', margin: 0 }}>Aggregating real-time class metrics & timetable...</p>
           </div>
         )}
 
         {error && (
-          <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 flex items-center gap-3 text-red-700 dark:text-red-400">
-            <AlertCircle className="w-5 h-5 flex-shrink-0" />
-            <p className="text-sm">{error}</p>
+          <div
+            style={{
+              padding: '0.85rem 1rem',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#ef4444',
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.6rem',
+            }}
+          >
+            <AlertCircle size={16} style={{ flexShrink: 0 }} />
+            <p style={{ margin: 0 }}>{error}</p>
           </div>
         )}
 
         {!loading && data && (
           <>
             {/* Top KPI Metrics */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40">
-                <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">
-                  <Users className="w-4 h-4 text-indigo-500" />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+              <div style={{ padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--card-bg, var(--surface))' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>
+                  <Users size={14} style={{ color: 'var(--brand-primary)' }} />
                   <span>Enrolled Students</span>
                 </div>
-                <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                   {data.totalStudents}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                   Across {data.sections.length} active section{data.sections.length !== 1 ? 's' : ''}
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40">
-                <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">
-                  <CalendarCheck className="w-4 h-4 text-emerald-500" />
+              <div style={{ padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--card-bg, var(--surface))' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>
+                  <CalendarCheck size={14} style={{ color: '#10b981' }} />
                   <span>Attendance Rate Today</span>
                 </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#10b981' }}>
                     {data.todayAttendance.attendanceRate}%
                   </span>
-                  <span className="text-xs text-gray-500">
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                     ({data.todayAttendance.present} Present)
                   </span>
                 </div>
-                <div className="w-full bg-gray-200 dark:bg-gray-700 h-1.5 rounded-full mt-2 overflow-hidden">
+                <div style={{ width: '100%', background: 'var(--border)', height: '6px', borderRadius: '3px', marginTop: '0.5rem', overflow: 'hidden' }}>
                   <div
-                    className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(100, data.todayAttendance.attendanceRate)}%` }}
+                    style={{
+                      background: '#10b981',
+                      height: '100%',
+                      borderRadius: '3px',
+                      width: `${Math.min(100, data.todayAttendance.attendanceRate)}%`,
+                      transition: 'width 0.5s ease',
+                    }}
                   />
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40">
-                <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">
-                  <UserX className="w-4 h-4 text-amber-500" />
+              <div style={{ padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--card-bg, var(--surface))' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>
+                  <UserX size={14} style={{ color: '#f59e0b' }} />
                   <span>Absences & Excused</span>
                 </div>
-                <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                   {data.todayAttendance.absent}
-                  <span className="text-xs font-normal text-gray-500 ml-2">
+                  <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)', marginLeft: '0.4rem' }}>
                     ({data.todayAttendance.excused} excused)
                   </span>
                 </div>
-                <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                <div style={{ fontSize: '0.75rem', color: '#f59e0b', marginTop: '0.2rem' }}>
                   {data.todayAttendance.late} late check-in{data.todayAttendance.late !== 1 ? 's' : ''}
                 </div>
               </div>
             </div>
 
             {/* Currently Running Period Card */}
-            <div className="rounded-2xl border-2 border-indigo-500/30 dark:border-indigo-500/20 bg-gradient-to-br from-indigo-50/50 via-white to-purple-50/30 dark:from-indigo-950/20 dark:via-gray-900 dark:to-purple-950/20 p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                  </span>
-                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+            <div
+              style={{
+                borderRadius: 'var(--radius-md)',
+                border: '1.5px solid rgba(99, 102, 241, 0.3)',
+                background: 'rgba(99, 102, 241, 0.05)',
+                padding: '1.25rem',
+                boxShadow: 'var(--shadow-sm)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--brand-primary)' }}>
                     Live Telemetry: Active Period
                   </span>
                 </div>
@@ -150,8 +174,8 @@ export const ClassOverviewModal: React.FC<ClassOverviewModalProps> = ({
                   <Button
                     size="sm"
                     variant="secondary"
-                    className="text-xs py-1 h-7 border-indigo-300 dark:border-indigo-700"
                     onClick={() => onOpenSubstitute(data.currentPeriod)}
+                    style={{ fontSize: '0.75rem', padding: '3px 10px' }}
                   >
                     Substitute / Excuse
                   </Button>
@@ -159,32 +183,32 @@ export const ClassOverviewModal: React.FC<ClassOverviewModalProps> = ({
               </div>
 
               {data.currentPeriod ? (
-                <div className="space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
                     <div>
-                      <h4 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                        <BookOpen className="w-5 h-5 text-indigo-600" />
+                      <h4 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <BookOpen size={18} style={{ color: 'var(--brand-primary)' }} />
                         {data.currentPeriod.subjectName}
-                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300">
+                        <span style={{ fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.15)', color: 'var(--brand-primary)' }}>
                           {data.currentPeriod.sectionName}
                         </span>
                       </h4>
-                      <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
-                        <UserCheck className="w-4 h-4 text-gray-400" />
-                        Instructor: <strong className="text-gray-900 dark:text-white">{data.currentPeriod.teacherName || 'Assigned Faculty'}</strong>
+                      <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <UserCheck size={14} style={{ color: 'var(--text-muted)' }} />
+                        Instructor: <strong style={{ color: 'var(--text-primary)' }}>{data.currentPeriod.teacherName || 'Assigned Faculty'}</strong>
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-4 text-sm">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                        <Clock className="w-4 h-4 text-indigo-500" />
-                        <span className="font-semibold text-gray-800 dark:text-gray-200">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.82rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.65rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                        <Clock size={14} style={{ color: 'var(--brand-primary)' }} />
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                           {data.currentPeriod.startTime} - {data.currentPeriod.endTime}
                         </span>
                       </div>
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                        <MapPin className="w-4 h-4 text-purple-500" />
-                        <span className="font-semibold text-gray-800 dark:text-gray-200">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.65rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                        <MapPin size={14} style={{ color: '#8b5cf6' }} />
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                           {data.currentPeriod.roomNumber || 'Room 4022'}
                         </span>
                       </div>
@@ -192,8 +216,8 @@ export const ClassOverviewModal: React.FC<ClassOverviewModalProps> = ({
                   </div>
 
                   {data.currentPeriod.subStatus === 'substitute' && (
-                    <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    <div style={{ padding: '0.6rem 0.85rem', borderRadius: 'var(--radius-sm)', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)', fontSize: '0.78rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <AlertCircle size={14} style={{ flexShrink: 0 }} />
                       <span>
                         <strong>Substituted Period:</strong> Covered by <em>{data.currentPeriod.substituteTeacherName || 'Substitute Teacher'}</em>
                         {data.currentPeriod.subReason ? ` (${data.currentPeriod.subReason})` : ''}
@@ -202,8 +226,8 @@ export const ClassOverviewModal: React.FC<ClassOverviewModalProps> = ({
                   )}
 
                   {data.currentPeriod.subStatus === 'cancelled' && (
-                    <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-xs text-red-800 dark:text-red-300 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                    <div style={{ padding: '0.6rem 0.85rem', borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', fontSize: '0.78rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <AlertCircle size={14} style={{ flexShrink: 0 }} />
                       <span>
                         <strong>Period Cancelled:</strong> {data.currentPeriod.subReason || 'Instructor on excused emergency leave.'}
                       </span>
@@ -211,12 +235,12 @@ export const ClassOverviewModal: React.FC<ClassOverviewModalProps> = ({
                   )}
                 </div>
               ) : (
-                <div className="py-4 text-center">
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                <div style={{ padding: '1rem', textAlign: 'center' }}>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
                     No active class period right now.
                   </p>
                   {data.nextPeriod && (
-                    <div className="mt-2 inline-flex items-center gap-2 text-xs text-indigo-600 dark:text-indigo-400 font-medium px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/50">
+                    <div style={{ marginTop: '0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--brand-primary)', padding: '3px 10px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.1)' }}>
                       <span>Next upcoming:</span>
                       <strong>{data.nextPeriod.subjectName} ({data.nextPeriod.startTime}) in {data.nextPeriod.roomNumber}</strong>
                     </div>
@@ -227,28 +251,31 @@ export const ClassOverviewModal: React.FC<ClassOverviewModalProps> = ({
 
             {/* Sections & Assigned Class Teachers */}
             <div>
-              <h4 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3 flex items-center gap-2">
-                <span>Sections & Class Mentors</span>
+              <h4 style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 0.6rem' }}>
+                Sections & Class Mentors
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.6rem' }}>
                 {data.sections.map((sec: any) => (
                   <div
                     key={sec.id}
-                    className="p-3.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/60 flex items-center justify-between"
+                    style={{
+                      padding: '0.85rem 1rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--card-bg, var(--surface))',
+                    }}
                   >
-                    <div>
-                      <div className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                        {sec.name}
-                        <span className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                          {sec.studentCount || 0} students
-                        </span>
-                      </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
-                        <span>Class Teacher / Manager:</span>
-                        <strong className="text-indigo-600 dark:text-indigo-400">
-                          {sec.classTeacherName || 'Unassigned'}
-                        </strong>
-                      </div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {sec.name}
+                      <span style={{ fontSize: '0.7rem', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg)', color: 'var(--text-muted)' }}>
+                        {sec.studentCount || 0} students
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <span>Class Teacher / Manager:</span>
+                      <strong style={{ color: 'var(--brand-primary)' }}>
+                        {sec.classTeacherName || 'Unassigned'}
+                      </strong>
                     </div>
                   </div>
                 ))}
@@ -258,19 +285,28 @@ export const ClassOverviewModal: React.FC<ClassOverviewModalProps> = ({
             {/* Faculty Allocation */}
             {data.assignedTeachers && data.assignedTeachers.length > 0 && (
               <div>
-                <h4 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">
+                <h4 style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 0.6rem' }}>
                   Subject Faculty
                 </h4>
-                <div className="flex flex-wrap gap-2">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                   {data.assignedTeachers.map((teach: any, idx: number) => (
                     <div
                       key={idx}
-                      className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 text-xs flex items-center gap-2"
+                      style={{
+                        padding: '0.4rem 0.65rem',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border)',
+                        background: 'var(--card-bg, var(--surface))',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                      }}
                     >
-                      <span className="font-medium text-gray-900 dark:text-white">{teach.teacherName}</span>
-                      <span className="text-gray-400">•</span>
-                      <span className="text-indigo-600 dark:text-indigo-400">{teach.subjectName}</span>
-                      <span className="text-gray-400">({teach.sectionName})</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{teach.teacherName}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>•</span>
+                      <span style={{ color: 'var(--brand-primary)' }}>{teach.subjectName}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>({teach.sectionName})</span>
                     </div>
                   ))}
                 </div>
@@ -279,7 +315,7 @@ export const ClassOverviewModal: React.FC<ClassOverviewModalProps> = ({
           </>
         )}
 
-        <div className="flex justify-end pt-4 border-t border-gray-200 dark:border-gray-800">
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Button, Badge, Modal, EmptyState } from '../components/common';
 import { useSession } from '../context/SessionContext';
+import { useLanguage } from '../context/LanguageContext';
 import {
   fetchMemberRequests,
   createMemberRequest,
@@ -27,6 +28,7 @@ import type { MemberRequestItem } from '../types';
 
 export const RequestsPage: React.FC = () => {
   const { activeMembership } = useSession();
+  const { t } = useLanguage();
 
   const [activeTab, setActiveTab] = useState<'my' | 'approvals'>('my');
   const [requests, setRequests] = useState<MemberRequestItem[]>([]);
@@ -192,16 +194,16 @@ export const RequestsPage: React.FC = () => {
   const getTypeBadge = (type?: string) => {
     switch (type) {
       case 'leave':
-        return <Badge tone="warning">Leave / Absence</Badge>;
+        return <Badge tone="warning">{t('requests.leave', 'Leave / Absence')}</Badge>;
       case 'break':
-        return <Badge tone="neutral">Break Request</Badge>;
+        return <Badge tone="neutral">{t('requests.break', 'Break Request')}</Badge>;
       case 'schedule':
       case 'schedule_change':
-        return <Badge tone="info">Schedule Adjustment</Badge>;
+        return <Badge tone="info">{t('requests.schedule', 'Schedule Adjustment')}</Badge>;
       case 'resource':
-        return <Badge tone="primary">Resource Request</Badge>;
+        return <Badge tone="primary">{t('requests.resource', 'Resource Request')}</Badge>;
       default:
-        return <Badge tone="neutral">General</Badge>;
+        return <Badge tone="neutral">{t('requests.general', 'General Request')}</Badge>;
     }
   };
 
@@ -209,171 +211,321 @@ export const RequestsPage: React.FC = () => {
     switch (status) {
       case 'approved':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Approved
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 9px',
+              borderRadius: '12px',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              background: 'rgba(16, 185, 129, 0.15)',
+              color: '#10b981',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+            }}
+          >
+            <CheckCircle2 size={13} /> {t('common.approved', 'Approved')}
           </span>
         );
       case 'rejected':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300">
-            <XCircle className="w-3.5 h-3.5" /> Rejected
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 9px',
+              borderRadius: '12px',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              background: 'rgba(239, 68, 68, 0.15)',
+              color: '#ef4444',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+            }}
+          >
+            <XCircle size={13} /> {t('common.rejected', 'Rejected')}
           </span>
         );
       case 'in_review':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">
-            <Clock className="w-3.5 h-3.5" /> In Review
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 9px',
+              borderRadius: '12px',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              background: 'rgba(99, 102, 241, 0.15)',
+              color: 'var(--brand-primary, #6366f1)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+            }}
+          >
+            <Clock size={13} /> In Review
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
-            <Clock className="w-3.5 h-3.5" /> Pending
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 9px',
+              borderRadius: '12px',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              background: 'rgba(245, 158, 11, 0.15)',
+              color: '#f59e0b',
+              border: '1px solid rgba(245, 158, 11, 0.3)',
+            }}
+          >
+            <Clock size={13} /> {t('common.pending', 'Pending')}
           </span>
         );
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-indigo-900 via-indigo-800 to-purple-900 rounded-3xl p-6 sm:p-8 text-white shadow-lg">
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-xs font-medium text-indigo-200">
-            <Sparkles className="w-3.5 h-3.5" />
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1.25rem',
+          background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4c1d95 100%)',
+          borderRadius: 'var(--radius-lg, 12px)',
+          padding: '1.5rem 2rem',
+          color: '#ffffff',
+          boxShadow: 'var(--shadow-md)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+        }}
+      >
+        <div style={{ maxWidth: '650px' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: '20px',
+              background: 'rgba(255, 255, 255, 0.12)',
+              backdropFilter: 'blur(8px)',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              color: '#c7d2fe',
+              marginBottom: '0.5rem',
+            }}
+          >
+            <Sparkles size={13} />
             <span>Manager-Routed Workflow Engine</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-            Requests & Approvals Hub
+          <h1 style={{ fontSize: '1.6rem', fontWeight: 800, margin: '0 0 0.35rem', letterSpacing: '-0.02em', color: '#ffffff' }}>
+            {t('requests.title', 'Requests & Approvals Hub')}
           </h1>
-          <p className="text-indigo-200 text-sm max-w-xl">
-            Submit leave, breaks, schedule swaps, or resources directly to your assigned
-            Class Teacher or Department Manager with automated attendance excusal.
+          <p style={{ fontSize: '0.85rem', color: '#c7d2fe', margin: 0, lineHeight: 1.5 }}>
+            {t('requests.subtitle', 'Submit leave, breaks, schedule swaps, or resources directly to your assigned Class Teacher or Department Manager with automated attendance excusal.')}
           </p>
         </div>
 
         <div>
           <Button
             variant="primary"
-            className="bg-white text-indigo-900 hover:bg-indigo-50 border-0 font-bold shadow-md hover:shadow-lg transition-all"
             onClick={() => setIsCreateOpen(true)}
+            icon={<Plus size={16} />}
+            style={{
+              background: '#ffffff',
+              color: '#312e81',
+              fontWeight: 700,
+              border: 'none',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+            }}
           >
-            <Plus className="w-4 h-4 mr-2" />
-            New Request
+            {t('requests.new_request', 'New Request')}
           </Button>
         </div>
       </div>
 
       {error && (
-        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-400 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+        <div
+          style={{
+            padding: '0.85rem 1.25rem',
+            borderRadius: 'var(--radius-sm)',
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            color: '#ef4444',
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+          }}
+        >
+          <AlertCircle size={16} style={{ flexShrink: 0 }} />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Tabs & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-2 p-1 rounded-2xl bg-gray-100 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 w-fit">
+      {/* Tabs & Filter Bar */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '1rem',
+        }}
+      >
+        {/* Pill Tab Bar */}
+        <div className="pill-tab-bar">
           <button
-            className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all ${
-              activeTab === 'my'
-                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
+            type="button"
+            className={`pill-tab ${activeTab === 'my' ? 'active' : ''}`}
             onClick={() => {
               setActiveTab('my');
               setSelectedIds([]);
             }}
           >
-            My Requests ({myRequests.length})
+            {t('requests.my_requests', 'My Requests')} ({myRequests.length})
           </button>
           {!isStudent && (
             <button
-              className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all ${
-                activeTab === 'approvals'
-                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
+              type="button"
+              className={`pill-tab ${activeTab === 'approvals' ? 'active' : ''}`}
               onClick={() => {
                 setActiveTab('approvals');
                 setSelectedIds([]);
               }}
             >
-              Manager Approvals ({incomingApprovals.length})
+              {t('requests.manager_approvals', 'Manager Approvals')} ({incomingApprovals.length})
             </button>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative min-w-[200px]">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        {/* Filter Controls */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.6rem' }}>
+          <div style={{ position: 'relative', minWidth: '220px' }}>
+            <Search
+              size={14}
+              style={{
+                position: 'absolute',
+                left: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--text-muted)',
+                pointerEvents: 'none',
+              }}
+            />
             <input
               type="text"
-              placeholder="Search requests..."
-              className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder={t('requests.search_placeholder', 'Search requests...')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.55rem 0.8rem 0.55rem 2.2rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--text-primary)',
+                fontSize: '0.85rem',
+                outline: 'none',
+              }}
             />
           </div>
 
           <select
-            className="px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
+            style={{
+              padding: '0.55rem 0.85rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              color: 'var(--text-primary)',
+              fontSize: '0.85rem',
+              outline: 'none',
+              cursor: 'pointer',
+            }}
           >
-            <option value="all">All Types</option>
-            <option value="leave">Leave / Absence</option>
-            <option value="break">Break</option>
-            <option value="schedule">Schedule Swap</option>
-            <option value="resource">Resource</option>
-            <option value="general">General</option>
+            <option value="all">{t('requests.all_types', 'All Request Types')}</option>
+            <option value="leave">{t('requests.leave', 'Leave / Absence')}</option>
+            <option value="break">{t('requests.break', 'Break')}</option>
+            <option value="schedule">{t('requests.schedule', 'Schedule Adjustment')}</option>
+            <option value="resource">{t('requests.resource', 'Resource')}</option>
+            <option value="general">{t('requests.general', 'General')}</option>
           </select>
 
           <select
-            className="px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
+            style={{
+              padding: '0.55rem 0.85rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              color: 'var(--text-primary)',
+              fontSize: '0.85rem',
+              outline: 'none',
+              cursor: 'pointer',
+            }}
           >
-            <option value="all">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
+            <option value="all">{t('common.all', 'All Statuses')}</option>
+            <option value="pending">{t('common.pending', 'Pending')}</option>
+            <option value="approved">{t('common.approved', 'Approved')}</option>
+            <option value="rejected">{t('common.rejected', 'Rejected')}</option>
           </select>
 
-          <Button variant="secondary" size="sm" onClick={loadRequests}>
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <Button variant="secondary" size="sm" onClick={loadRequests} title="Refresh requests">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </Button>
         </div>
       </div>
 
       {/* Bulk Action Toolbar for Manager Approvals */}
       {activeTab === 'approvals' && selectedIds.length > 0 && (
-        <div className="p-3.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border-2 border-indigo-200 dark:border-indigo-800/80 flex items-center justify-between shadow-sm animate-in fade-in">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+        <div
+          style={{
+            padding: '0.85rem 1.25rem',
+            borderRadius: 'var(--radius-md)',
+            background: 'rgba(99, 102, 241, 0.1)',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--brand-primary, #6366f1)' }}>
               {selectedIds.length} Request{selectedIds.length > 1 ? 's' : ''} Selected
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Button
               size="sm"
               variant="primary"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-1 h-8"
               onClick={() => handleBulkStatus('approved')}
               disabled={bulkActionLoading}
+              icon={<CheckCircle2 size={14} />}
+              style={{ background: '#059669', color: '#fff', border: 'none' }}
             >
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-              Bulk Approve
+              {t('requests.bulk_approve', 'Bulk Approve')}
             </Button>
             <Button
               size="sm"
               variant="secondary"
-              className="border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 font-semibold text-xs py-1 h-8"
               onClick={() => handleBulkStatus('rejected')}
               disabled={bulkActionLoading}
+              icon={<XCircle size={14} />}
+              style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444' }}
             >
-              <XCircle className="w-3.5 h-3.5 mr-1" />
-              Bulk Reject
+              {t('requests.bulk_reject', 'Bulk Reject')}
             </Button>
           </div>
         </div>
@@ -381,34 +533,45 @@ export const RequestsPage: React.FC = () => {
 
       {/* Requests List */}
       {loading ? (
-        <div className="py-20 flex flex-col items-center justify-center text-gray-500">
-          <RefreshCw className="w-8 h-8 animate-spin text-indigo-600 mb-3" />
-          <p className="text-sm font-medium">Loading requests & manager routing...</p>
+        <div style={{ textAlign: 'center', padding: '4rem 1rem', color: 'var(--text-muted)' }}>
+          <RefreshCw size={28} className="animate-spin" style={{ margin: '0 auto 0.75rem', display: 'block', color: 'var(--brand-primary)' }} />
+          <p style={{ fontSize: '0.9rem', margin: 0 }}>Loading requests & manager routing...</p>
         </div>
       ) : filteredList.length === 0 ? (
         <EmptyState
-          title={activeTab === 'my' ? 'No Requests Submitted' : 'No Incoming Approvals'}
+          title={activeTab === 'my' ? t('requests.no_requests', 'No Requests Submitted') : 'No Incoming Approvals'}
           description={
             activeTab === 'my'
-              ? 'You have not submitted any leave, break, or schedule requests yet.'
+              ? t('requests.no_requests_desc', 'You have not submitted any leave, break, or schedule requests yet.')
               : 'There are no pending requests assigned to you for review.'
           }
-          icon={<GitPullRequest className="w-12 h-12 text-gray-300" />}
-          actionLabel={activeTab === 'my' ? 'Submit First Request' : undefined}
+          icon={<GitPullRequest size={44} style={{ opacity: 0.4 }} />}
+          actionLabel={activeTab === 'my' ? t('requests.submit_first', 'Submit First Request') : undefined}
           onAction={activeTab === 'my' ? () => setIsCreateOpen(true) : undefined}
         />
       ) : (
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           {activeTab === 'approvals' && (
-            <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0 0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
               <button
-                className="flex items-center gap-2 hover:text-gray-700 dark:hover:text-gray-200"
+                type="button"
                 onClick={handleToggleSelectAll}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  background: 'none',
+                  border: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  fontSize: 'inherit',
+                  fontWeight: 600,
+                }}
               >
                 {selectedIds.length === filteredList.length ? (
-                  <CheckSquare className="w-4 h-4 text-indigo-600" />
+                  <CheckSquare size={16} style={{ color: 'var(--brand-primary)' }} />
                 ) : (
-                  <Square className="w-4 h-4 text-gray-400" />
+                  <Square size={16} style={{ color: 'var(--text-muted)' }} />
                 )}
                 <span>Select All ({filteredList.length})</span>
               </button>
@@ -420,101 +583,129 @@ export const RequestsPage: React.FC = () => {
             return (
               <div
                 key={req.id}
-                className={`p-5 rounded-2xl border transition-all ${
-                  isSelected
-                    ? 'border-indigo-500 bg-indigo-50/20 dark:bg-indigo-950/20 shadow-sm'
-                    : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/60 hover:border-gray-300 dark:hover:border-gray-700'
-                }`}
+                style={{
+                  background: 'var(--card-bg, var(--surface))',
+                  border: isSelected ? '1.5px solid var(--brand-primary, #6366f1)' : '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md, 8px)',
+                  padding: '1.25rem 1.5rem',
+                  boxShadow: 'var(--shadow-sm)',
+                  transition: 'all var(--transition-fast)',
+                }}
               >
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                  <div className="flex items-start gap-3">
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    gap: '1rem',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', flex: 1, minWidth: '260px' }}>
                     {activeTab === 'approvals' && (
                       <button
-                        className="mt-1 flex-shrink-0 text-indigo-600 focus:outline-none"
+                        type="button"
                         onClick={() => handleToggleSelect(req.id)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          marginTop: '2px',
+                          padding: 0,
+                        }}
                       >
                         {isSelected ? (
-                          <CheckSquare className="w-5 h-5 text-indigo-600" />
+                          <CheckSquare size={18} style={{ color: 'var(--brand-primary)' }} />
                         ) : (
-                          <Square className="w-5 h-5 text-gray-400 hover:text-gray-600" />
+                          <Square size={18} style={{ color: 'var(--text-muted)' }} />
                         )}
                       </button>
                     )}
 
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {getTypeBadge(req.requestType || req.category)}
-                        <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                        <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
                           {req.title}
                         </h3>
                       </div>
 
-                      <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-line mt-1">
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0.2rem 0', whiteSpace: 'pre-line', lineHeight: 1.5 }}>
                         {req.description}
                       </p>
 
-                      <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500 dark:text-gray-400 pt-2">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', fontSize: '0.75rem', color: 'var(--text-muted)', paddingTop: '0.3rem' }}>
                         {req.requesterName && (
-                          <span className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-300">
-                            <User className="w-3.5 h-3.5 text-indigo-500" />
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            <User size={13} style={{ color: 'var(--brand-primary)' }} />
                             Requester: {req.requesterName} {req.requesterRole ? `(${req.requesterRole})` : ''}
                           </span>
                         )}
 
-                        <span className="flex items-center gap-1">
-                          <Shield className="w-3.5 h-3.5 text-purple-500" />
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Shield size={13} style={{ color: '#8b5cf6' }} />
                           Target Manager: <strong>{req.targetManagerName || req.managerName || 'Class Teacher / Admin'}</strong>
                         </span>
 
                         {(req.startDate || req.endDate) && (
-                          <span className="flex items-center gap-1 font-semibold text-indigo-600 dark:text-indigo-400">
-                            <Calendar className="w-3.5 h-3.5" />
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: 'var(--brand-primary)' }}>
+                            <Calendar size={13} />
                             {req.startDate} {req.endDate && req.endDate !== req.startDate ? `➔ ${req.endDate}` : ''}
                           </span>
                         )}
 
-                        <span className="text-gray-400">
+                        <span>
                           Submitted: {new Date(req.createdAt).toLocaleDateString()}
                         </span>
                       </div>
 
                       {req.managerRemarks && (
-                        <div className="mt-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs">
-                          <span className="font-semibold text-gray-700 dark:text-gray-300">Manager Remarks: </span>
-                          <span className="text-gray-600 dark:text-gray-400 italic">"{req.managerRemarks}"</span>
+                        <div
+                          style={{
+                            marginTop: '0.5rem',
+                            padding: '0.6rem 0.85rem',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'var(--bg)',
+                            border: '1px solid var(--border-subtle)',
+                            fontSize: '0.78rem',
+                          }}
+                        >
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Manager Remarks: </span>
+                          <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>"{req.managerRemarks}"</span>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-3 flex-shrink-0">
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.6rem', flexShrink: 0 }}>
                     <div>{getStatusBadge(req.status)}</div>
 
                     {activeTab === 'approvals' && req.status === 'pending' && (
-                      <div className="flex items-center gap-2">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <Button
                           size="sm"
                           variant="primary"
-                          className="text-xs py-1 h-8 bg-emerald-600 hover:bg-emerald-700"
                           onClick={() => {
                             setReviewRequest(req);
                             setReviewAction('approved');
                             setReviewRemarks('');
                           }}
+                          style={{ background: '#059669', color: '#fff', border: 'none', padding: '3px 10px', fontSize: '0.75rem' }}
                         >
-                          Approve
+                          {t('common.approve', 'Approve')}
                         </Button>
                         <Button
                           size="sm"
                           variant="secondary"
-                          className="text-xs py-1 h-8 text-red-600 border-red-200 hover:bg-red-50"
                           onClick={() => {
                             setReviewRequest(req);
                             setReviewAction('rejected');
                             setReviewRemarks('');
                           }}
+                          style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444', padding: '3px 10px', fontSize: '0.75rem' }}
                         >
-                          Reject
+                          {t('common.reject', 'Reject')}
                         </Button>
                       </div>
                     )}
@@ -530,30 +721,36 @@ export const RequestsPage: React.FC = () => {
       <Modal
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        title="Submit New Official Request"
-        maxWidth="max-w-xl"
+        title={t('requests.new_request', 'Submit New Official Request')}
+        maxWidth="600px"
       >
-        <form onSubmit={handleCreateSubmit} className="space-y-4">
+        <form onSubmit={handleCreateSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5">
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
               Request Category
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem' }}>
               {[
-                { id: 'leave', label: 'Leave / Absence' },
-                { id: 'break', label: 'Break' },
-                { id: 'schedule', label: 'Schedule Swap' },
-                { id: 'resource', label: 'Resource Request' },
-                { id: 'general', label: 'General Inquiry' },
+                { id: 'leave', label: t('requests.leave', 'Leave / Absence') },
+                { id: 'break', label: t('requests.break', 'Break') },
+                { id: 'schedule', label: t('requests.schedule', 'Schedule Adjustment') },
+                { id: 'resource', label: t('requests.resource', 'Resource') },
+                { id: 'general', label: t('requests.general', 'General') },
               ].map((cat) => (
                 <button
                   key={cat.id}
                   type="button"
-                  className={`py-2 px-3 text-xs font-semibold rounded-xl border transition-all ${
-                    requestType === cat.id
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
-                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-sm)',
+                    border: requestType === cat.id ? '1px solid var(--brand-primary)' : '1px solid var(--border)',
+                    background: requestType === cat.id ? 'var(--brand-primary)' : 'var(--surface)',
+                    color: requestType === cat.id ? '#ffffff' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    transition: 'all var(--transition-fast)',
+                  }}
                   onClick={() => setRequestType(cat.id as any)}
                 >
                   {cat.label}
@@ -563,75 +760,125 @@ export const RequestsPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
               Title / Subject
             </label>
             <input
               type="text"
-              className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="e.g. Sick Leave Application / Projector Request"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
+              style={{
+                width: '100%',
+                padding: '0.6rem 0.8rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--text-primary)',
+                fontSize: '0.85rem',
+                outline: 'none',
+              }}
             />
           </div>
 
           {(requestType === 'leave' || requestType === 'schedule') && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
                   Start Date
                 </label>
                 <input
                   type="date"
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                   required
+                  style={{
+                    width: '100%',
+                    padding: '0.6rem 0.8rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                    outline: 'none',
+                  }}
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
                   End Date
                 </label>
                 <input
                   type="date"
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
                   required
+                  style={{
+                    width: '100%',
+                    padding: '0.6rem 0.8rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem',
+                    outline: 'none',
+                  }}
                 />
               </div>
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
               Detailed Description & Justification
             </label>
             <textarea
               rows={4}
-              className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-400"
               placeholder="Provide context for your manager (e.g. medical reason, substitute teacher details, or requested equipment)..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               required
+              style={{
+                width: '100%',
+                padding: '0.6rem 0.8rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--text-primary)',
+                fontSize: '0.85rem',
+                outline: 'none',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+              }}
             />
           </div>
 
-          <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs text-indigo-800 dark:text-indigo-300 flex items-center gap-2">
-            <Shield className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+          <div
+            style={{
+              padding: '0.75rem 1rem',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(99, 102, 241, 0.08)',
+              border: '1px solid rgba(99, 102, 241, 0.25)',
+              fontSize: '0.78rem',
+              color: 'var(--brand-primary, #6366f1)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            <Shield size={16} style={{ flexShrink: 0 }} />
             <span>
               This request is automatically routed to your assigned Class Teacher or Department Manager.
             </span>
           </div>
 
-          <div className="flex justify-end gap-3 pt-3 border-t border-gray-200 dark:border-gray-800">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
             <Button variant="secondary" type="button" onClick={() => setIsCreateOpen(false)}>
-              Cancel
+              {t('common.cancel', 'Cancel')}
             </Button>
             <Button variant="primary" type="submit" loading={creating}>
-              Submit Request
+              {t('common.submit', 'Submit Request')}
             </Button>
           </div>
         </form>
@@ -643,50 +890,76 @@ export const RequestsPage: React.FC = () => {
           isOpen={true}
           onClose={() => setReviewRequest(null)}
           title={`Review Request: ${reviewRequest.title}`}
-          maxWidth="max-w-lg"
+          maxWidth="550px"
         >
-          <form onSubmit={handleReviewSubmit} className="space-y-4">
-            <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs space-y-2">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Requester:</span>
-                <span className="font-bold text-gray-900 dark:text-white">
+          <form onSubmit={handleReviewSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div
+              style={{
+                padding: '0.85rem 1rem',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--bg)',
+                border: '1px solid var(--border-subtle)',
+                fontSize: '0.8rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.4rem',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Requester:</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
                   {reviewRequest.requesterName} {reviewRequest.requesterRole ? `(${reviewRequest.requesterRole})` : ''}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Dates:</span>
-                <span className="font-semibold text-indigo-600">
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Dates:</span>
+                <span style={{ fontWeight: 600, color: 'var(--brand-primary)' }}>
                   {reviewRequest.startDate} {reviewRequest.endDate ? `➔ ${reviewRequest.endDate}` : ''}
                 </span>
               </div>
               <div>
-                <span className="text-gray-500 block mb-1">Description:</span>
-                <p className="text-gray-800 dark:text-gray-200 italic">{reviewRequest.description}</p>
+                <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>Description:</span>
+                <p style={{ margin: 0, fontStyle: 'italic', color: 'var(--text-secondary)' }}>{reviewRequest.description}</p>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
                 Administrative Decision Remarks
               </label>
               <textarea
                 rows={3}
-                className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="Optional explanation, instructions, or substitute details..."
                 value={reviewRemarks}
                 onChange={(e) => setReviewRemarks(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.6rem 0.8rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--text-primary)',
+                  fontSize: '0.85rem',
+                  outline: 'none',
+                  resize: 'vertical',
+                  fontFamily: 'inherit',
+                }}
               />
             </div>
 
-            <div className="flex justify-end gap-3 pt-3 border-t border-gray-200 dark:border-gray-800">
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
               <Button variant="secondary" type="button" onClick={() => setReviewRequest(null)}>
-                Cancel
+                {t('common.cancel', 'Cancel')}
               </Button>
               <Button
                 variant={reviewAction === 'approved' ? 'primary' : 'secondary'}
-                className={reviewAction === 'approved' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border-red-300 text-red-700'}
                 type="submit"
                 loading={reviewing}
+                style={
+                  reviewAction === 'approved'
+                    ? { background: '#059669', color: '#fff', border: 'none' }
+                    : { borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444' }
+                }
               >
                 {`Confirm ${reviewAction === 'approved' ? 'Approval' : 'Rejection'}`}
               </Button>

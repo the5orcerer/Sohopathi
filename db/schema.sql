@@ -54,6 +54,14 @@ create table if not exists public.profile (
   updated_at timestamptz not null default now()
 );
 
+alter table public.profile add column if not exists email text;
+alter table public.profile add column if not exists phone text;
+alter table public.profile add column if not exists avatar_url text;
+alter table public.profile add column if not exists status text not null default 'active';
+alter table public.profile add column if not exists must_change_password boolean not null default false;
+alter table public.profile add column if not exists password_hash text;
+alter table public.profile add column if not exists custom_fields jsonb not null default '{}'::jsonb;
+
 drop trigger if exists trg_profile_updated_at on public.profile;
 create trigger trg_profile_updated_at
   before update on public.profile
@@ -120,6 +128,9 @@ create table if not exists public.institution (
   created_at timestamptz not null default now()
 );
 
+alter table public.institution add column if not exists institute_code text;
+create unique index if not exists idx_institution_code on public.institution (institute_code) where institute_code is not null;
+
 create table if not exists public.institution_module (
   institution_id uuid not null references public.institution(id) on delete cascade,
   module_id uuid not null references public.module(id) on delete cascade,
@@ -138,10 +149,14 @@ create table if not exists public.academic_year (
   id uuid primary key default gen_random_uuid(),
   institution_id uuid not null references public.institution(id) on delete cascade,
   label text not null,
+  name text,
   start_date date not null,
   end_date date not null,
   is_current boolean not null default false
 );
+
+alter table public.academic_year add column if not exists name text;
+update public.academic_year set name = label where name is null;
 
 create table if not exists public.role (
   id uuid primary key default gen_random_uuid(),
@@ -168,9 +183,16 @@ create table if not exists public.membership (
   invite_status text not null default 'active',
   status text not null default 'active',
   custom_fields jsonb not null default '{}'::jsonb,
+  manager_membership_id uuid references public.membership(id) on delete set null,
   created_at timestamptz not null default now(),
   unique (user_id, institution_id)
 );
+
+alter table public.membership add column if not exists login_username text;
+alter table public.membership add column if not exists invite_status text not null default 'active';
+alter table public.membership add column if not exists status text not null default 'active';
+alter table public.membership add column if not exists custom_fields jsonb not null default '{}'::jsonb;
+alter table public.membership add column if not exists manager_membership_id uuid references public.membership(id) on delete set null;
 
 create unique index if not exists idx_membership_inst_username
   on public.membership (institution_id, lower(login_username))
@@ -222,6 +244,8 @@ create table if not exists public.audit_log (
   created_at timestamptz not null default now()
 );
 
+alter table public.audit_log add column if not exists reason text;
+
 -- ----------------------------------------------------------------------------
 -- 5. ACADEMIC CORE (STUDENTS, CLASSES, SECTIONS)
 -- ----------------------------------------------------------------------------
@@ -239,6 +263,10 @@ create table if not exists public.student (
   created_at timestamptz not null default now(),
   unique (institution_id, admission_no)
 );
+
+alter table public.student add column if not exists custom_fields jsonb not null default '{}'::jsonb;
+alter table public.student add column if not exists guardian_name text;
+alter table public.student add column if not exists guardian_phone text;
 
 create table if not exists public.guardian (
   id uuid primary key default gen_random_uuid(),
@@ -270,8 +298,11 @@ create table if not exists public.section (
   institution_id uuid not null references public.institution(id) on delete cascade,
   class_id uuid not null references public.class(id) on delete cascade,
   name text not null,
-  capacity int
+  capacity int,
+  class_teacher_membership_id uuid references public.membership(id) on delete set null
 );
+
+alter table public.section add column if not exists class_teacher_membership_id uuid references public.membership(id) on delete set null;
 
 create table if not exists public.subject (
   id uuid primary key default gen_random_uuid(),
@@ -305,6 +336,22 @@ create table if not exists public.enrollment (
 -- 6. TIMETABLE & CLASS SCHEDULES
 -- ----------------------------------------------------------------------------
 
+create table if not exists public.classroom (
+  id uuid primary key default gen_random_uuid(),
+  institution_id uuid not null references public.institution(id) on delete cascade,
+  room_number text not null,
+  name text,
+  building text,
+  floor text,
+  capacity int default 40,
+  facilities text[] default '{}',
+  status text not null default 'available',
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_classroom_inst_room on public.classroom (institution_id, lower(room_number));
+create index if not exists idx_classroom_inst on public.classroom (institution_id);
+
 create table if not exists public.class_schedule (
   id uuid primary key default gen_random_uuid(),
   institution_id uuid not null references public.institution(id) on delete cascade,
@@ -315,8 +362,51 @@ create table if not exists public.class_schedule (
   start_time text not null,
   end_time text not null,
   room_no text,
+  room_id uuid references public.classroom(id) on delete set null,
   created_at timestamptz not null default now()
 );
+
+alter table public.class_schedule add column if not exists room_id uuid references public.classroom(id) on delete set null;
+
+create table if not exists public.schedule_substitution (
+  id uuid primary key default gen_random_uuid(),
+  institution_id uuid not null references public.institution(id) on delete cascade,
+  schedule_id uuid references public.class_schedule(id) on delete cascade,
+  date date not null,
+  original_teacher_membership_id uuid references public.membership(id) on delete set null,
+  substitute_teacher_membership_id uuid references public.membership(id) on delete set null,
+  room_id uuid references public.classroom(id) on delete set null,
+  status text not null default 'substituted' check (status in ('substituted', 'cancelled', 'rescheduled')),
+  reason text,
+  recorded_by_membership_id uuid references public.membership(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (institution_id, schedule_id, date)
+);
+
+create index if not exists idx_sched_sub_inst_date on public.schedule_substitution (institution_id, date);
+
+create table if not exists public.member_request (
+  id uuid primary key default gen_random_uuid(),
+  institution_id uuid not null references public.institution(id) on delete cascade,
+  requester_membership_id uuid references public.membership(id) on delete cascade,
+  requester_student_id uuid references public.student(id) on delete cascade,
+  manager_membership_id uuid references public.membership(id) on delete set null,
+  category text not null check (category in ('leave', 'break', 'schedule_change', 'resource', 'general')),
+  title text not null,
+  description text,
+  start_date date,
+  end_date date,
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'cancelled')),
+  reviewer_notes text,
+  reviewed_at timestamptz,
+  metadata jsonb default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_member_request_inst on public.member_request (institution_id, status);
+create index if not exists idx_member_request_manager on public.member_request (manager_membership_id);
 
 -- ----------------------------------------------------------------------------
 -- 7. ATTENDANCE & MARKS
@@ -337,6 +427,13 @@ create table if not exists public.attendance (
   unique (student_id, date, session_type, period_number)
 );
 
+alter table public.attendance add column if not exists session_type text not null default 'daily';
+alter table public.attendance add column if not exists period_number int not null default 1;
+alter table public.attendance add column if not exists subject_id uuid references public.subject(id) on delete set null;
+alter table public.attendance add column if not exists remarks text;
+alter table public.attendance drop constraint if exists attendance_student_id_date_key;
+create unique index if not exists idx_attendance_student_date_session_period on public.attendance (student_id, date, session_type, period_number);
+
 create table if not exists public.employee_attendance (
   id uuid primary key default gen_random_uuid(),
   institution_id uuid not null references public.institution(id) on delete cascade,
@@ -351,6 +448,13 @@ create table if not exists public.employee_attendance (
   updated_at timestamptz not null default now(),
   unique (institution_id, membership_id, date)
 );
+
+alter table public.employee_attendance add column if not exists check_in_time text;
+alter table public.employee_attendance add column if not exists check_out_time text;
+alter table public.employee_attendance add column if not exists notes text;
+alter table public.employee_attendance add column if not exists recorded_by_membership_id uuid references public.membership(id) on delete set null;
+alter table public.employee_attendance add column if not exists status text not null default 'present';
+alter table public.employee_attendance add column if not exists updated_at timestamptz not null default now();
 
 create table if not exists public.exam (
   id uuid primary key default gen_random_uuid(),
@@ -373,6 +477,19 @@ create table if not exists public.exam (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.exam add column if not exists status text not null default 'draft';
+alter table public.exam add column if not exists exam_type text not null default 'term';
+alter table public.exam add column if not exists exam_controller_membership_id uuid references public.membership(id) on delete set null;
+alter table public.exam add column if not exists class_id uuid references public.class(id) on delete cascade;
+alter table public.exam add column if not exists section_id uuid references public.section(id) on delete set null;
+alter table public.exam add column if not exists description text;
+alter table public.exam add column if not exists instructions text;
+alter table public.exam add column if not exists grading_system text not null default 'gpa';
+alter table public.exam add column if not exists syllabus_remarks text;
+alter table public.exam add column if not exists eligible_student_ids uuid[] default '{}';
+alter table public.exam add column if not exists created_at timestamptz not null default now();
+alter table public.exam add column if not exists updated_at timestamptz not null default now();
 
 create table if not exists public.exam_candidate (
   id uuid primary key default gen_random_uuid(),
@@ -405,6 +522,10 @@ create table if not exists public.exam_paper (
   created_at timestamptz not null default now(),
   unique (exam_id, subject_id)
 );
+
+alter table public.exam_paper add column if not exists teacher_membership_id uuid references public.membership(id) on delete set null;
+alter table public.exam_paper add column if not exists syllabus text;
+alter table public.exam_paper add column if not exists status text not null default 'scheduled';
 
 create table if not exists public.exam_room (
   id uuid primary key default gen_random_uuid(),
@@ -453,6 +574,22 @@ create table if not exists public.mark (
   updated_at timestamptz not null default now(),
   unique (exam_id, student_id, subject_id)
 );
+
+alter table public.mark add column if not exists status text not null default 'entered';
+alter table public.mark add column if not exists theory_marks numeric;
+alter table public.mark add column if not exists practical_marks numeric;
+alter table public.mark add column if not exists viva_marks numeric;
+alter table public.mark add column if not exists mcq_marks numeric;
+alter table public.mark add column if not exists attendance_marks numeric;
+alter table public.mark add column if not exists grace_marks numeric;
+alter table public.mark add column if not exists is_absent boolean not null default false;
+alter table public.mark add column if not exists is_exempt boolean not null default false;
+alter table public.mark add column if not exists gpa numeric;
+alter table public.mark add column if not exists letter_grade text;
+alter table public.mark add column if not exists remarks text;
+alter table public.mark add column if not exists reopen_reason text;
+alter table public.mark add column if not exists created_at timestamptz not null default now();
+alter table public.mark add column if not exists updated_at timestamptz not null default now();
 
 -- ----------------------------------------------------------------------------
 -- 8. NOTICES, TASKS & NOTIFICATIONS
@@ -550,6 +687,11 @@ create table if not exists public.assignment (
   created_at timestamptz not null default now()
 );
 
+alter table public.assignment add column if not exists instructions text;
+alter table public.assignment add column if not exists max_marks numeric not null default 100;
+alter table public.assignment add column if not exists status text not null default 'published';
+alter table public.assignment add column if not exists allow_late_submissions boolean not null default false;
+
 create table if not exists public.assignment_attachment (
   id uuid primary key default gen_random_uuid(),
   institution_id uuid not null references public.institution(id) on delete cascade,
@@ -579,6 +721,17 @@ create table if not exists public.assignment_submission (
   unique (assignment_id, student_id)
 );
 
+alter table public.assignment_submission add column if not exists file_url text;
+alter table public.assignment_submission add column if not exists file_name text;
+alter table public.assignment_submission add column if not exists file_size bigint;
+alter table public.assignment_submission add column if not exists mime_type text;
+alter table public.assignment_submission add column if not exists submission_notes text;
+alter table public.assignment_submission add column if not exists marks_obtained numeric;
+alter table public.assignment_submission add column if not exists is_late boolean not null default false;
+alter table public.assignment_submission add column if not exists reopened_at timestamptz;
+alter table public.assignment_submission add column if not exists reopened_by_membership_id uuid references public.membership(id);
+alter table public.assignment_submission add column if not exists reopen_reason text;
+
 create table if not exists public.assignment_grade (
   id uuid primary key default gen_random_uuid(),
   institution_id uuid not null references public.institution(id) on delete cascade,
@@ -589,6 +742,9 @@ create table if not exists public.assignment_grade (
   graded_by_membership_id uuid references public.membership(id),
   created_at timestamptz not null default now()
 );
+
+alter table public.assignment_grade add column if not exists marks_obtained numeric;
+alter table public.assignment_grade add column if not exists created_at timestamptz not null default now();
 
 -- ----------------------------------------------------------------------------
 -- 11. TRANSPORT
@@ -692,6 +848,13 @@ create table if not exists public.admission_application (
   unique (institution_id, application_no)
 );
 
+alter table public.admission_application add column if not exists application_fee numeric default 0;
+alter table public.admission_application add column if not exists fee_status text default 'unpaid';
+alter table public.admission_application add column if not exists notes text;
+alter table public.admission_application add column if not exists reviewed_by_membership_id uuid references public.membership(id) on delete set null;
+alter table public.admission_application add column if not exists admitted_student_id uuid references public.student(id) on delete set null;
+alter table public.admission_application add column if not exists updated_at timestamptz not null default now();
+
 create table if not exists public.sales_leads (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -725,6 +888,16 @@ create table if not exists public.template (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.template drop constraint if exists template_type_check;
+alter table public.template add column if not exists context text not null default 'custom';
+alter table public.template add column if not exists version int not null default 1;
+alter table public.template add column if not exists is_system boolean not null default false;
+alter table public.template add column if not exists is_default boolean not null default false;
+alter table public.template add column if not exists is_archived boolean not null default false;
+alter table public.template add column if not exists page_size text not null default 'A4';
+alter table public.template add column if not exists orientation text not null default 'portrait';
+alter table public.template add column if not exists margins jsonb default '{"top": "20mm", "bottom": "20mm", "left": "20mm", "right": "20mm"}'::jsonb;
 
 drop trigger if exists trg_template_updated_at on public.template;
 create trigger trg_template_updated_at
@@ -762,11 +935,11 @@ declare
   tenant_tables text[] := array[
     'institution_module','campus','academic_year','role_permission','membership',
     'membership_scope','event','audit_log','student','guardian','student_guardian',
-    'class','section','subject','class_subject_teacher','enrollment','attendance',
+    'class','section','subject','class_subject_teacher','enrollment','classroom','class_schedule','schedule_substitution','member_request','attendance',
     'exam','exam_paper','mark','notice','notice_read_receipt','fee_invoice','payment',
     'assignment','assignment_attachment','assignment_submission','assignment_grade',
     'vehicle','transport_driver','transport_route','transport_stop','transport_route_stop',
-    'student_transport_assignment','class_schedule','employee_attendance',
+    'student_transport_assignment','employee_attendance',
     'custom_field_definition','notification','user_task','institution_setting',
     'admission_application','generated_document'
   ];
@@ -809,11 +982,11 @@ declare
   tenant_tables text[] := array[
     'institution_module','campus','academic_year','membership',
     'membership_scope','event','audit_log','student','guardian','student_guardian',
-    'class','section','subject','class_subject_teacher','enrollment','attendance',
+    'class','section','subject','class_subject_teacher','enrollment','classroom','class_schedule','schedule_substitution','member_request','attendance',
     'exam','exam_paper','mark','notice','notice_read_receipt','fee_invoice','payment',
     'assignment','assignment_attachment','assignment_submission','assignment_grade',
     'vehicle','transport_driver','transport_route','transport_stop','transport_route_stop',
-    'student_transport_assignment','class_schedule','employee_attendance',
+    'student_transport_assignment','employee_attendance',
     'custom_field_definition','notification','user_task','institution_setting',
     'admission_application','generated_document'
   ];

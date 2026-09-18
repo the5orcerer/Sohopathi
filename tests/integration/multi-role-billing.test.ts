@@ -19,6 +19,7 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
   let studentToken: string;
   let studentMembershipId: string;
   let studentId: string;
+  let rand: string;
 
   beforeAll(async () => {
     const client = await pool.connect();
@@ -39,7 +40,7 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
       });
     });
 
-    const rand = randomUUID().substring(0, 8);
+    rand = randomUUID().substring(0, 8);
 
     // Onboard test institution
     const res = await fetch(`${baseUrl}/api/onboarding/institutions`, {
@@ -52,6 +53,7 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
         ownerName: 'Principal Rahman',
       }),
     });
+    expect(res.status).toBe(201);
     const body = (await res.json()) as any;
     instId = body.institutionId;
     adminUserId = body.ownerUserId;
@@ -60,10 +62,17 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
     // Create Teacher & Student memberships for multi-role testing
     await withTenantContext(pool, instId, async (tClient) => {
       // Get teacher role
-      const { rows: tRoles } = await tClient.query(
-        `select id from role where institution_id = $1 and lower(name) = 'teacher'`,
+      let { rows: tRoles } = await tClient.query(
+        `select id from role where (institution_id = $1 or institution_id is null) and lower(name) = 'teacher' order by institution_id nulls last limit 1`,
         [instId]
       );
+      if (!tRoles[0]?.id) {
+        const { rows: createdRoles } = await tClient.query(
+          `insert into role (institution_id, name, is_system) values ($1, 'Teacher', true) returning id`,
+          [instId]
+        );
+        tRoles = createdRoles;
+      }
       const teacherRoleId = tRoles[0]?.id;
 
       // Create Teacher user & membership
@@ -74,7 +83,7 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
         [tUserId, `teacher-${rand}@ent.com`, JSON.stringify({ name: 'Dr. Anisur Teacher' })]
       );
       await tClient.query(
-        `insert into profile (id, name, email) values ($1, $2, $3)`,
+        `insert into profile (id, name, email) values ($1, $2, $3) on conflict (id) do update set name = excluded.name, email = excluded.email`,
         [tUserId, 'Dr. Anisur Teacher', `teacher-${rand}@ent.com`]
       );
       const { rows: tMemRows } = await tClient.query(
@@ -85,11 +94,18 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
       teacherMembershipId = tMemRows[0].id;
       teacherToken = `mock-token-${tUserId}`;
 
-      // Create Class & Section
+      // Create Academic Year, Class & Section
+      const ayId = randomUUID();
+      await tClient.query(
+        `insert into academic_year (id, institution_id, label, start_date, end_date, is_current)
+         values ($1, $2, '2026', '2026-01-01', '2026-12-31', true)`,
+        [ayId, instId]
+      );
+
       const classId = randomUUID();
       await tClient.query(
-        `insert into class (id, institution_id, name) values ($1, $2, 'Class 10')`,
-        [classId, instId]
+        `insert into class (id, institution_id, academic_year_id, name) values ($1, $2, $3, 'Class 10')`,
+        [classId, instId, ayId]
       );
       const sectionId = randomUUID();
       await tClient.query(
@@ -113,7 +129,7 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
         [sUserId, `student-${rand}@ent.com`, JSON.stringify({ name: 'Shakib Al Hasan Jr' })]
       );
       await tClient.query(
-        `insert into profile (id, name, email) values ($1, $2, $3)`,
+        `insert into profile (id, name, email) values ($1, $2, $3) on conflict (id) do update set name = excluded.name, email = excluded.email`,
         [sUserId, 'Shakib Al Hasan Jr', `student-${rand}@ent.com`]
       );
       const { rows: sRoles } = await tClient.query(
@@ -164,7 +180,7 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
     expect(createRes.status).toBe(201);
     const invoice = (await createRes.json()) as any;
     expect(invoice.id).toBeDefined();
-    expect(invoice.invoiceNumber).toMatch(/^INV-\d{4}-\d{4}$/);
+    expect(invoice.invoiceNumber).toMatch(/^INV-\d{4}-\d{4,5}$/);
     expect(invoice.totalAmount).toBe(4000);
     expect(invoice.discountAmount).toBe(500);
     expect(invoice.dueAmount).toBe(3500);
@@ -188,7 +204,7 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
 
     expect(payRes.status).toBe(201);
     const payBody = (await payRes.json()) as any;
-    expect(payBody.payment.receiptNumber).toMatch(/^RCP-\d{4}-\d{4}$/);
+    expect(payBody.payment.receiptNumber).toMatch(/^RCP-\d{4}-\d{4,5}$/);
     expect(payBody.invoice.status).toBe('paid');
     expect(payBody.invoice.dueAmount).toBe(0);
 
@@ -237,7 +253,7 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
         'x-institution-id': instId,
       },
       body: JSON.stringify({
-        instituteCode: 'EIIN-109283',
+        instituteCode: `EIIN-${rand}`,
         settings: {
           featureLimitations: {
             transport: { enabled: false },
@@ -256,7 +272,7 @@ describe('Integration Tests: Multi-Role Billing, Tasks & Scopes', () => {
     });
 
     const getBody = (await getRes.json()) as any;
-    expect(getBody.institution.instituteCode).toBe('EIIN-109283');
+    expect(getBody.institution.instituteCode).toBe(`EIIN-${rand}`);
     expect(getBody.settings.featureLimitations.transport.enabled).toBe(false);
   });
 

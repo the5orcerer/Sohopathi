@@ -613,7 +613,6 @@ export const coreManifest: ModuleManifest = {
   navItem: [
     { label: 'Students', path: '/students', requiredPermission: 'students.read', sortOrder: 1 },
     { label: 'Academic & Timetable', path: '/academic', requiredPermission: 'classes.manage', sortOrder: 2 },
-    { label: 'Templates', path: '/templates', requiredPermission: 'templates.read', sortOrder: 5 },
     { label: 'Tasks', path: '/tasks', requiredPermission: 'tasks.read', sortOrder: 6 },
     { label: 'Requests', path: '/requests', requiredPermission: 'requests.create', sortOrder: 7 },
     { label: 'Reports', path: '/reports', requiredPermission: 'reports.read', sortOrder: 8 },

@@ -48,6 +48,8 @@ export const WIDGET_REGISTRY: Record<string, React.ComponentType<WidgetProps>> =
   
   // Finance Widgets
   FeeCollectionSummary,
+  FinanceSummary: FeeCollectionSummary,
+  'finance-summary': FeeCollectionSummary,
   'fee-collection-summary': FeeCollectionSummary,
   'fee-summary': FeeCollectionSummary,
   FeeCollectionOverview,
@@ -57,8 +59,11 @@ export const WIDGET_REGISTRY: Record<string, React.ComponentType<WidgetProps>> =
   'my-invoices': MyInvoices,
   'my-bills': MyInvoices,
   
-  // Performance Widgets
+  // Performance & Exam Widgets
   TopPerformingClasses,
+  ExamOverviewWidget: TopPerformingClasses,
+  'exam-overview-widget': TopPerformingClasses,
+  'exam-overview': TopPerformingClasses,
   'top-classes': TopPerformingClasses,
   'class-performance': TopPerformingClasses,
   

@@ -30,6 +30,7 @@ import {
 import { Button, Badge, Modal, GlobalFilterBar } from '../components/common';
 import type { GlobalFilterValues } from '../components/common';
 import { useSession } from '../context/SessionContext';
+import { useLanguage } from '../context/LanguageContext';
 
 interface TemplatesPageProps {
   onNavigate?: (path: string) => void;
@@ -37,6 +38,7 @@ interface TemplatesPageProps {
 
 export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
   const { activeMembership, institutionName } = useSession();
+  const { t } = useLanguage();
   const canManage = activeMembership?.roleName?.toLowerCase().includes('admin');
 
   // Navigation tab: 'templates' | 'archive'
@@ -289,13 +291,13 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <FileText size={24} style={{ color: 'var(--primary, #0284c7)' }} />
+            <FileText size={24} style={{ color: 'var(--brand-primary, #6366f1)' }} />
             <h1 style={{ fontSize: '1.45rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-              Document Templates & Generator
+              {t('templates.title', 'Document Templates & Generator')}
             </h1>
           </div>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #64748b)', margin: '0.3rem 0 0' }}>
-            Centralized institutional templates, canonical variables, version-tracked snapshots, and high-volume client-side PDF rendering.
+            {t('templates.subtitle', 'Centralized institutional templates, canonical variables, version-tracked snapshots, and high-volume client-side PDF rendering.')}
           </p>
         </div>
 
@@ -307,7 +309,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
               onClick={() => onNavigate('/templates/builder')}
               icon={<Sparkles size={15} />}
             >
-              Open Template Builder
+              {t('templates.open_builder', 'Open Template Builder')}
             </Button>
           )}
         </div>
@@ -324,16 +326,16 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
             gap: '0.5rem',
             padding: '0.65rem 1.25rem',
             border: 'none',
-            borderBottom: activeTab === 'templates' ? '2px solid var(--primary, #0284c7)' : '2px solid transparent',
+            borderBottom: activeTab === 'templates' ? '2px solid var(--brand-primary, #6366f1)' : '2px solid transparent',
             background: 'transparent',
-            color: activeTab === 'templates' ? 'var(--primary, #0284c7)' : 'var(--text-secondary)',
+            color: activeTab === 'templates' ? 'var(--brand-primary, #6366f1)' : 'var(--text-secondary)',
             fontWeight: 700,
             fontSize: '0.9rem',
             cursor: 'pointer',
           }}
         >
           <Layers size={16} />
-          Template Library
+          {t('templates.library', 'Template Library')}
           <Badge tone="neutral">{templates.length}</Badge>
         </button>
 
@@ -346,16 +348,16 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
             gap: '0.5rem',
             padding: '0.65rem 1.25rem',
             border: 'none',
-            borderBottom: activeTab === 'archive' ? '2px solid var(--primary, #0284c7)' : '2px solid transparent',
+            borderBottom: activeTab === 'archive' ? '2px solid var(--brand-primary, #6366f1)' : '2px solid transparent',
             background: 'transparent',
-            color: activeTab === 'archive' ? 'var(--primary, #0284c7)' : 'var(--text-secondary)',
+            color: activeTab === 'archive' ? 'var(--brand-primary, #6366f1)' : 'var(--text-secondary)',
             fontWeight: 700,
             fontSize: '0.9rem',
             cursor: 'pointer',
           }}
         >
           <History size={16} />
-          Historical Generated Documents
+          {t('templates.historical', 'Historical Generated Documents')}
         </button>
       </div>
 
@@ -432,14 +434,14 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                   <div
                     key={tmpl.id}
                     style={{
-                      background: 'var(--card-bg, #ffffff)',
-                      border: isSys ? '1px solid #bfdbfe' : '1px solid var(--border, #e2e8f0)',
+                      background: 'var(--card-bg, var(--surface))',
+                      border: isSys ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid var(--border)',
                       borderRadius: 'var(--radius, 8px)',
                       padding: '1.25rem',
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'space-between',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                      boxShadow: 'var(--shadow-sm)',
                       position: 'relative',
                     }}
                   >
@@ -453,8 +455,9 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '4px',
-                                background: '#dbeafe',
-                                color: '#1e40af',
+                                background: 'rgba(99, 102, 241, 0.15)',
+                                color: 'var(--brand-primary, #818cf8)',
+                                border: '1px solid rgba(99, 102, 241, 0.3)',
                                 borderRadius: '12px',
                                 padding: '2px 8px',
                                 fontSize: '0.7rem',
@@ -462,7 +465,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                               }}
                             >
                               <Lock size={11} />
-                              System Template
+                              {t('templates.system_badge', 'System Template')}
                             </span>
                           ) : (
                             <Badge tone="neutral">Custom</Badge>
@@ -474,8 +477,9 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '3px',
-                                background: '#fef3c7',
-                                color: '#92400e',
+                                background: 'rgba(245, 158, 11, 0.15)',
+                                color: '#f59e0b',
+                                border: '1px solid rgba(245, 158, 11, 0.3)',
                                 borderRadius: '12px',
                                 padding: '2px 8px',
                                 fontSize: '0.7rem',
@@ -483,7 +487,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                               }}
                             >
                               <Star size={10} />
-                              Default
+                              {t('templates.default_badge', 'Default')}
                             </span>
                           )}
 
@@ -520,7 +524,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                       style={{
                         marginTop: '1.25rem',
                         paddingTop: '0.75rem',
-                        borderTop: '1px solid var(--border, #f1f5f9)',
+                        borderTop: '1px solid var(--border)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
@@ -536,7 +540,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                           icon={<Eye size={14} />}
                           title="Preview document"
                         >
-                          Preview
+                          {t('common.preview', 'Preview')}
                         </Button>
 
                         <Button
@@ -546,7 +550,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                           icon={<Users size={14} />}
                           title="Bulk Generate / Print"
                         >
-                          Bulk
+                          {t('templates.bulk_generate', 'Bulk')}
                         </Button>
                       </div>
 
@@ -558,7 +562,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                           icon={<Copy size={14} />}
                           title="Duplicate template"
                         >
-                          Clone
+                          {t('common.clone', 'Clone')}
                         </Button>
 
                         {!isSys && !tmpl.isDefault && (
@@ -592,7 +596,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                             onClick={() => onNavigate(`/templates/builder?id=${tmpl.id}`)}
                             icon={<Edit2 size={13} />}
                           >
-                            {isSys ? 'Customize' : 'Edit'}
+                            {isSys ? t('common.customize', 'Customize') : t('common.edit', 'Edit')}
                           </Button>
                         )}
 

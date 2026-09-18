@@ -1,6 +1,20 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSession } from '../context/SessionContext';
-import { ArrowRight, AlertCircle, Sun, Moon, PlusCircle, CheckCircle2, ShieldCheck, KeyRound, Building2, Globe } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
+import { Modal, Button } from '../components/common';
+import {
+  ArrowRight,
+  AlertCircle,
+  Sun,
+  Moon,
+  PlusCircle,
+  CheckCircle2,
+  ShieldCheck,
+  KeyRound,
+  Building2,
+  Globe,
+  Languages,
+} from 'lucide-react';
 import { provisionInstitution, resolveInstitutionBySubdomain } from '../services/api';
 import { getTenantSubdomain } from '../utils/tenant';
 // লোগো ইমপোর্ট করুন (পাথ ঠিক রাখতে হবে)
@@ -9,6 +23,7 @@ import BiddyapithLightLogo from '../assets/biddyapith-light.png';
 
 export const LoginPage: React.FC = () => {
   const { login, changePassword, mustChangePassword, theme, toggleTheme } = useSession();
+  const { locale, toggleLocale, t } = useLanguage();
 
   const detectedSubdomain = useMemo(() => getTenantSubdomain(), []);
   const [institutionCode, setInstitutionCode] = useState(detectedSubdomain || '');
@@ -20,6 +35,9 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showErrorPopup, setShowErrorPopup] = useState(false);
+  const [isShaking, setIsShaking] = useState(false);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
 
   // Mandatory Password Change State (if mustChangePassword is true)
   const [newPassword, setNewPassword] = useState('');
@@ -70,7 +88,11 @@ export const LoginPage: React.FC = () => {
     e.preventDefault();
     const effectiveCode = detectedSubdomain || institutionCode.trim();
     if (!effectiveCode || !username.trim()) {
-      setError(detectedSubdomain ? 'Please enter your username and password' : 'Please provide your Institution ID and Username / Email');
+      const msg = detectedSubdomain ? 'Please enter your username and password' : 'Please provide your Institution ID and Username / Email';
+      setError(msg);
+      setShowErrorPopup(true);
+      setIsShaking(true);
+      setTimeout(() => setIsShaking(false), 650);
       return;
     }
 
@@ -84,7 +106,13 @@ export const LoginPage: React.FC = () => {
         password,
       });
     } catch (err: any) {
-      setError(err.message || 'Failed to sign in. Please verify your institution ID and credentials.');
+      const msg = err.message || t('login.error_invalid_creds', 'Invalid username or password. Please verify your credentials and try again.');
+      setError(msg);
+      setShowErrorPopup(true);
+      setIsShaking(true);
+      setTimeout(() => setIsShaking(false), 650);
+      setPassword('');
+      setTimeout(() => passwordInputRef.current?.focus(), 100);
     } finally {
       setLoading(false);
     }
@@ -175,6 +203,17 @@ export const LoginPage: React.FC = () => {
           </button>
         )}
 
+        {/* Language Switcher */}
+        <button
+          onClick={toggleLocale}
+          className="btn btn-secondary btn-sm"
+          title="Change Language / ভাষা পরিবর্তন"
+          style={{ borderRadius: 'var(--radius-full)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+        >
+          <Languages size={14} />
+          <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{locale === 'en' ? 'বাংলা' : 'EN'}</span>
+        </button>
+
         <button
           onClick={toggleTheme}
           className="btn btn-secondary btn-sm"
@@ -196,14 +235,14 @@ export const LoginPage: React.FC = () => {
           gap: '1.25rem',
         }}
       >
-        {/* Brand Header (লোগো এখানে বসানো হয়েছে) */}
+        {/* Brand Header */}
         <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
           <div
             style={{
-              width: '56px', // সাইজ একটু বড় করা হয়েছে
+              width: '56px',
               height: '56px',
               borderRadius: 'var(--radius-sm)',
-              background: theme === 'dark' ? 'transparent' : 'transparent', // থিম অনুযায়ী ব্যাকগ্রাউনড
+              background: 'transparent',
               border: '1px solid var(--border-subtle)',
               boxShadow: 'var(--shadow-sm)',
               display: 'inline-flex',
@@ -213,7 +252,6 @@ export const LoginPage: React.FC = () => {
               overflow: 'hidden',
             }}
           >
-            {/* থিম অনুযায়ী লোগো বদলাবে */}
             <img
               src={theme === 'dark' ? BiddyapithDarkLogo : BiddyapithLightLogo}
               alt="Biddyapith Logo"
@@ -225,16 +263,16 @@ export const LoginPage: React.FC = () => {
             />
           </div>
           <h1 style={{ fontSize: '1.35rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
-            Biddyapith Institutional Portal
+            {t('login.portal_title', 'Biddyapith Institutional Portal')}
           </h1>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            Educational Operating System
+            {t('app.subtitle', 'Educational Operating System')}
           </p>
         </div>
 
         {/* Main Auth Card */}
         <div
-          className="card"
+          className={`card ${isShaking ? 'login-shake' : ''}`}
           style={{
             padding: '1.75rem',
             boxShadow: 'var(--shadow-dropdown)',
@@ -243,13 +281,11 @@ export const LoginPage: React.FC = () => {
           <div style={{ marginBottom: '1.25rem' }}>
             <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
               {detectedSubdomain
-                ? (resolvedInstitution?.name ? `Sign In to ${resolvedInstitution.name}` : 'Sign In to Your Institution')
-                : 'Sign In to Your Institution'}
+                ? (resolvedInstitution?.name ? `${t('login.sign_in', 'Sign In')} - ${resolvedInstitution.name}` : t('login.portal_subtitle', 'Sign In to Your Institution'))
+                : t('login.portal_subtitle', 'Sign In to Your Institution')}
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-              {detectedSubdomain
-                ? 'Enter your credentials to access your institutional portal'
-                : 'Enter your institution ID and credentials'}
+              {t('login.portal_desc', 'Enter your credentials to access your institutional portal')}
             </p>
           </div>
 
@@ -346,7 +382,7 @@ export const LoginPage: React.FC = () => {
             {!detectedSubdomain && (
               <div className="form-group">
                 <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Institution ID / Subdomain</span>
+                  <span>{t('login.institution_id', 'Institution ID / Subdomain')}</span>
                 </label>
                 <input
                   type="text"
@@ -361,7 +397,7 @@ export const LoginPage: React.FC = () => {
             )}
 
             <div className="form-group">
-              <label className="form-label">Username or Email</label>
+              <label className="form-label">{t('login.username_email', 'Username or Email')}</label>
               <input
                 type="text"
                 className="input"
@@ -374,8 +410,9 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Password</label>
+              <label className="form-label">{t('login.password', 'Password')}</label>
               <input
+                ref={passwordInputRef}
                 type="password"
                 className="input"
                 placeholder="••••••••"
@@ -391,7 +428,7 @@ export const LoginPage: React.FC = () => {
               disabled={loading}
               style={{ width: '100%', marginTop: '0.5rem', padding: '0.65rem' }}
             >
-              {loading ? 'Authenticating...' : 'Sign In'}
+              {loading ? t('login.signing_in', 'Authenticating...') : t('login.sign_in', 'Sign In to Workspace')}
               {!loading && <ArrowRight size={16} />}
             </button>
           </form>
@@ -402,6 +439,55 @@ export const LoginPage: React.FC = () => {
           Biddyapith Core Platform • Multi-Tenant RBAC & Field Delegation Active
         </div>
       </div>
+
+      {/* Authentication Failure Error Popup Modal */}
+      {showErrorPopup && (
+        <Modal
+          isOpen={showErrorPopup}
+          onClose={() => {
+            setShowErrorPopup(false);
+            passwordInputRef.current?.focus();
+          }}
+          title={t('login.error_title', 'Authentication Failed')}
+          maxWidth="440px"
+        >
+          <div style={{ textAlign: 'center', padding: '1rem 0.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+            <div
+              style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.12)',
+                color: '#ef4444',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 0 16px rgba(239, 68, 68, 0.2)',
+              }}
+            >
+              <AlertCircle size={30} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: '0 0 0.4rem', color: 'var(--text-primary)' }}>
+                {t('login.error_title', 'Authentication Failed')}
+              </h3>
+              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+                {error || t('login.error_invalid_creds', 'Invalid username or password. Please verify your credentials and try again.')}
+              </p>
+            </div>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setShowErrorPopup(false);
+                passwordInputRef.current?.focus();
+              }}
+              style={{ width: '100%', marginTop: '0.5rem' }}
+            >
+              {t('common.close', 'Try Again')}
+            </Button>
+          </div>
+        </Modal>
+      )}
 
       {/* Mandatory First-Login Password Change Modal */}
       {mustChangePassword && (

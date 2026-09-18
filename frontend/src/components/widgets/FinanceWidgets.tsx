@@ -14,19 +14,17 @@ export const FeeCollectionSummary: React.FC<WidgetProps> = ({ dataSource }) => {
       .then((res) => {
         if (!isMounted) return;
         if (res && typeof res === 'object') {
-          const totalBilled = Number(res.totalInvoiced ?? res.totalBilled ?? 11000);
-          const totalCollected = Number(res.totalPaid ?? res.totalCollected ?? 8500);
-          const totalPending = Number(res.totalPending ?? 2500);
-          const collectionRate = totalBilled > 0 ? Number(((totalCollected / totalBilled) * 100).toFixed(1)) : 80;
+          const totalBilled = Number(res.totalInvoiced ?? res.totalBilled ?? 0);
+          const totalCollected = Number(res.totalPaid ?? res.totalCollected ?? 0);
+          const totalPending = Number(res.totalPending ?? Math.max(0, totalBilled - totalCollected));
+          const collectionRate = totalBilled > 0 ? Number(((totalCollected / totalBilled) * 100).toFixed(1)) : 0;
 
           setData({
             totalBilled,
             totalCollected,
             totalPending,
             collectionRate,
-            recentTransactions: res.recentTransactions ?? [
-              { id: 'tx1', studentName: 'Tahmid Rahman', amount: 8500, date: 'Today', method: 'bKash Online' },
-            ],
+            recentTransactions: Array.isArray(res.recentTransactions) ? res.recentTransactions : [],
           });
         }
       })
@@ -90,27 +88,33 @@ export const FeeCollectionSummary: React.FC<WidgetProps> = ({ dataSource }) => {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          {data.recentTransactions?.map((tx: { id: string; studentName: string; amount: number; date: string; method: string }) => (
-            <div
-              key={tx.id}
-              style={{
-                padding: '0.45rem 0.65rem',
-                borderRadius: 'var(--radius-sm)',
-                background: 'rgba(255, 255, 255, 0.02)',
-                border: '1px solid var(--border-subtle)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                fontSize: '0.78rem',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontWeight: 500 }}>{tx.studentName}</span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{tx.method} • {tx.date}</span>
+          {data.recentTransactions && data.recentTransactions.length > 0 ? (
+            data.recentTransactions.map((tx: { id: string; studentName: string; amount: number; date: string; method: string }) => (
+              <div
+                key={tx.id}
+                style={{
+                  padding: '0.45rem 0.65rem',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid var(--border-subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '0.78rem',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 500 }}>{tx.studentName}</span>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{tx.method} • {tx.date}</span>
+                </div>
+                <span style={{ fontWeight: 600, color: 'var(--status-success)' }}>+৳{tx.amount.toLocaleString()}</span>
               </div>
-              <span style={{ fontWeight: 600, color: 'var(--status-success)' }}>+৳{tx.amount.toLocaleString()}</span>
+            ))
+          ) : (
+            <div style={{ padding: '0.85rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+              No recent transactions recorded
             </div>
-          ))}
+          )}
         </div>
       </div>
     </div>
@@ -262,11 +266,11 @@ export const FeeCollectionOverview: React.FC<WidgetProps> = ({ dataSource }) => 
       .then((res) => {
         if (!isMounted) return;
         if (res && typeof res === 'object') {
-          const totalBilled = Number(res.totalInvoiced ?? res.totalBilled ?? 11000);
-          const totalCollected = Number(res.totalPaid ?? res.totalCollected ?? 8500);
-          const totalPending = Number(res.totalPending ?? 2500);
-          const totalOverdue = Number(res.totalOverdue ?? Math.round(totalPending * 0.6));
-          const collectionRate = totalBilled > 0 ? Number(((totalCollected / totalBilled) * 100).toFixed(1)) : 80;
+          const totalBilled = Number(res.totalInvoiced ?? res.totalBilled ?? 0);
+          const totalCollected = Number(res.totalPaid ?? res.totalCollected ?? 0);
+          const totalPending = Number(res.totalPending ?? Math.max(0, totalBilled - totalCollected));
+          const totalOverdue = Number(res.totalOverdue ?? 0);
+          const collectionRate = totalBilled > 0 ? Number(((totalCollected / totalBilled) * 100).toFixed(1)) : 0;
 
           setData({
             totalBilled,

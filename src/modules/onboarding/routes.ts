@@ -50,6 +50,17 @@ export async function onboardInstitution(req: Request, res: Response, client: Po
       [institutionId]
     );
 
+    // Ensure all canonical roles exist for this tenant
+    const standardRoles = ['Institution Admin', 'Teacher', 'Student', 'Staff', 'Guardian'];
+    for (const rName of standardRoles) {
+      await client.query(
+        `insert into role (institution_id, name, is_system)
+         values ($1, $2, true)
+         on conflict do nothing`,
+        [institutionId, rName]
+      );
+    }
+
     // Copy template role permissions to the newly created institution roles
     await client.query(
       `insert into role_permission (institution_id, role_id, permission_id, scope)
@@ -139,6 +150,9 @@ export async function onboardInstitution(req: Request, res: Response, client: Po
       entityId: institutionId,
       after: { name, subdomain: cleanSubdomain, adminEmail, adminName, loginUsername },
     });
+
+    // Commit before sending response so all tenant data is visible to subsequent requests
+    await client.query('COMMIT');
 
     res.status(201).json({
       institutionId,

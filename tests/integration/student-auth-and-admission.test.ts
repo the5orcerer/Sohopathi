@@ -183,7 +183,6 @@ describe('Student Authentication, Provisioning & Admissions Integration Tests', 
     }
     expect(appRes.status).toBe(201);
     const appData = (await appRes.json()) as any;
-    console.log('APP DATA CREATED:', appData);
     expect(appData.applicantName).toBe('Samira Anjum');
     expect(appData.status).toBe('submitted');
     expect(appData.applicationNo).toMatch(/^APP-/);
@@ -197,7 +196,6 @@ describe('Student Authentication, Provisioning & Admissions Integration Tests', 
     });
     expect(statsRes.status).toBe(200);
     const stats = (await statsRes.json()) as any;
-    console.log('STATS RETURNED:', stats);
     expect(stats.summary.total).toBeGreaterThanOrEqual(1);
 
     // 3. Update application status to shortlisted
@@ -231,8 +229,8 @@ describe('Student Authentication, Provisioning & Admissions Integration Tests', 
       }),
     });
 
-    const admitData = (await admitRes.json()) as any;
     expect(admitRes.status).toBe(201);
+    const admitData = (await admitRes.json()) as any;
     expect(admitData.student.name).toBe('Samira Anjum');
     expect(admitData.username).toBe('samira.anjum');
     expect(admitData.defaultPassword).toBe('changeme');

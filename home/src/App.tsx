@@ -920,6 +920,37 @@ function App() {
     SCREENSHOT_TABS.find((tab) => tab.id === activeTabId) ?? SCREENSHOT_TABS[0];
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [lang, setLang] = useState<'en' | 'bn'>(() => {
+    try {
+      const saved = localStorage.getItem('biddyapith_lang');
+      return saved === 'bn' ? 'bn' : 'en';
+    } catch {
+      return 'en';
+    }
+  });
+
+  const toggleLang = () => {
+    const next = lang === 'en' ? 'bn' : 'en';
+    setLang(next);
+    try {
+      localStorage.setItem('biddyapith_lang', next);
+      document.documentElement.setAttribute('lang', next);
+    } catch {}
+  };
+
+  const tHome = (enText: string, bnText: string) => (lang === 'bn' ? bnText : enText);
+
+  const localizedNavItems = [
+    { label: tHome("Home", "হোম"), href: "#home" },
+    { label: tHome("Features", "ফিচারসমূহ"), href: "#features" },
+    { label: tHome("Modules", "মডিউলসমূহ"), href: "#modules" },
+    { label: tHome("Why Biddyapith", "কেন বিদ্যাপিঠ"), href: "#why" },
+    { label: tHome("Pricing", "মূল্যতালিকা"), href: "#pricing" },
+    { label: tHome("Screenshots", "স্ক্রিনশট"), href: "#screenshots" },
+    { label: tHome("About Us", "আমাদের সম্পর্কে"), href: "#about-us" },
+    { label: tHome("Contact", "যোগাযোগ"), href: "#contact" },
+  ];
+
   const [darkMode, setDarkMode] = useState(() => {
     try {
       return localStorage.getItem("biddyapith-theme") === "dark";
@@ -1260,11 +1291,11 @@ function App() {
             <Brand />
 
             <nav className="desktop-nav" aria-label="Primary navigation">
-              {navItems.map((item) => (
+              {localizedNavItems.map((item) => (
                 <a
                   className={activeSection === item.href ? "active" : ""}
                   href={item.href}
-                  key={item.label}
+                  key={item.href}
                   onClick={scrollAndClose}
                 >
                   {item.label}
@@ -1273,6 +1304,16 @@ function App() {
             </nav>
 
             <div className="nav-actions">
+              <button
+                className="nav-lang-btn"
+                aria-label="Toggle language"
+                title={lang === "bn" ? "Switch to English" : "বাংলায় পরিবর্তন করুন"}
+                onClick={toggleLang}
+              >
+                <LanguageIcon sx={{ fontSize: 18 }} />
+                <span>{lang === "bn" ? "বাংলা" : "EN"}</span>
+              </button>
+
               <button
                 className="icon-button"
                 aria-label="Toggle theme"
@@ -1291,7 +1332,7 @@ function App() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Login
+                {tHome("Login", "লগইন")}
               </a>
 
               <button
@@ -1299,7 +1340,7 @@ function App() {
                 className="primary-button nav-cta"
                 onClick={() => handleOpenGetStarted()}
               >
-                Get Started
+                {tHome("Get Started", "শুরু করুন")}
               </button>
 
               <button
@@ -1316,10 +1357,10 @@ function App() {
           {menuOpen && (
             <div className="mobile-menu" ref={menuRef}>
               <div className="mobile-menu-inner">
-                {navItems.map((item) => (
+                {localizedNavItems.map((item) => (
                   <a
                     href={item.href}
-                    key={item.label}
+                    key={item.href}
                     onClick={scrollAndClose}
                     className={activeSection === item.href ? "active" : ""}
                   >
@@ -1327,6 +1368,16 @@ function App() {
                   </a>
                 ))}
                 <div className="mobile-menu-actions">
+                  <button
+                    type="button"
+                    className="nav-lang-btn"
+                    aria-label="Toggle language"
+                    onClick={toggleLang}
+                    style={{ width: '100%', justifyContent: 'center', marginBottom: '8px' }}
+                  >
+                    <LanguageIcon sx={{ fontSize: 18 }} />
+                    <span>{lang === "bn" ? "English এ পরিবর্তন করুন" : "বাংলায় দেখুন"}</span>
+                  </button>
                   <a
                     className="nav-login"
                     href={getLoginUrl()}
@@ -1334,14 +1385,14 @@ function App() {
                     rel="noopener noreferrer"
                     onClick={() => setMenuOpen(false)}
                   >
-                    Login
+                    {tHome("Login", "লগইন")}
                   </a>
                   <button
                     type="button"
                     className="primary-button"
                     onClick={() => handleOpenGetStarted()}
                   >
-                    Get Started
+                    {tHome("Get Started", "শুরু করুন")}
                   </button>
                 </div>
               </div>
@@ -1356,22 +1407,23 @@ function App() {
             <div className="container hero-grid">
               <div className="hero-copy">
                 <div className="eyebrow hero-anim" data-reveal>
-                  <span>✦</span> All-in-One School Management Platform
+                  <span>✦</span> {tHome("All-in-One School Management Platform", "সর্বাধুনিক অল-ইন-ওয়ান শিক্ষা ব্যবস্থাপনা প্ল্যাটফর্ম")}
                 </div>
                 <h1 className="hero-anim hero-title-anim" data-reveal>
-                  Manage Your School
+                  {tHome("Manage Your School", "আপনার শিক্ষা প্রতিষ্ঠান পরিচালনা করুন")}
                   <br />
-                  <span className="gradient-text">Smarter, Easier</span>
+                  <span className="gradient-text">{tHome("Smarter, Easier", "আরও স্মার্ট ও সহজভাবে")}</span>
                   <br />
-                  &amp; Better
+                  {tHome("& Better", "& নিরাপদে")}
                 </h1>
                 <p
                   className="hero-description hero-anim hero-desc-anim"
                   data-reveal
                 >
-                  Biddyapith is a complete Education Management System designed
-                  to simplify school operations, improve communication and
-                  enhance learning experiences.
+                  {tHome(
+                    "Biddyapith is a complete Education Management System designed to simplify school operations, improve communication and enhance learning experiences.",
+                    "বিদ্যাপিঠ একটি স্বয়ংসম্পূর্ণ স্কুল ম্যানেজমেন্ট সিস্টেম, যা শিক্ষা প্রতিষ্ঠানের দৈনন্দিন কার্যক্রম সহজতর করতে, শিক্ষার্থী-শিক্ষক সমন্বয় বৃদ্ধি করতে এবং আধুনিক শিক্ষাদান নিশ্চিত করতে প্রস্তুত।"
+                  )}
                 </p>
                 <div
                   className="hero-actions hero-anim hero-actions-anim"
@@ -1382,7 +1434,7 @@ function App() {
                     className="primary-button"
                     onClick={() => handleOpenGetStarted()}
                   >
-                    Get Started Now <ArrowForwardIcon />
+                    {tHome("Get Started Now", "এখনই শুরু করুন")} <ArrowForwardIcon />
                   </button>
                   <a
                     className="secondary-button"
@@ -1392,7 +1444,7 @@ function App() {
                     <span className="play-button">
                       <PlayArrowIcon />
                     </span>{" "}
-                    Explore Features
+                    {tHome("Explore Features", "ফিচারসমূহ দেখুন")}
                   </a>
                 </div>
                 <div
@@ -1403,29 +1455,29 @@ function App() {
                     <span className="benefit-icon purple-bg">
                       <CheckCircleIcon />
                     </span>
-                    <b>Easy to Use</b>
-                    <small>Intuitive interface</small>
+                    <b>{tHome("Easy to Use", "সহজ ব্যবহারযোগ্য")}</b>
+                    <small>{tHome("Intuitive interface", "সহজ ও সাবলীল ইন্টারফেস")}</small>
                   </div>
                   <div>
                     <span className="benefit-icon mint-bg">
                       <SecurityOutlinedIcon />
                     </span>
-                    <b>Secure &amp; Reliable</b>
-                    <small>Your data is safe</small>
+                    <b>{tHome("Secure & Reliable", "নিরাপদ ও নির্ভরযোগ্য")}</b>
+                    <small>{tHome("Your data is safe", "আপনার তথ্যের সর্বোচ্চ সুরক্ষা")}</small>
                   </div>
                   <div>
                     <span className="benefit-icon blue-bg">
                       <BarChartIcon />
                     </span>
-                    <b>Powerful Reports</b>
-                    <small>Insightful analytics</small>
+                    <b>{tHome("Powerful Reports", "কার্যকর রিপোর্ট")}</b>
+                    <small>{tHome("Insightful analytics", "গভীর অ্যানালিটিক্স ও তথ্য")}</small>
                   </div>
                   <div>
                     <span className="benefit-icon lavender-bg">
                       <SupportAgentIcon />
                     </span>
-                    <b>24/7 Support</b>
-                    <small>We're here to help</small>
+                    <b>{tHome("24/7 Support", "সার্বক্ষণিক সাপোর্ট")}</b>
+                    <small>{tHome("We're here to help", "আমরা সবসময় পাশে আছি")}</small>
                   </div>
                 </div>
               </div>

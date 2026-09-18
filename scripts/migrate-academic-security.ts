@@ -120,6 +120,7 @@ export async function runMigration() {
       values 
         (null, 'Institution Admin', true),
         (null, 'Teacher', true),
+        (null, 'Student', true),
         (null, 'Guardian', true)
       on conflict do nothing;
     `);
@@ -133,14 +134,22 @@ export async function runMigration() {
 
     const canonicalAdminId = sysRoleMap.get('institution admin');
     const canonicalTeacherId = sysRoleMap.get('teacher');
+    const canonicalStudentId = sysRoleMap.get('student');
     const canonicalGuardianId = sysRoleMap.get('guardian');
 
-    logger.info({ canonicalAdminId, canonicalTeacherId, canonicalGuardianId }, 'Resolved canonical system roles');
+    logger.info({ canonicalAdminId, canonicalTeacherId, canonicalStudentId, canonicalGuardianId }, 'Resolved canonical system roles');
 
-    // Update memberships pointing to custom duplicate roles or 'Student' role
-    // Any membership that has role 'student' or 'guardian' -> map to canonical Guardian role
-    // Any membership that has role 'teacher' with is_system=false -> map to canonical Teacher role
-    // Any membership that has role 'institution admin' with is_system=false -> map to canonical Institution Admin role
+    // Update global memberships pointing to custom duplicate roles
+    if (canonicalStudentId) {
+      await client.query(`
+        update public.membership
+        set role_id = $1
+        where role_id in (
+          select id from public.role
+          where lower(name) = 'student' and institution_id is null and id <> $1
+        )
+      `, [canonicalStudentId]);
+    }
 
     if (canonicalGuardianId) {
       await client.query(`
@@ -148,7 +157,7 @@ export async function runMigration() {
         set role_id = $1
         where role_id in (
           select id from public.role
-          where lower(name) in ('student', 'guardian') and id <> $1
+          where lower(name) = 'guardian' and institution_id is null and id <> $1
         )
       `, [canonicalGuardianId]);
     }
@@ -159,7 +168,7 @@ export async function runMigration() {
         set role_id = $1
         where role_id in (
           select id from public.role
-          where lower(name) = 'teacher' and id <> $1
+          where lower(name) = 'teacher' and institution_id is null and id <> $1
         )
       `, [canonicalTeacherId]);
     }
@@ -170,37 +179,9 @@ export async function runMigration() {
         set role_id = $1
         where role_id in (
           select id from public.role
-          where lower(name) in ('institution admin', 'admin') and id <> $1
+          where lower(name) in ('institution admin', 'admin') and institution_id is null and id <> $1
         )
       `, [canonicalAdminId]);
-    }
-
-    // Now delete duplicate custom roles whose names match canonical system roles
-    await client.query(`
-      delete from public.role_permission
-      where role_id in (
-        select id from public.role
-        where lower(name) in ('institution admin', 'admin', 'teacher', 'student', 'guardian')
-          and institution_id is not null
-      );
-
-      delete from public.role
-      where lower(name) in ('institution admin', 'admin', 'teacher', 'student', 'guardian')
-        and institution_id is not null;
-    `);
-
-    // Also delete any dangling global Student role if exists, since Student and Guardian are unified to Guardian
-    if (canonicalGuardianId) {
-      await client.query(`
-        delete from public.role_permission
-        where role_id in (
-          select id from public.role
-          where lower(name) = 'student' and institution_id is null
-        );
-
-        delete from public.role
-        where lower(name) = 'student' and institution_id is null;
-      `);
     }
 
     // Ensure unique constraint on role (institution_id, name)
@@ -239,6 +220,7 @@ export async function runMigration() {
       { key: 'roles.manage', scope: 'institution' },
       { key: 'memberships.manage', scope: 'institution' },
       { key: 'settings.manage', scope: 'institution' },
+      { key: 'audit_logs.read', scope: 'institution' },
     ];
     for (const g of adminGrants) {
       await client.query(`
@@ -279,8 +261,8 @@ export async function runMigration() {
       `, [g.key, g.scope]);
     }
 
-    // Guardian (unified Student / Guardian) grants - strictly self scope
-    const guardianGrants = [
+    // Student & Guardian grants - strictly self scope
+    const studentGrants = [
       { key: 'requests.create', scope: 'self' },
       { key: 'schedules.read', scope: 'self' },
       { key: 'attendance.read', scope: 'self' },
@@ -289,13 +271,13 @@ export async function runMigration() {
       { key: 'assignments.submit', scope: 'self' },
       { key: 'notices.read', scope: 'institution' },
     ];
-    for (const g of guardianGrants) {
+    for (const g of studentGrants) {
       await client.query(`
         insert into public.role_permission (institution_id, role_id, permission_id, scope)
         select null, r.id, p.id, $2
         from public.role r
         cross join public.permission p
-        where r.institution_id is null and lower(r.name) = 'guardian' and p.key = $1
+        where r.institution_id is null and lower(r.name) in ('student', 'guardian') and p.key = $1
         on conflict (role_id, permission_id) do update set scope = excluded.scope;
       `, [g.key, g.scope]);
     }

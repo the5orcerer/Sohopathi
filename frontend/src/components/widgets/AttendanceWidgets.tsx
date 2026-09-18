@@ -21,23 +21,23 @@ export const AttendanceSummary: React.FC<WidgetProps> = ({ dataSource }) => {
         if (Array.isArray(res)) {
           // Compute summary from database array rows
           const totalPresent = res.reduce((acc, r) => acc + (Number(r.presentCount) || 0), 0);
-          const totalStudents = res.reduce((acc, r) => acc + (Number(r.totalStudents) || 1), 0);
+          const totalStudents = res.reduce((acc, r) => acc + (Number(r.totalStudents) || 0), 0);
           const totalAbsent = res.reduce((acc, r) => acc + (Number(r.absentCount) || 0), 0);
           const totalLate = res.reduce((acc, r) => acc + (Number(r.lateCount) || 0), 0);
-          const rate = totalStudents > 0 ? Math.round((totalPresent / totalStudents) * 100) : 100;
+          const rate = totalStudents > 0 ? Math.round((totalPresent / totalStudents) * 100) : 0;
 
           setData({
-            totalStudents: totalStudents || 45,
-            presentToday: totalPresent || 42,
-            absentToday: totalAbsent || 3,
-            lateToday: totalLate || 1,
-            attendanceRate: rate || 93,
+            totalStudents,
+            presentToday: totalPresent,
+            absentToday: totalAbsent,
+            lateToday: totalLate,
+            attendanceRate: rate,
             recentClassRecords: res.map((r, i) => ({
               id: r.sectionId || String(i),
-              className: 'Grade 10',
-              sectionName: 'Section A - Science',
-              presentCount: Number(r.presentCount) || 1,
-              totalCount: Number(r.totalStudents) || 1,
+              className: r.className || r.name || `Class ${i + 1}`,
+              sectionName: r.sectionName || r.section || 'All Sections',
+              presentCount: Number(r.presentCount) || 0,
+              totalCount: Number(r.totalStudents) || 0,
               date: r.date ? new Date(r.date).toLocaleDateString() : 'Today',
             })),
           });
@@ -203,16 +203,16 @@ export const AttendanceDonutSummary: React.FC<WidgetProps> = ({ dataSource }) =>
         if (!isMounted) return;
         if (Array.isArray(res)) {
           const totalPresent = res.reduce((acc, r) => acc + (Number(r.presentCount) || 0), 0);
-          const totalStudents = res.reduce((acc, r) => acc + (Number(r.totalStudents) || 1), 0);
+          const totalStudents = res.reduce((acc, r) => acc + (Number(r.totalStudents) || 0), 0);
           const totalAbsent = res.reduce((acc, r) => acc + (Number(r.absentCount) || 0), 0);
           const totalLate = res.reduce((acc, r) => acc + (Number(r.lateCount) || 0), 0);
-          const rate = totalStudents > 0 ? Math.round((totalPresent / totalStudents) * 100) : 100;
+          const rate = totalStudents > 0 ? Math.round((totalPresent / totalStudents) * 100) : 0;
           setData({
-            totalStudents: totalStudents || 45,
-            presentToday: totalPresent || 42,
-            absentToday: totalAbsent || 3,
-            lateToday: totalLate || 1,
-            attendanceRate: rate || 93,
+            totalStudents,
+            presentToday: totalPresent,
+            absentToday: totalAbsent,
+            lateToday: totalLate,
+            attendanceRate: rate,
           });
         } else if (res && typeof res === 'object') {
           setData(res);

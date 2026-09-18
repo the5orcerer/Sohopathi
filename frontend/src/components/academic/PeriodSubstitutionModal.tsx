@@ -84,32 +84,60 @@ export const PeriodSubstitutionModal: React.FC<PeriodSubstitutionModalProps> = (
       isOpen={isOpen}
       onClose={onClose}
       title="Period Substitution & Excusal Management"
-      maxWidth="max-w-xl"
+      maxWidth="560px"
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {error && (
-          <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-400 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <div
+            style={{
+              padding: '0.75rem 1rem',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#ef4444',
+              fontSize: '0.82rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            <AlertCircle size={15} style={{ flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
 
         {/* Schedule Context Banner */}
-        <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/50 dark:bg-indigo-950/30 text-sm">
-          <div className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-indigo-600" />
+        <div
+          style={{
+            padding: '0.85rem 1rem',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
+            background: 'rgba(99, 102, 241, 0.08)',
+            fontSize: '0.85rem',
+          }}
+        >
+          <div style={{ fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <BookOpen size={16} style={{ color: 'var(--brand-primary)' }} />
             <span>{schedule.subjectName || 'Current Subject'}</span>
-            <span className="text-xs px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+            <span
+              style={{
+                fontSize: '0.72rem',
+                padding: '2px 7px',
+                borderRadius: '4px',
+                background: 'rgba(99, 102, 241, 0.15)',
+                color: 'var(--brand-primary)',
+              }}
+            >
               {schedule.sectionName || 'Section'}
             </span>
           </div>
-          <div className="text-xs text-gray-600 dark:text-gray-300 mt-1.5 flex items-center gap-4">
-            <span className="flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-gray-400" />
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Clock size={13} style={{ color: 'var(--text-muted)' }} />
               {schedule.startTime} - {schedule.endTime}
             </span>
-            <span className="flex items-center gap-1">
-              <UserCheck className="w-3.5 h-3.5 text-gray-400" />
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <UserCheck size={13} style={{ color: 'var(--text-muted)' }} />
               Regular: <strong>{schedule.teacherName || 'Assigned Faculty'}</strong>
             </span>
           </div>
@@ -117,39 +145,57 @@ export const PeriodSubstitutionModal: React.FC<PeriodSubstitutionModalProps> = (
 
         {/* Action Type */}
         <div>
-          <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5">
+          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
             Substitution Action
           </label>
-          <div className="grid grid-cols-3 gap-2">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
             <button
               type="button"
-              className={`py-2 px-3 text-xs font-semibold rounded-xl border transition-all ${
-                status === 'substitute'
-                  ? 'border-indigo-600 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
-                  : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              style={{
+                padding: '0.5rem 0.6rem',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                borderRadius: 'var(--radius-sm)',
+                border: status === 'substitute' ? '1.5px solid var(--brand-primary)' : '1px solid var(--border)',
+                background: status === 'substitute' ? 'var(--brand-primary)' : 'var(--surface)',
+                color: status === 'substitute' ? '#ffffff' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+              }}
               onClick={() => setStatus('substitute')}
             >
               Assign Substitute
             </button>
             <button
               type="button"
-              className={`py-2 px-3 text-xs font-semibold rounded-xl border transition-all ${
-                status === 'cancelled'
-                  ? 'border-red-600 bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300'
-                  : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              style={{
+                padding: '0.5rem 0.6rem',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                borderRadius: 'var(--radius-sm)',
+                border: status === 'cancelled' ? '1.5px solid #ef4444' : '1px solid var(--border)',
+                background: status === 'cancelled' ? '#ef4444' : 'var(--surface)',
+                color: status === 'cancelled' ? '#ffffff' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+              }}
               onClick={() => setStatus('cancelled')}
             >
               Cancel Period
             </button>
             <button
               type="button"
-              className={`py-2 px-3 text-xs font-semibold rounded-xl border transition-all ${
-                status === 'normal'
-                  ? 'border-emerald-600 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
-                  : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
+              style={{
+                padding: '0.5rem 0.6rem',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                borderRadius: 'var(--radius-sm)',
+                border: status === 'normal' ? '1.5px solid #10b981' : '1px solid var(--border)',
+                background: status === 'normal' ? '#10b981' : 'var(--surface)',
+                color: status === 'normal' ? '#ffffff' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+              }}
               onClick={() => setStatus('normal')}
             >
               Restore Normal
@@ -159,32 +205,49 @@ export const PeriodSubstitutionModal: React.FC<PeriodSubstitutionModalProps> = (
 
         {/* Date Selector */}
         <div>
-          <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
             Date
           </label>
-          <div className="relative">
-            <input
-              type="date"
-              className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              value={subDate}
-              onChange={(e) => setSubDate(e.target.value)}
-              required
-            />
-          </div>
+          <input
+            type="date"
+            value={subDate}
+            onChange={(e) => setSubDate(e.target.value)}
+            required
+            style={{
+              width: '100%',
+              padding: '0.6rem 0.8rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              color: 'var(--text-primary)',
+              fontSize: '0.85rem',
+              outline: 'none',
+            }}
+          />
         </div>
 
         {/* Substitute Faculty Dropdown */}
         {status === 'substitute' && (
           <div>
-            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
               Designate Substitute Faculty
             </label>
             <select
-              className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               value={substituteTeacherId}
               onChange={(e) => setSubstituteTeacherId(e.target.value)}
               required={status === 'substitute'}
               disabled={loading}
+              style={{
+                width: '100%',
+                padding: '0.6rem 0.8rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--text-primary)',
+                fontSize: '0.85rem',
+                outline: 'none',
+                cursor: 'pointer',
+              }}
             >
               <option value="">{loading ? 'Loading faculty list...' : 'Select Faculty Member...'}</option>
               {teachers.map((t) => (
@@ -198,26 +261,37 @@ export const PeriodSubstitutionModal: React.FC<PeriodSubstitutionModalProps> = (
 
         {/* Reason / Remarks */}
         <div>
-          <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
+          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
             Reason / Administrative Remarks
           </label>
           <textarea
             rows={2}
-            className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-400"
             placeholder="e.g. Instructor on approved medical leave, substituting for period 3"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.6rem 0.8rem',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              color: 'var(--text-primary)',
+              fontSize: '0.85rem',
+              outline: 'none',
+              resize: 'vertical',
+              fontFamily: 'inherit',
+            }}
           />
         </div>
 
-        <div className="flex justify-end gap-3 pt-3 border-t border-gray-200 dark:border-gray-800">
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
           <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button variant="primary" type="submit" disabled={saving}>
             {saving ? (
               <>
-                <RefreshCw className="w-4 h-4 animate-spin mr-1" />
+                <RefreshCw size={14} className="animate-spin" style={{ marginRight: '6px' }} />
                 Updating...
               </>
             ) : (

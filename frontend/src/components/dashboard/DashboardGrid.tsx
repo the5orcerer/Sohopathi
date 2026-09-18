@@ -131,20 +131,16 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({
 
         const Component = WIDGET_REGISTRY[w.renderer];
 
-        // Responsive grid column span calculation
-        const spanWidth = w.layout?.width || w.layout?.w || w.defaultSize?.width || 4;
-        const colClass = `col-span-${Math.min(Math.max(spanWidth, 1), 12)}`;
-
-        // Height calculation
-        const spanHeight = w.layout?.height || w.layout?.h || w.defaultSize?.height || 3;
+        // Responsive grid column span calculation:
+        // Ensure widgets fit clean, balanced proportions (span 6 for paired cards, 12 for full width)
+        const rawWidth = w.layout?.width || w.layout?.w || w.defaultSize?.width || 6;
+        const normalizedWidth = rawWidth >= 10 ? 12 : 6;
+        const colClass = `col-span-${normalizedWidth}`;
 
         return (
           <div 
             key={w.id} 
             className={`grid-cell ${colClass}`}
-            style={{
-              gridRow: `span ${Math.min(Math.max(spanHeight, 1), 6)}`,
-            }}
           >
             <Component 
               dataSource={w.dataSource} 

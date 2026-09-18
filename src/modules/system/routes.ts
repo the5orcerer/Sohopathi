@@ -112,7 +112,17 @@ export async function getNav(req: Request, res: Response, client?: PoolClient) {
   // Sort nav items by sortOrder
   authorizedNavItems.sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99));
 
-  res.json(authorizedNavItems);
+  // Deduplicate items by path (in case multiple manifests register the same path)
+  const seenPaths = new Set<string>();
+  const deduplicatedNavItems: NavItemDefinition[] = [];
+  for (const item of authorizedNavItems) {
+    if (!seenPaths.has(item.path)) {
+      seenPaths.add(item.path);
+      deduplicatedNavItems.push(item);
+    }
+  }
+
+  res.json(deduplicatedNavItems);
 }
 
 export async function getDashboard(req: Request, res: Response, client: PoolClient) {

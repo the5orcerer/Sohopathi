@@ -1,5 +1,6 @@
 import React from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useLanguage } from '../../context/LanguageContext';
 import BiddyapithDarkLogo from '../../assets/biddyapith-dark.png';
 import BiddyapithLightLogo from '../../assets/biddyapith-light.png';
 import {
@@ -67,6 +68,39 @@ const getNavIcon = (path: string) => {
   }
 };
 
+const getLocalizedNavLabel = (path: string, defaultLabel: string, t: (key: string, fallback?: string) => string): string => {
+  switch (path) {
+    case '/': return t('nav.dashboard', 'Dashboard');
+    case '/students': return t('nav.students', 'Students');
+    case '/admissions': return t('nav.admissions', 'Admissions');
+    case '/academic': return t('nav.academic', 'Academic & Timetable');
+    case '/attendance':
+    case '/employee-attendance':
+    case '/attendance/employee':
+      return t('nav.attendance', 'Attendance');
+    case '/examinations': return t('nav.examinations', 'Examinations');
+    case '/notices': return t('nav.notices', 'Notices');
+    case '/assignments': return t('nav.assignments', 'Assignments');
+    case '/tasks': return t('nav.tasks', 'Tasks');
+    case '/templates':
+    case '/templates/builder':
+      return t('nav.templates', 'Templates & Documents');
+    case '/requests': return t('nav.requests', 'Requests');
+    case '/billing':
+    case '/invoices':
+    case '/finance':
+      return t('nav.finance', 'Finance & Invoicing');
+    case '/reports': return t('nav.reports', 'Reports');
+    case '/members': return t('nav.members', 'Members');
+    case '/permission-matrix': return t('nav.matrix', 'Permission Matrix');
+    case '/activity-log':
+    case '/activity-logs':
+      return t('nav.activity', 'Activity Log');
+    case '/settings': return t('nav.settings', 'Settings');
+    default: return defaultLabel;
+  }
+};
+
 export const Sidebar: React.FC<SidebarProps> = ({
   currentPath,
   onNavigate,
@@ -74,8 +108,82 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   isCollapsed = false,
 }) => {
-  const { navItems, user, activeMembership, theme } = useSession();
+  const { navItems, user, activeMembership, theme, hasPermission } = useSession();
+  const { t } = useLanguage();
   const isDarkMode = theme === 'dark';
+
+  const roleName = (activeMembership?.roleName || '').toLowerCase();
+  const isAdminOrOwner = roleName.includes('admin') || roleName.includes('owner') || roleName.includes('principal') || roleName.includes('head');
+
+  const canAccessSettings = isAdminOrOwner || (typeof hasPermission === 'function' && hasPermission('settings.manage'));
+  const canAccessActivityLog = isAdminOrOwner || (typeof hasPermission === 'function' && hasPermission('audit_logs.read'));
+
+  const uniqueNavItems = React.useMemo(() => {
+    const seen = new Set<string>();
+    return (navItems || []).filter((item) => {
+      if (!item?.path || seen.has(item.path)) return false;
+      seen.add(item.path);
+      return true;
+    });
+  }, [navItems]);
+
+  const categories = React.useMemo(() => {
+    const allItems = [...uniqueNavItems];
+
+    if (canAccessActivityLog && !allItems.some((i) => i.path === '/activity-log' || i.path === '/activity-logs')) {
+      allItems.push({ path: '/activity-log', label: 'Activity Log', requiredPermission: 'audit_logs.read' });
+    }
+    if (canAccessSettings && !allItems.some((i) => i.path === '/settings')) {
+      allItems.push({ path: '/settings', label: 'Settings', requiredPermission: 'settings.manage' });
+    }
+
+    const mainItems: { label: string; path: string }[] = [
+      { label: t('nav.dashboard', 'Dashboard'), path: '/' }
+    ];
+    const academicItems: { label: string; path: string }[] = [];
+    const operationsItems: { label: string; path: string }[] = [];
+    const systemItems: { label: string; path: string }[] = [];
+
+    const academicPaths = new Set([
+      '/students', '/admissions', '/academic', '/attendance',
+      '/employee-attendance', '/attendance/employee', '/examinations', '/assignments'
+    ]);
+    const operationsPaths = new Set([
+      '/billing', '/invoices', '/finance', '/notices', '/tasks',
+      '/templates', '/templates/builder', '/requests', '/reports'
+    ]);
+    const systemPaths = new Set([
+      '/members', '/permission-matrix', '/activity-log', '/activity-logs', '/settings'
+    ]);
+
+    for (const item of allItems) {
+      if (item.path === '/') continue;
+      if (academicPaths.has(item.path)) {
+        academicItems.push(item);
+      } else if (operationsPaths.has(item.path)) {
+        operationsItems.push(item);
+      } else if (systemPaths.has(item.path)) {
+        systemItems.push(item);
+      } else {
+        operationsItems.push(item);
+      }
+    }
+
+    const result: { id: string; titleKey: string; defaultTitle: string; items: { label: string; path: string }[] }[] = [
+      { id: 'main', titleKey: 'nav.category_main', defaultTitle: 'Main', items: mainItems },
+    ];
+    if (academicItems.length > 0) {
+      result.push({ id: 'academic', titleKey: 'nav.category_academic', defaultTitle: 'Academic', items: academicItems });
+    }
+    if (operationsItems.length > 0) {
+      result.push({ id: 'operations', titleKey: 'nav.category_operations', defaultTitle: 'Operations', items: operationsItems });
+    }
+    if (systemItems.length > 0) {
+      result.push({ id: 'system', titleKey: 'nav.category_system', defaultTitle: 'System', items: systemItems });
+    }
+
+    return result;
+  }, [uniqueNavItems, canAccessSettings, canAccessActivityLog, t]);
 
   const handleItemClick = (path: string) => {
     onNavigate(path);
@@ -105,6 +213,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
+        className={`app-sidebar ${isOpenMobile ? 'sidebar-open' : ''} ${isCollapsed ? 'sidebar-collapsed' : ''}`.trim()}
         style={{
           width: `${sidebarWidth}px`,
           backgroundColor: 'var(--bg-secondary)',
@@ -117,9 +226,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           top: 0,
           left: 0,
           zIndex: 1000,
-          transform: isOpenMobile ? 'translateX(0)' : 'translateX(0)',
           transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          boxShadow: isOpenMobile ? 'var(--shadow-xl)' : 'none',
           overflow: 'hidden',
         }}
       >
@@ -210,330 +317,159 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* Dynamic Navigation Menu */}
+        {/* Categorized Navigation Menu */}
         <div
+          className="sidebar-nav-scroll"
           style={{
             flex: 1,
-            padding: isCollapsed ? '0.5rem 0.25rem' : '0.75rem 0.75rem',
-            overflow: 'hidden',
-            transition: 'padding 0.3s ease',
+            padding: isCollapsed ? '0.5rem 0.25rem' : '0.5rem 0.65rem',
+            overflowY: 'auto',
+            overflowX: 'hidden',
             display: 'flex',
             flexDirection: 'column',
+            gap: '0.5rem',
           }}
         >
-          {/* Home / Dashboard Link */}
-          <button
-            onClick={() => handleItemClick('/')}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: isCollapsed ? 'center' : 'flex-start',
-              gap: isCollapsed ? 0 : '0.65rem',
-              padding: isCollapsed ? '0.6rem' : '0.6rem 0.85rem',
-              borderRadius: 'var(--radius-sm)',
-              marginBottom: '0',
-              background:
-                currentPath === '/'
-                  ? 'var(--brand-primary)'
-                  : 'transparent',
-              color:
-                currentPath === '/'
-                  ? '#ffffff'
-                  : 'var(--text-secondary)',
-              fontWeight: currentPath === '/' ? 600 : 400,
-              fontSize: '0.80rem',
-              border: 'none',
-              transition: 'all var(--transition-fast)',
-              textAlign: 'left',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              position: 'relative',
-            }}
-            onMouseEnter={(e) => {
-              if (currentPath !== '/') {
-                e.currentTarget.style.background =
-                  'var(--surface-hover)';
-
-                e.currentTarget.style.color =
-                  'var(--text-primary)';
-
-                const icon = e.currentTarget.querySelector(
-                  '.nav-icon'
-                ) as HTMLElement;
-
-                if (icon) {
-                  icon.style.color =
-                    'var(--text-primary)';
-                }
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (currentPath !== '/') {
-                e.currentTarget.style.background =
-                  'transparent';
-
-                e.currentTarget.style.color =
-                  'var(--text-secondary)';
-
-                const icon = e.currentTarget.querySelector(
-                  '.nav-icon'
-                ) as HTMLElement;
-
-                if (icon) {
-                  icon.style.color =
-                    'var(--text-secondary)';
-                }
-              }
-            }}
-            title={isCollapsed ? 'Dashboard' : ''}
-          >
-            {/* Dashboard Icon */}
-            <span
-              className="nav-icon"
-              style={{
-                color:
-                  currentPath === '/'
-                    ? '#ffffff'
-                    : 'var(--text-secondary)',
-                opacity:
-                  currentPath === '/'
-                    ? 1
-                    : 0.6,
-                flexShrink: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'color 0.2s ease',
-              }}
-            >
-              <LayoutDashboard size={20} />
-            </span>
-
-            {!isCollapsed && (
-              <>
-                {/* Dashboard Text */}
-                <span
-                  style={{
-                    flex: 1,
-                    overflow: 'hidden',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  Dashboard
-                </span>
-
-                {/* Active Arrow */}
-                {currentPath === '/' && (
-                  <ChevronRight
-                    size={14}
-                    style={{
-                      opacity: 0.7,
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
-              </>
-            )}
-
-            {/* Active Indicator */}
-            {isCollapsed && currentPath === '/' && (
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  width: '3px',
-                  height: '20px',
-                  background: 'var(--brand-primary)',
-                  borderRadius: '0 2px 2px 0',
-                }}
-              />
-            )}
-          </button>
-
-          {/* Dynamic Nav Items */}
-          {navItems && navItems.length > 0 && (
-            <div
-              style={{
-                marginTop: '0',
-                overflow: 'hidden',
-                flex: 1,
-              }}
-            >
-              {!isCollapsed && (
+          {categories.map((category, catIdx) => (
+            <div key={category.id} style={{ display: 'flex', flexDirection: 'column' }}>
+              {/* Category Header or Divider */}
+              {!isCollapsed ? (
                 <div
                   style={{
-                    fontSize: '0.50rem',
-                    fontWeight: 500,
-                    color: 'var(--text-muted)',
+                    fontSize: '0.62rem',
+                    fontWeight: 700,
                     textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    padding: '0',
-                    flexShrink: 0,
+                    letterSpacing: '0.07em',
+                    color: 'var(--text-muted)',
+                    padding: catIdx === 0 ? '0.25rem 0.5rem 0.35rem' : '0.65rem 0.5rem 0.35rem',
+                    userSelect: 'none',
                   }}
-                />
+                >
+                  {t(category.titleKey, category.defaultTitle)}
+                </div>
+              ) : (
+                catIdx > 0 && (
+                  <div
+                    style={{
+                      height: '1px',
+                      background: 'var(--border-subtle)',
+                      margin: '0.35rem 0.25rem',
+                    }}
+                  />
+                )
               )}
 
-              {navItems.map((item) => {
-                const isActive =
-                  currentPath === item.path;
+              {/* Items in Category */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                {category.items.map((item) => {
+                  const isActive = currentPath === item.path;
+                  const localizedLabel = getLocalizedNavLabel(item.path, item.label, t);
 
-                return (
-                  <button
-                    key={item.path}
-                    onClick={() =>
-                      handleItemClick(item.path)
-                    }
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isCollapsed
-                        ? 'center'
-                        : 'flex-start',
-                      gap: isCollapsed
-                        ? 0
-                        : '0.75rem',
-                      padding: isCollapsed
-                        ? '0.6rem'
-                        : '0.6rem 0.75rem',
-                      borderRadius:
-                        'var(--radius-sm)',
-                      margin: '0',
-                      background: isActive
-                        ? 'var(--brand-primary)'
-                        : 'transparent',
-                      color: isActive
-                        ? '#ffffff'
-                        : 'var(--text-secondary)',
-                      fontWeight: isActive
-                        ? 600
-                        : 400,
-                      fontSize: '0.80rem',
-                      border: 'none',
-                      transition:
-                        'all var(--transition-fast)',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                      position: 'relative',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background =
-                          'var(--surface-hover)';
-
-                        e.currentTarget.style.color =
-                          'var(--text-primary)';
-
-                        const icon =
-                          e.currentTarget.querySelector(
-                            '.nav-icon'
-                          ) as HTMLElement;
-
-                        if (icon) {
-                          icon.style.color =
-                            'var(--brand-primary)';
-                        }
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background =
-                          'transparent';
-
-                        e.currentTarget.style.color =
-                          'var(--text-secondary)';
-
-                        const icon =
-                          e.currentTarget.querySelector(
-                            '.nav-icon'
-                          ) as HTMLElement;
-
-                        if (icon) {
-                          icon.style.color =
-                            'var(--text-secondary)';
-                        }
-                      }
-                    }}
-                    title={
-                      isCollapsed
-                        ? item.label
-                        : ''
-                    }
-                  >
-                    {/* Navigation Icon */}
-                    <span
-                      className="nav-icon"
+                  return (
+                    <button
+                      key={item.path}
+                      onClick={() => handleItemClick(item.path)}
                       style={{
-                        color: isActive
-                          ? '#ffffff'
-                          : 'var(--text-muted)',
-                        opacity: isActive
-                          ? 1
-                          : 0.6,
-                        flexShrink: 0,
+                        width: '100%',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        transition:
-                          'color 0.2s ease',
+                        justifyContent: isCollapsed ? 'center' : 'flex-start',
+                        gap: isCollapsed ? 0 : '0.65rem',
+                        padding: isCollapsed ? '0.6rem' : '0.55rem 0.75rem',
+                        borderRadius: 'var(--radius-sm)',
+                        background: isActive ? 'var(--brand-primary)' : 'transparent',
+                        color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                        fontWeight: isActive ? 600 : 400,
+                        fontSize: '0.80rem',
+                        border: 'none',
+                        transition: 'all var(--transition-fast)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        position: 'relative',
                       }}
+                      onMouseEnter={(e) => {
+                        if (!isActive) {
+                          e.currentTarget.style.background = 'var(--surface-hover)';
+                          e.currentTarget.style.color = 'var(--text-primary)';
+                          const icon = e.currentTarget.querySelector('.nav-icon') as HTMLElement;
+                          if (icon) icon.style.color = 'var(--brand-primary)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActive) {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = 'var(--text-secondary)';
+                          const icon = e.currentTarget.querySelector('.nav-icon') as HTMLElement;
+                          if (icon) icon.style.color = 'var(--text-muted)';
+                        }
+                      }}
+                      title={isCollapsed ? localizedLabel : ''}
                     >
-                      {getNavIcon(item.path)}
-                    </span>
-
-                    {!isCollapsed && (
-                      <>
-                        {/* Navigation Label */}
-                        <span
-                          style={{
-                            flex: 1,
-                            overflow: 'hidden',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {item.label}
-                        </span>
-
-                        {/* Active Arrow */}
-                        {isActive && (
-                          <ChevronRight
-                            size={14}
-                            style={{
-                              opacity: 0.7,
-                              flexShrink: 0,
-                            }}
-                          />
-                        )}
-                      </>
-                    )}
-
-                    {/* Active Indicator */}
-                    {isCollapsed && isActive && (
-                      <div
+                      {/* Navigation Icon */}
+                      <span
+                        className="nav-icon"
                         style={{
-                          position: 'absolute',
-                          left: 0,
-                          top: '50%',
-                          transform:
-                            'translateY(-50%)',
-                          width: '3px',
-                          height: '24px',
-                          background:
-                            'var(--brand-primary)',
-                          borderRadius:
-                            '0 2px 2px 0',
+                          color: isActive ? '#ffffff' : 'var(--text-muted)',
+                          opacity: isActive ? 1 : 0.75,
+                          flexShrink: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'color 0.2s ease',
                         }}
-                      />
-                    )}
-                  </button>
-                );
-              })}
+                      >
+                        {getNavIcon(item.path)}
+                      </span>
+
+                      {!isCollapsed && (
+                        <>
+                          {/* Navigation Label */}
+                          <span
+                            style={{
+                              flex: 1,
+                              overflow: 'hidden',
+                              whiteSpace: 'nowrap',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {localizedLabel}
+                          </span>
+
+                          {/* Active Arrow */}
+                          {isActive && (
+                            <ChevronRight
+                              size={14}
+                              style={{
+                                opacity: 0.7,
+                                flexShrink: 0,
+                              }}
+                            />
+                          )}
+                        </>
+                      )}
+
+                      {/* Active Indicator */}
+                      {isCollapsed && isActive && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            left: 0,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            width: '3px',
+                            height: '22px',
+                            background: 'var(--brand-primary)',
+                            borderRadius: '0 2px 2px 0',
+                          }}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          )}
+          ))}
         </div>
 
         {/* User Role Footer */}

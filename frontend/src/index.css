@@ -8,11 +8,13 @@
   /* Color — Light Mode (Default) — Indigo/Violet "Biddyapith" theme */
   --bg: #F4F5FA;
   --surface: #FFFFFF;
+  --card-bg: #FFFFFF;
   --surface-hover: #f7f7fcee;
   --surface-sunken: #F3F3FA;
   --surface-bg-subtle: rgba(20, 22, 50, 0.03);
   --bg-secondary: #FFFFFF;
   --bg-tertiary: #F3F3FA;
+  --bg-hover: #F3F3FA;
   --border: #E7E8F1;
   --border-subtle: #EBEBF4;
   --border-accent: #6154E9;
@@ -74,11 +76,13 @@
   /* Color — Dark Mode — Indigo/Violet "Biddyapith" theme */
   --bg: #0D0E1F;
   --surface: #171833;
+  --card-bg: #171833;
   --surface-hover: #1E2044;
   --surface-sunken: #14152C;
   --surface-bg-subtle: rgba(255, 255, 255, 0.04);
   --bg-secondary: #171833;
   --bg-tertiary: #14152C;
+  --bg-hover: #1E2044;
   --border: #2A2C4E;
   --border-subtle: #262845;
   --border-accent: #8B7FFF;
@@ -365,9 +369,15 @@ body {
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(12, 1fr);
-  grid-auto-flow: dense;
   gap: 1.25rem;
   width: 100%;
+  align-items: stretch;
+}
+
+.grid-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .col-span-1 { grid-column: span 1 / span 1; }
@@ -384,12 +394,6 @@ body {
 .col-span-12 { grid-column: span 12 / span 12; }
 
 @media (max-width: 1024px) {
-  .col-span-3, .col-span-4 { grid-column: span 6 / span 6; }
-  .col-span-5, .col-span-6, .col-span-7 { grid-column: span 12 / span 12; }
-  .col-span-8, .col-span-9, .col-span-10, .col-span-11 { grid-column: span 12 / span 12; }
-}
-
-@media (max-width: 768px) {
   .dashboard-grid {
     grid-template-columns: 1fr;
     gap: 1rem;
@@ -641,3 +645,117 @@ tbody tr:hover {
     z-index: 99999 !important;
   }
 }
+
+/* Auth Shake Animation */
+@keyframes loginShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+.login-shake {
+  animation: loginShake 0.45s ease-in-out;
+}
+
+/* Pill Tabs & Action Controls */
+.pill-tab-bar {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  gap: 4px;
+}
+
+.pill-tab {
+  padding: 6px 16px;
+  border-radius: var(--radius-full);
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pill-tab:hover {
+  color: var(--text-primary);
+}
+
+.pill-tab.active {
+  background: var(--surface);
+  color: var(--brand-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme='dark'] .pill-tab.active {
+  background: var(--surface-hover);
+  color: #FFFFFF;
+}
+
+/* ==========================================================================
+   SIDEBAR ENGINE & MOBILE RESPONSIVENESS
+   ========================================================================== */
+
+.app-sidebar {
+  width: 240px;
+  background-color: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.app-sidebar.sidebar-collapsed {
+  width: 64px;
+}
+
+.sidebar-nav-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.2) transparent;
+}
+.sidebar-nav-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-nav-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-nav-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 4px;
+}
+.sidebar-nav-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+@media (max-width: 1024px) {
+  .app-sidebar {
+    width: 260px !important;
+    transform: translateX(-100%);
+    box-shadow: none;
+    z-index: 1050;
+  }
+
+  .app-sidebar.sidebar-open {
+    transform: translateX(0) !important;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  }
+
+  .app-main-wrapper {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+}
+

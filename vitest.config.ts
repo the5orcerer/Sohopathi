@@ -29,10 +29,12 @@ export default defineConfig({
     hookTimeout: 60000,
     fileParallelism: false,
     maxConcurrency: 1,
-    pool: 'threads',
+    pool: 'forks',
     poolOptions: {
-      threads: {
-        singleThread: true,
+      forks: {
+        maxForks: 1,
+        minForks: 1,
+        isolate: true,
       },
     },
   },

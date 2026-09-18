@@ -4,6 +4,8 @@ import path from 'path';
 import os from 'os';
 import { Pool } from 'pg';
 
+import { isDockerAvailable, getComposeCommand, startContainers, cleanContainers } from './db-control';
+
 const isWindows = process.platform === 'win32';
 const isFresh = process.argv.includes('--fresh') || process.argv.includes('--clean') || process.argv.includes('-f');
 const rootDir = path.resolve(__dirname, '..');
@@ -23,41 +25,6 @@ function runCmd(cmd: string, cwd: string = rootDir, allowFail: boolean = false):
       throw err;
     }
     return '';
-  }
-}
-
-async function checkDocker(): Promise<boolean> {
-  try {
-    execSync('docker --version', { stdio: 'ignore' });
-    execSync('docker compose version', { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function cleanOldInstallations(hasDocker: boolean) {
-  if (!hasDocker) return;
-
-  console.log('🔍 Checking for old or conflicting containers...');
-  const staleContainers = ['edu_postgres', 'biddyapith_postgres', 'biddyapith_s3', 'biddyapith_s3_init'];
-
-  for (const name of staleContainers) {
-    try {
-      const inspectOutput = execSync(`docker ps -a -q -f name=^/${name}$`, { encoding: 'utf8' }).trim();
-      if (inspectOutput) {
-        if (isFresh || name === 'edu_postgres') {
-          console.log(`🧹 Removing stale container: ${name}...`);
-          execSync(`docker stop ${name} >/dev/null 2>&1 || true`, { stdio: 'ignore' });
-          execSync(`docker rm -f ${name} >/dev/null 2>&1 || true`, { stdio: 'ignore' });
-        }
-      }
-    } catch {}
-  }
-
-  if (isFresh) {
-    console.log('🧹 Removing old docker compose volumes for fresh state...');
-    runCmd('docker compose -f db/docker-compose.yml down -v --remove-orphans', rootDir, true);
   }
 }
 
@@ -153,16 +120,18 @@ async function waitForPostgres(maxAttempts = 30): Promise<boolean> {
 
 async function initializeDatabase(hasDocker: boolean) {
   console.log('🚀 Initializing database schema and seed data...');
-  const { runDatabaseInit } = await import('../db/init');
   const connStr = hasDocker
     ? 'postgresql://postgres:postgres@127.0.0.1:5433/biddyapith_dev'
-    : process.env.DATABASE_URL;
-  if (hasDocker || isFresh) {
-    await runDatabaseInit({
-      reset: isFresh,
-      connectionString: connStr,
-    });
-  }
+    : (process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5433/biddyapith_dev');
+
+  process.env.DATABASE_URL = connStr;
+
+  const { runDatabaseInit } = await import('../db/init');
+  await runDatabaseInit({
+    reset: isFresh,
+    connectionString: connStr,
+  });
+
   const { runMigration } = await import('./migrate-academic-security');
   await runMigration();
 }
@@ -180,14 +149,20 @@ async function main() {
 
   // Step 1: Check Docker
   logStep(1, 'Checking Docker & Container Environment');
-  const hasDocker = await checkDocker();
+  const hasDocker = isDockerAvailable();
+  const composeCmd = getComposeCommand();
   if (!hasDocker) {
-    console.warn(`⚠️  Docker or Docker Compose is not running.
+    console.warn(`⚠️  Docker is not running or accessible.
     If you are running a native PostgreSQL service locally, ensure it is available on port 5433
     or update DATABASE_URL in your .env accordingly.`);
   } else {
-    console.log('✅ Docker & Docker Compose available.');
-    await cleanOldInstallations(hasDocker);
+    if (composeCmd) {
+      console.log(`✅ Docker & Docker Compose available (${composeCmd}).`);
+    } else {
+      console.log('✅ Docker daemon available. Using native Docker fallback (no compose plugin).');
+      console.log('💡 Tip: For compose support, install docker-compose-plugin (e.g. sudo dnf install docker-compose-plugin).');
+    }
+    cleanContainers(isFresh);
   }
 
   // Step 2: Environment File Management
@@ -201,7 +176,7 @@ async function main() {
   // Step 4: Boot Local Services (PostgreSQL & MinIO S3)
   if (hasDocker) {
     logStep(4, 'Starting Local Services (PostgreSQL & MinIO S3)');
-    runCmd('docker compose -f db/docker-compose.yml up -d --remove-orphans', rootDir);
+    startContainers();
     process.stdout.write('⏳ Waiting for PostgreSQL container on 127.0.0.1:5433 to become ready');
     const isReady = await waitForPostgres();
     console.log('');
@@ -250,8 +225,12 @@ Next Steps:
 `);
 }
 
-main().catch((err) => {
-  console.error('\n❌ Setup failed:', err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error('\n❌ Setup failed:', err);
+    process.exit(1);
+  });
 

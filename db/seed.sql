@@ -392,7 +392,7 @@ insert into public.attendance (institution_id, student_id, section_id, date, sta
 values
   ('f2c10000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', current_date, 'present', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000002')),
   ('f2c10000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', current_date, 'present', (select id from public.membership where user_id = '00000000-0000-0000-0000-000000000002'))
-on conflict (student_id, date) do nothing;
+on conflict do nothing;
 
 -- Notices
 insert into public.notice (institution_id, title, body, audience_scope, published_by_membership_id)

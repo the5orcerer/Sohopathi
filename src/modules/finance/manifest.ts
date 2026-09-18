@@ -59,15 +59,15 @@ export const financeManifest: ModuleManifest = {
     {
       id: 'finance-summary',
       requiredPermissions: ['finance.read'],
-      defaultSize: { width: 4, height: 1 },
+      defaultSize: { width: 6, height: 2 },
       dataSource: '/api/finance/summary',
       renderer: 'FinanceSummary',
     },
     {
       id: 'fee-collection-overview',
       requiredPermissions: ['finance.read'],
-      defaultSize: { width: 2, height: 2 },
-      dataSource: '/api/finance/invoices?limit=5',
+      defaultSize: { width: 6, height: 2 },
+      dataSource: '/api/finance/summary',
       renderer: 'FeeCollectionOverview',
     },
   ],
