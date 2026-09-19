@@ -6,32 +6,21 @@ import {
   fetchAssignments,
   createAssignment,
   deleteAssignment,
-  submitAssignment,
-  reopenAssignmentSubmission,
-  fetchAssignmentSubmissions,
-  remindPendingAssignmentStudents,
-  gradeSubmission,
   fetchSections,
   fetchSubjects,
 } from '../services/api';
-import type { Assignment, AssignmentSubmissionItem, SectionItem, SubjectItem } from '../types';
+import type { Assignment, SectionItem, SubjectItem } from '../types';
 import { SearchBar, Badge, Button, Modal, EmptyState } from '../components/common';
 import {
   Plus,
   Clock,
-  Upload,
   BookOpen,
   Trash2,
-  CheckCircle2,
-  Bell,
   Eye,
   FileText,
-  Image as ImageIcon,
-  Check,
-  AlertCircle,
-  ExternalLink,
-  Lock,
-  RotateCcw,
+  Calendar,
+  Layers,
+  Award,
 } from 'lucide-react';
 
 export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
@@ -45,10 +34,6 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
 
   // Permissions
   const canCreate = hasPermission('assignments.create') || hasPermission('assignments.write');
-  const canSubmit = hasPermission('assignments.submit');
-  const canViewSubmissions = canCreate || hasPermission('assignments.read') || hasPermission('assignments.submission.read');
-  const canGrade = hasPermission('assignments.grade') || canCreate;
-  const canReopen = hasPermission('assignments.submission.reopen') || canCreate;
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
@@ -58,34 +43,12 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
   const [createDueDate, setCreateDueDate] = useState('');
   const [createMaxMarks, setCreateMaxMarks] = useState('100');
   const [createStatus, setCreateStatus] = useState<'draft' | 'published' | 'closed'>('published');
-  const [createAllowLateSubmissions, setCreateAllowLateSubmissions] = useState(true);
   const [createSectionId, setCreateSectionId] = useState('');
   const [createSubjectId, setCreateSubjectId] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Student Submit Work Modal
-  const [submitTargetAssignment, setSubmitTargetAssignment] = useState<Assignment | null>(null);
-  const [submitNotes, setSubmitNotes] = useState('');
-  const [submittingWork, setSubmittingWork] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
-
-  // Submissions Modal for Teachers
-  const [viewAssignment, setViewAssignment] = useState<Assignment | null>(null);
-  const [submissions, setSubmissions] = useState<AssignmentSubmissionItem[]>([]);
-  const [loadingSubmissions, setLoadingSubmissions] = useState<boolean>(false);
-  const [gradingState, setGradingState] = useState<{ [id: string]: { grade: string; marksObtained?: string | number; feedback: string; saving?: boolean; success?: boolean } }>({});
-
-  // Reopen Submission Modal
-  const [reopenTargetSubmission, setReopenTargetSubmission] = useState<AssignmentSubmissionItem | null>(null);
-  const [reopenReason, setReopenReason] = useState('');
-  const [reopening, setReopening] = useState(false);
-
-  // Remind Pending Students State
-  const [remindingId, setRemindingId] = useState<string | null>(null);
-  const [remindFeedback, setRemindFeedback] = useState<{ assignmentId: string; message: string; count: number } | null>(null);
-
-  // Photo / Document Lightbox Modal
-  const [previewPhoto, setPreviewPhoto] = useState<{ url: string; title: string } | null>(null);
+  // Detailed View Modal (Informational homework reader)
+  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -125,7 +88,7 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
         dueDate: createDueDate || undefined,
         maxMarks: createMaxMarks ? Number(createMaxMarks) : 100,
         status: createStatus,
-        allowLateSubmissions: createAllowLateSubmissions,
+        allowLateSubmissions: false,
       });
       setAssignments([created, ...assignments]);
       setShowCreateModal(false);
@@ -135,7 +98,6 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
       setCreateDueDate('');
       setCreateMaxMarks('100');
       setCreateStatus('published');
-      setCreateAllowLateSubmissions(true);
     } catch (err: any) {
       alert(err.message || 'Failed to create assignment');
     } finally {
@@ -144,143 +106,22 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this assignment?')) return;
+    if (!confirm('Are you sure you want to delete this assignment notice?')) return;
     try {
       await deleteAssignment(id);
       setAssignments(assignments.filter((a) => a.id !== id));
+      if (selectedAssignment?.id === id) {
+        setSelectedAssignment(null);
+      }
     } catch (err: any) {
       alert(err.message || 'Failed to delete assignment');
     }
   };
 
-
-  const handleSubmitWork = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!submitTargetAssignment) return;
-    setSubmittingWork(true);
-    try {
-      await submitAssignment(submitTargetAssignment.id, {
-        submissionNotes: submitNotes.trim() || 'Completed by student',
-      });
-      setSubmitSuccess(true);
-      setTimeout(() => {
-        setSubmitTargetAssignment(null);
-        setSubmitSuccess(false);
-        setSubmitNotes('');
-        loadData();
-      }, 1500);
-    } catch (err: any) {
-      alert(err.message || 'Failed to submit assignment');
-    } finally {
-      setSubmittingWork(false);
-    }
-  };
-
-  const handleOpenSubmissions = async (assignment: Assignment) => {
-    setViewAssignment(assignment);
-    setLoadingSubmissions(true);
-    try {
-      const subs = await fetchAssignmentSubmissions(assignment.id);
-      setSubmissions(subs);
-      const initialGrading: typeof gradingState = {};
-      subs.forEach((s) => {
-        initialGrading[s.id] = {
-          grade: s.grade || '',
-          marksObtained: s.marksObtained !== null && s.marksObtained !== undefined ? String(s.marksObtained) : '',
-          feedback: s.feedback || '',
-        };
-      });
-      setGradingState(initialGrading);
-    } catch (err: any) {
-      console.error('Failed to load submissions:', err);
-      alert(err.message || 'Failed to load submissions');
-    } finally {
-      setLoadingSubmissions(false);
-    }
-  };
-
-  const handleGradeSubmission = async (submissionId: string) => {
-    const state = gradingState[submissionId];
-    if (!state || !state.grade) return;
-    setGradingState((prev) => ({
-      ...prev,
-      [submissionId]: { ...prev[submissionId], saving: true },
-    }));
-
-    try {
-      const marksNum = state.marksObtained !== undefined && state.marksObtained !== '' ? Number(state.marksObtained) : undefined;
-      await gradeSubmission(submissionId, {
-        grade: state.grade.trim(),
-        marksObtained: marksNum,
-        feedback: state.feedback.trim() || undefined,
-      });
-      setGradingState((prev) => ({
-        ...prev,
-        [submissionId]: { ...prev[submissionId], saving: false, success: true },
-      }));
-      setTimeout(() => {
-        setGradingState((prev) => ({
-          ...prev,
-          [submissionId]: { ...prev[submissionId], success: false },
-        }));
-      }, 2000);
-      setSubmissions((prev) =>
-        prev.map((s) =>
-          s.id === submissionId ? { ...s, grade: state.grade, marksObtained: marksNum, feedback: state.feedback, status: 'marked' } : s
-        )
-      );
-    } catch (err: any) {
-      alert(err.message || 'Failed to record grade');
-      setGradingState((prev) => ({
-        ...prev,
-        [submissionId]: { ...prev[submissionId], saving: false },
-      }));
-    }
-  };
-
-  const handleReopenSubmission = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!viewAssignment || !reopenTargetSubmission || !reopenReason.trim()) return;
-    setReopening(true);
-    try {
-      await reopenAssignmentSubmission(viewAssignment.id, reopenTargetSubmission.id, reopenReason.trim());
-      setSubmissions((prev) =>
-        prev.map((s) =>
-          s.id === reopenTargetSubmission.id
-            ? { ...s, status: 'reopened', reopenReason: reopenReason.trim(), reopenedAt: new Date().toISOString() }
-            : s
-        )
-      );
-      setReopenTargetSubmission(null);
-      setReopenReason('');
-      alert('Submission successfully reopened for the student.');
-    } catch (err: any) {
-      alert(err.message || 'Failed to reopen submission');
-    } finally {
-      setReopening(false);
-    }
-  };
-
-  const handleRemindPending = async (assignmentId: string) => {
-    setRemindingId(assignmentId);
-    try {
-      const res = await remindPendingAssignmentStudents(assignmentId);
-      setRemindFeedback({
-        assignmentId,
-        message: res.message,
-        count: res.notifiedCount,
-      });
-      setTimeout(() => setRemindFeedback(null), 5000);
-    } catch (err: any) {
-      alert(err.message || 'Failed to dispatch reminder tasks');
-    } finally {
-      setRemindingId(null);
-    }
-  };
-
   const filteredAssignments = assignments.filter((a) =>
     a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (a.subjectName && a.subjectName.toLowerCase().includes(searchQuery.toLowerCase()))
+    (a.subjectName && a.subjectName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (a.sectionName && a.sectionName.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -293,45 +134,22 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
               <BookOpen size={26} style={{ color: 'var(--brand-primary)' }} /> {t('assignments.title', 'Curriculum Assignments & Homework')}
             </h1>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              {t('assignments.subtitle', 'Manage homework deliverables, submission notes, grading rubrics, and automated pending reminders.')}
+              {t('assignments.subtitle', 'Informational homework tasks, exercises, and study guidelines posted by faculty.')}
             </p>
           </div>
 
           {canCreate && (
             <Button variant="primary" icon={<Plus size={15} />} onClick={() => setShowCreateModal(true)}>
-              {t('assignments.create_button', 'Create Assignment')}
+              {t('assignments.create_button', 'Post Homework / Task')}
             </Button>
           )}
         </div>
-
-        {/* Remind Feedback Alert */}
-        {remindFeedback && (
-          <div
-            style={{
-              padding: '0.75rem 1rem',
-              background: 'rgba(16, 185, 129, 0.12)',
-              border: '1px solid var(--status-success)',
-              borderRadius: 'var(--radius-md)',
-              color: 'var(--status-success)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontSize: '0.88rem',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <CheckCircle2 size={18} />
-              <span>{remindFeedback.message}</span>
-            </div>
-            <Badge tone="success">{remindFeedback.count} Reminders Dispatched</Badge>
-          </div>
-        )}
 
         {/* Filter Bar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div style={{ flex: '1 1 250px', minWidth: '220px' }}>
             <SearchBar
-              placeholder="Search assignments by title or subject..."
+              placeholder="Search tasks by title, subject, or section..."
               value={searchQuery}
               onChange={setSearchQuery}
             />
@@ -347,147 +165,156 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
         ) : filteredAssignments.length === 0 ? (
           <EmptyState
             title="No assignments posted yet"
-            description="Create an assignment for a class section to assign homework, quizzes, and laboratory exercises."
+            description="Faculty can post homework assignments, study guides, and laboratory exercises for students to view."
           />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '1rem' }}>
-            {filteredAssignments.map((item) => {
-              const isLocked = item.submissionStatus === 'submitted' || item.submissionStatus === 'marked';
-              const isReopened = item.submissionStatus === 'reopened';
-              return (
-                <div
-                  key={item.id}
-                  className="glass-panel"
-                  style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <Badge tone="primary">{item.subjectName || 'Academics'}</Badge>
-                      {item.status === 'draft' && <Badge tone="neutral">Draft</Badge>}
-                      {item.status === 'closed' && <Badge tone="danger">Closed</Badge>}
-                      {item.status === 'published' && <Badge tone="success">Published</Badge>}
-                    </div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      <Clock size={12} /> Due: {item.dueDate ? new Date(item.dueDate).toLocaleDateString() : 'Open'}
-                    </span>
+            {filteredAssignments.map((item) => (
+              <div
+                key={item.id}
+                className="glass-panel"
+                style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Badge tone="primary">{item.subjectName || 'Academics'}</Badge>
+                    {item.sectionName && <Badge tone="neutral">Section {item.sectionName}</Badge>}
+                    {item.status === 'draft' && <Badge tone="neutral">Draft</Badge>}
+                    {item.status === 'closed' && <Badge tone="danger">Closed</Badge>}
+                    {item.status === 'published' && <Badge tone="success">Active</Badge>}
                   </div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <Clock size={12} /> Due: {item.dueDate ? new Date(item.dueDate).toLocaleDateString() : 'Open'}
+                  </span>
+                </div>
 
-                  <div>
-                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '0.25rem' }}>{item.title}</h3>
-                    <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                      {item.description || 'No detailed instructions provided.'}
-                    </p>
-                    {item.instructions && (
-                      <div style={{ marginTop: '0.35rem', padding: '0.35rem 0.55rem', fontSize: '0.78rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                        <strong>Instructions:</strong> {item.instructions}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Student Submission Status Badge / Reopen Note */}
-                  {item.submissionStatus && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                        {isLocked && (
-                          <Badge tone={item.submissionStatus === 'marked' ? 'success' : 'info'}>
-                            <Lock size={11} style={{ marginRight: '0.25rem' }} />
-                            {item.submissionStatus === 'marked'
-                              ? `Marked (${item.marksObtained ?? '-'} / ${item.maxMarks ?? 100})`
-                              : 'Submitted (Locked)'}
-                          </Badge>
-                        )}
-                        {isReopened && (
-                          <Badge tone="warning">
-                            <RotateCcw size={11} style={{ marginRight: '0.25rem' }} /> Reopened for Revision
-                          </Badge>
-                        )}
-                        {item.isLate && <Badge tone="danger">Late</Badge>}
-                      </div>
-                      {isReopened && item.reopenReason && (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--status-warning)', background: 'rgba(245, 158, 11, 0.08)', padding: '0.3rem 0.5rem', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                          <strong>Teacher Note:</strong> {item.reopenReason}
-                        </div>
-                      )}
+                <div>
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '0.25rem' }}>{item.title}</h3>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    {item.description || 'No detailed instructions provided.'}
+                  </p>
+                  {item.instructions && (
+                    <div style={{ marginTop: '0.35rem', padding: '0.35rem 0.55rem', fontSize: '0.78rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                      <strong>Instructions:</strong> {item.instructions.length > 90 ? `${item.instructions.slice(0, 90)}...` : item.instructions}
                     </div>
                   )}
+                </div>
 
-                  <div
-                    style={{
-                      marginTop: 'auto',
-                      paddingTop: '0.75rem',
-                      borderTop: '1px solid var(--border-subtle)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      flexWrap: 'wrap',
-                      gap: '0.5rem',
-                    }}
-                  >
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      <span>Max Marks: {item.maxMarks ?? 100}</span>
-                      {item.allowLateSubmissions === false && (
-                        <span style={{ marginLeft: '0.4rem', color: 'var(--status-danger)' }}>• No late turn-in</span>
-                      )}
-                      {item.totalSubmissions !== undefined && (
-                        <span style={{ marginLeft: '0.4rem' }}>• {item.totalSubmissions} Submissions</span>
-                      )}
-                    </div>
+                <div
+                  style={{
+                    marginTop: 'auto',
+                    paddingTop: '0.75rem',
+                    borderTop: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <Award size={13} style={{ color: 'var(--brand-primary)' }} />
+                    <span>Max Marks: {item.maxMarks ?? 100}</span>
+                  </div>
 
-                    <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                      {canSubmit && (
-                        <Button
-                          variant={isReopened ? 'primary' : isLocked ? 'secondary' : 'primary'}
-                          size="sm"
-                          icon={isLocked ? <Lock size={12} /> : isReopened ? <RotateCcw size={12} /> : <Upload size={12} />}
-                          onClick={() => setSubmitTargetAssignment(item)}
-                        >
-                          {isLocked ? 'View Submission' : isReopened ? 'Resubmit' : 'Submit'}
-                        </Button>
-                      )}
+                  <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<Eye size={12} />}
+                      onClick={() => setSelectedAssignment(item)}
+                    >
+                      View Details
+                    </Button>
 
-                      {canViewSubmissions && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          icon={<Eye size={12} />}
-                          onClick={() => handleOpenSubmissions(item)}
-                        >
-                          Submissions
-                        </Button>
-                      )}
-
-                      {canCreate && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          title="Dispatch reminders and tasks to pending students"
-                          icon={<Bell size={12} style={{ color: 'var(--brand-primary)' }} />}
-                          loading={remindingId === item.id}
-                          onClick={() => handleRemindPending(item.id)}
-                        >
-                          Remind
-                        </Button>
-                      )}
-
-                      {canCreate && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          icon={<Trash2 size={13} style={{ color: 'var(--status-danger)' }} />}
-                          onClick={() => handleDelete(item.id)}
-                        />
-                      )}
-                    </div>
+                    {canCreate && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<Trash2 size={13} style={{ color: 'var(--status-danger)' }} />}
+                        onClick={() => handleDelete(item.id)}
+                      />
+                    )}
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
 
+        {/* Modal: View Assignment Details (Informational Reader for Students & Teachers) */}
+        <Modal
+          isOpen={!!selectedAssignment}
+          onClose={() => setSelectedAssignment(null)}
+          title={selectedAssignment?.title || 'Assignment Details'}
+          maxWidth="600px"
+        >
+          {selectedAssignment && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Meta header */}
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <Badge tone="primary">{selectedAssignment.subjectName || 'Academics'}</Badge>
+                {selectedAssignment.sectionName && <Badge tone="neutral">Section {selectedAssignment.sectionName}</Badge>}
+                <Badge tone={selectedAssignment.status === 'published' ? 'success' : 'neutral'}>
+                  {selectedAssignment.status.toUpperCase()}
+                </Badge>
+              </div>
+
+              {/* Info grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', padding: '0.75rem 1rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Calendar size={15} style={{ color: 'var(--text-muted)' }} />
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Due Date</div>
+                    <div style={{ fontWeight: 600 }}>{selectedAssignment.dueDate ? new Date(selectedAssignment.dueDate).toLocaleDateString() : 'No deadline'}</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Award size={15} style={{ color: 'var(--brand-primary)' }} />
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Maximum Marks</div>
+                    <div style={{ fontWeight: 600 }}>{selectedAssignment.maxMarks ?? 100} Marks</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              {selectedAssignment.description && (
+                <div>
+                  <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                    Summary / Overview
+                  </h4>
+                  <p style={{ fontSize: '0.9rem', color: 'var(--text-primary)', lineHeight: 1.5, margin: 0 }}>
+                    {selectedAssignment.description}
+                  </p>
+                </div>
+              )}
+
+              {/* Instructions */}
+              {selectedAssignment.instructions ? (
+                <div>
+                  <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                    Instructions & Homework Guidelines
+                  </h4>
+                  <div style={{ padding: '0.85rem 1rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', fontSize: '0.88rem', lineHeight: 1.6, whiteSpace: 'pre-line' }}>
+                    {selectedAssignment.instructions}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  No extra rubric guidelines provided. Complete the assigned tasks and bring your coursework to class.
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '0.5rem', borderTop: '1px solid var(--border-subtle)' }}>
+                <Button variant="secondary" onClick={() => setSelectedAssignment(null)}>Close</Button>
+              </div>
+            </div>
+          )}
+        </Modal>
+
         {/* Modal: Create Assignment */}
-        {/* Modal: Create Assignment */}
-        <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create New Assignment">
+        <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Post New Homework / Assignment">
           <form onSubmit={handleCreateAssignment} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Assignment Title *</label>
@@ -580,391 +407,21 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
             </div>
 
             <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Instructions / Rubric Guidelines</label>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Instructions / Study Guidelines</label>
               <textarea
                 rows={3}
-                placeholder="Detailed instructions, formatting requirements, lab apparatus, or rubric criteria..."
+                placeholder="Detailed homework guidelines, textbook exercises, questions to solve..."
                 value={createInstructions}
                 onChange={(e) => setCreateInstructions(e.target.value)}
                 style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
               />
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <input
-                type="checkbox"
-                id="allowLateCheck"
-                checked={createAllowLateSubmissions}
-                onChange={(e) => setCreateAllowLateSubmissions(e.target.checked)}
-              />
-              <label htmlFor="allowLateCheck" style={{ fontSize: '0.82rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-                Allow late turn-in after due date (marked as Late)
-              </label>
-            </div>
-
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
               <Button variant="secondary" onClick={() => setShowCreateModal(false)}>Cancel</Button>
-              <Button variant="primary" type="submit" loading={saving}>Create Assignment</Button>
+              <Button variant="primary" type="submit" loading={saving}>Post Assignment</Button>
             </div>
           </form>
-        </Modal>
-
-        {/* Modal: Submit Work (Student) */}
-        <Modal
-          isOpen={!!submitTargetAssignment}
-          onClose={() => setSubmitTargetAssignment(null)}
-          title={`Submit Deliverable — ${submitTargetAssignment?.title}`}
-        >
-          {(() => {
-            const isLocked =
-              submitTargetAssignment &&
-              (submitTargetAssignment.submissionStatus === 'submitted' || submitTargetAssignment.submissionStatus === 'marked');
-            const isReopened = submitTargetAssignment && submitTargetAssignment.submissionStatus === 'reopened';
-
-            return (
-              <form onSubmit={handleSubmitWork} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {submitSuccess ? (
-                  <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--status-success)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <CheckCircle2 size={16} /> Assignment deliverable and homework photos submitted successfully!
-                  </div>
-                ) : isLocked ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    <div style={{ padding: '0.85rem', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid var(--status-danger)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
-                      <Lock size={18} style={{ color: 'var(--status-danger)', marginTop: '0.15rem', flexShrink: 0 }} />
-                      <div>
-                        <strong style={{ color: 'var(--status-danger)', fontSize: '0.9rem' }}>Submission Locked</strong>
-                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0', lineHeight: 1.4 }}>
-                          You have already submitted this assignment. Submissions are strictly locked against unauthorized overwrites. If you need to revise or re-upload your deliverable, contact your instructor to request reopening.
-                        </p>
-                      </div>
-                    </div>
-
-                    {submitTargetAssignment?.marksObtained !== null && submitTargetAssignment?.marksObtained !== undefined && (
-                      <div style={{ padding: '0.65rem 0.85rem', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid var(--status-success)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem' }}>
-                        <strong>Grade Received:</strong> {submitTargetAssignment.grade || 'Marked'} ({submitTargetAssignment.marksObtained} / {submitTargetAssignment.maxMarks ?? 100} marks)
-                        {submitTargetAssignment.feedback && (
-                          <div style={{ marginTop: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                            <strong>Feedback:</strong> {submitTargetAssignment.feedback}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {submitTargetAssignment?.submissionNotes && (
-                      <div style={{ fontSize: '0.82rem', background: 'var(--surface-sunken)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-                        <strong>Your Submitted Notes:</strong> {submitTargetAssignment.submissionNotes}
-                      </div>
-                    )}
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                      <Button variant="secondary" onClick={() => setSubmitTargetAssignment(null)}>Close</Button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {isReopened && (
-                      <div style={{ padding: '0.85rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid var(--status-warning)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
-                        <RotateCcw size={18} style={{ color: 'var(--status-warning)', marginTop: '0.15rem', flexShrink: 0 }} />
-                        <div>
-                          <strong style={{ color: 'var(--status-warning)', fontSize: '0.9rem' }}>Submission Reopened for Revision</strong>
-                          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0', lineHeight: 1.4 }}>
-                            <strong>Instructor Note:</strong> {submitTargetAssignment?.reopenReason || 'Your teacher has reopened this submission so you can revise and resubmit.'}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      Provide any notes, answers, or remarks for your instructor regarding this assignment submission.
-                    </p>
-
-                    <div>
-                      <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>Submission Notes / Remarks</label>
-                      <textarea
-                        rows={4}
-                        placeholder="e.g. Completed questions 1-10. All assigned exercises answered in detail."
-                        value={submitNotes}
-                        onChange={(e) => setSubmitNotes(e.target.value)}
-                        style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
-                      />
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                      <Button variant="secondary" onClick={() => setSubmitTargetAssignment(null)} disabled={submittingWork}>Cancel</Button>
-                      <Button variant="primary" type="submit" loading={submittingWork}>
-                        {isReopened ? 'Resubmit Deliverable' : 'Submit Assignment'}
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </form>
-            );
-          })()}
-        </Modal>
-
-        {/* Modal: Teacher View Submissions & Grading */}
-        <Modal
-          isOpen={!!viewAssignment}
-          onClose={() => setViewAssignment(null)}
-          title={`Submissions — ${viewAssignment?.title || ''}`}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: '600px', maxWidth: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                Section: <strong>{viewAssignment?.sectionName || 'Assigned Section'}</strong> | Max Marks: <strong>{viewAssignment?.maxMarks ?? 100}</strong> | Total Submissions: <strong>{submissions.length}</strong>
-              </div>
-
-              {canCreate && viewAssignment && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon={<Bell size={13} style={{ color: 'var(--brand-primary)' }} />}
-                  loading={remindingId === viewAssignment.id}
-                  onClick={() => handleRemindPending(viewAssignment.id)}
-                >
-                  Remind Pending Students
-                </Button>
-              )}
-            </div>
-
-            {loadingSubmissions ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-                Loading student submissions...
-              </div>
-            ) : submissions.length === 0 ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-                <AlertCircle size={28} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
-                <p>No student submissions received yet for this assignment.</p>
-                <div style={{ marginTop: '0.75rem' }}>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    icon={<Bell size={12} />}
-                    onClick={() => viewAssignment && handleRemindPending(viewAssignment.id)}
-                  >
-                    Send Reminder to Enrolled Students
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '60vh', overflowY: 'auto' }}>
-                {submissions.map((sub) => (
-                  <div
-                    key={sub.id}
-                    style={{
-                      padding: '0.85rem',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'var(--surface-sunken)',
-                      border: '1px solid var(--border-subtle)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.5rem',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>
-                          {sub.studentName || 'Student'} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Roll #{sub.rollNumber || 'N/A'} (Adm: {sub.admissionNo || 'N/A'})</span>
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
-                          Submitted on {new Date(sub.submittedAt).toLocaleString()}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
-                        {sub.status === 'reopened' ? (
-                          <Badge tone="warning">
-                            <RotateCcw size={10} style={{ marginRight: '0.2rem' }} /> Reopened
-                          </Badge>
-                        ) : sub.status === 'marked' || sub.status === 'graded' ? (
-                          <Badge tone="success">
-                            <CheckCircle2 size={10} style={{ marginRight: '0.2rem' }} /> Marked ({sub.marksObtained ?? '-'} / {viewAssignment?.maxMarks ?? 100})
-                          </Badge>
-                        ) : (
-                          <Badge tone="primary">
-                            <Lock size={10} style={{ marginRight: '0.2rem' }} /> Submitted (Locked)
-                          </Badge>
-                        )}
-                        {sub.isLate && <Badge tone="danger">Late</Badge>}
-                      </div>
-                    </div>
-
-                    {/* Submission notes */}
-                    {sub.submissionNotes && (
-                      <div style={{ fontSize: '0.8rem', background: 'var(--surface-base)', padding: '0.4rem 0.6rem', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border-subtle)' }}>
-                        <strong style={{ color: 'var(--text-secondary)' }}>Notes: </strong>{sub.submissionNotes}
-                      </div>
-                    )}
-
-                    {/* Reopened Note */}
-                    {sub.reopenReason && (
-                      <div style={{ fontSize: '0.78rem', color: 'var(--status-warning)', background: 'rgba(245, 158, 11, 0.08)', padding: '0.35rem 0.6rem', borderRadius: 'var(--radius-xs)', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                        <strong>Reopened Reason:</strong> {sub.reopenReason} {sub.reopenedAt && `(${new Date(sub.reopenedAt).toLocaleDateString()})`}
-                      </div>
-                    )}
-
-                    {/* Homework Photo / Attachment */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                      {sub.fileUrl ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          {sub.fileUrl.startsWith('data:image') || sub.fileUrl.match(/\.(jpeg|jpg|png|gif|webp)$/i) ? (
-                            <div
-                              onClick={() => setPreviewPhoto({ url: sub.fileUrl!, title: `${sub.studentName || 'Student'} Homework` })}
-                              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.5rem', background: 'rgba(59, 130, 246, 0.1)', borderRadius: 'var(--radius-xs)', color: 'var(--brand-primary)', fontSize: '0.78rem' }}
-                            >
-                              <ImageIcon size={14} /> View Homework Photo
-                            </div>
-                          ) : (
-                            <a
-                              href={sub.fileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--brand-primary)', fontSize: '0.78rem', textDecoration: 'none' }}
-                            >
-                              <ExternalLink size={14} /> Open Document File
-                            </a>
-                          )}
-                        </div>
-                      ) : sub.fileName || sub.fileKey ? (
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                          <FileText size={13} /> {sub.fileName || sub.fileKey} {sub.fileSize ? `(${(sub.fileSize / 1024).toFixed(1)} KB)` : ''}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    {/* Teacher Actions & Grading */}
-                    <div style={{ marginTop: '0.25rem', paddingTop: '0.4rem', borderTop: '1px dashed var(--border-subtle)', display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                      {canGrade && (
-                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
-                          <div style={{ width: '85px' }}>
-                            <input
-                              type="number"
-                              placeholder={`Marks (/${viewAssignment?.maxMarks || 100})`}
-                              value={gradingState[sub.id]?.marksObtained ?? ''}
-                              onChange={(e) =>
-                                setGradingState((prev) => ({
-                                  ...prev,
-                                  [sub.id]: { ...prev[sub.id], marksObtained: e.target.value },
-                                }))
-                              }
-                              style={{ width: '100%', padding: '0.3rem 0.5rem', fontSize: '0.8rem', borderRadius: 'var(--radius-xs)', background: 'var(--surface-base)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}
-                            />
-                          </div>
-                          <div style={{ width: '85px' }}>
-                            <input
-                              type="text"
-                              placeholder="Grade (A+)"
-                              value={gradingState[sub.id]?.grade ?? ''}
-                              onChange={(e) =>
-                                setGradingState((prev) => ({
-                                  ...prev,
-                                  [sub.id]: { ...prev[sub.id], grade: e.target.value },
-                                }))
-                              }
-                              style={{ width: '100%', padding: '0.3rem 0.5rem', fontSize: '0.8rem', borderRadius: 'var(--radius-xs)', background: 'var(--surface-base)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}
-                            />
-                          </div>
-                          <div style={{ flex: 1, minWidth: '150px' }}>
-                            <input
-                              type="text"
-                              placeholder="Teacher feedback..."
-                              value={gradingState[sub.id]?.feedback ?? ''}
-                              onChange={(e) =>
-                                setGradingState((prev) => ({
-                                  ...prev,
-                                  [sub.id]: { ...prev[sub.id], feedback: e.target.value },
-                                }))
-                              }
-                              style={{ width: '100%', padding: '0.3rem 0.5rem', fontSize: '0.8rem', borderRadius: 'var(--radius-xs)', background: 'var(--surface-base)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}
-                            />
-                          </div>
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            icon={gradingState[sub.id]?.success ? <Check size={12} /> : undefined}
-                            loading={gradingState[sub.id]?.saving}
-                            onClick={() => handleGradeSubmission(sub.id)}
-                          >
-                            {gradingState[sub.id]?.success ? 'Saved' : 'Grade'}
-                          </Button>
-                        </div>
-                      )}
-
-                      {canReopen && sub.status !== 'reopened' && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          icon={<RotateCcw size={12} />}
-                          onClick={() => {
-                            setReopenTargetSubmission(sub);
-                            setReopenReason('');
-                          }}
-                        >
-                          Reopen
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-              <Button variant="secondary" onClick={() => setViewAssignment(null)}>Close</Button>
-            </div>
-          </div>
-        </Modal>
-
-        {/* Modal: Reopen Submission (Teacher Reason Prompt) */}
-        <Modal
-          isOpen={!!reopenTargetSubmission}
-          onClose={() => setReopenTargetSubmission(null)}
-          title={`Reopen Submission — ${reopenTargetSubmission?.studentName || 'Student'}`}
-        >
-          <form onSubmit={handleReopenSubmission} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Reopening this submission unlocks it for the student, allowing them to revise or upload new homework deliverables. A reason is required and will be logged in the audit trail.
-            </p>
-            <div>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Reason for Reopening *</label>
-              <textarea
-                required
-                rows={3}
-                placeholder="e.g. Please re-upload page 2 of your handwritten solutions with clear lighting."
-                value={reopenReason}
-                onChange={(e) => setReopenReason(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-              <Button variant="secondary" onClick={() => setReopenTargetSubmission(null)} disabled={reopening}>Cancel</Button>
-              <Button variant="primary" type="submit" loading={reopening} icon={<RotateCcw size={13} />}>
-                Confirm Reopen
-              </Button>
-            </div>
-          </form>
-        </Modal>
-
-        {/* Lightbox / Modal: Photo Preview */}
-        <Modal
-          isOpen={!!previewPhoto}
-          onClose={() => setPreviewPhoto(null)}
-          title={previewPhoto?.title || 'Homework Submission Photo'}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
-            {previewPhoto && (
-              <div style={{ maxWidth: '100%', maxHeight: '70vh', overflow: 'auto', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: '#111' }}>
-                <img
-                  src={previewPhoto.url}
-                  alt={previewPhoto.title}
-                  style={{ maxWidth: '100%', maxHeight: '70vh', display: 'block', margin: '0 auto', objectFit: 'contain' }}
-                />
-              </div>
-            )}
-            <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end' }}>
-              <Button variant="secondary" onClick={() => setPreviewPhoto(null)}>Close Preview</Button>
-            </div>
-          </div>
         </Modal>
       </div>
     </ProtectedRoute>

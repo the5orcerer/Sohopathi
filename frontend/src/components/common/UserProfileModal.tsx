@@ -10,7 +10,7 @@ interface UserProfileModalProps {
 }
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onClose }) => {
-  const { session, refreshSession } = useSession();
+  const { session, refreshSession, hasPermission } = useSession();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -19,6 +19,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  const canEditPhoto =
+    hasPermission('memberships.manage') ||
+    hasPermission('institution.manage') ||
+    hasPermission('roles.manage') ||
+    session?.activeMembership?.role === 'owner' ||
+    session?.activeMembership?.role === 'admin' ||
+    session?.activeMembership?.roleName?.toLowerCase().includes('admin');
 
   useEffect(() => {
     if (session?.user) {
@@ -58,7 +66,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
       await updateSelfProfile({
         name: name.trim(),
         phone: phone.trim() || undefined,
-        avatarUrl: avatarUrl.trim() || undefined,
+        avatarUrl: canEditPhoto ? (avatarUrl.trim() || undefined) : undefined,
         password: password ? password : undefined,
       });
 
@@ -118,6 +126,58 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Organization Role & Email (Managed by Admin)</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, marginTop: '0.2rem' }}>
             {session?.user.email} • {session?.activeMembership.roleName || session?.activeMembership.role}
+          </div>
+        </div>
+
+        {/* Profile Photo Display & Permission Gate */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+          <div style={{ position: 'relative', width: '56px', height: '56px', borderRadius: '50%', overflow: 'hidden', background: 'var(--brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '1.2rem', flexShrink: 0, border: '2px solid var(--border-subtle)' }}>
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={name || 'User'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              name ? name.charAt(0).toUpperCase() : <User size={24} />
+            )}
+            {!canEditPhoto && (
+              <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Lock size={18} style={{ color: '#fff' }} />
+              </div>
+            )}
+          </div>
+
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Institutional Profile Photo</span>
+              {!canEditPhoto && (
+                <span style={{ fontSize: '0.7rem', padding: '1px 6px', borderRadius: '10px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--status-danger)', border: '1px solid var(--status-danger)', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                  <Lock size={10} /> Locked
+                </span>
+              )}
+            </div>
+
+            {canEditPhoto ? (
+              <div>
+                <input
+                  type="url"
+                  placeholder="Paste photo URL (https://...)"
+                  value={avatarUrl}
+                  onChange={(e) => setAvatarUrl(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.4rem 0.6rem',
+                    fontSize: '0.8rem',
+                    borderRadius: 'var(--radius-xs)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface-base)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Authorized administrative photo modification.</span>
+              </div>
+            ) : (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.3 }}>
+                Profile photo is locked by institutional administration. Contact the administration desk to update your verified identification photo.
+              </span>
+            )}
           </div>
         </div>
 

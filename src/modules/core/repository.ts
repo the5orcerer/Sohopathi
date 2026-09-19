@@ -827,6 +827,47 @@ export const coreRepository = {
     return section;
   },
 
+  async updateSection(
+    client: PoolClient,
+    institutionId: string,
+    id: string,
+    data: { name?: string; capacity?: number | null; classTeacherMembershipId?: string | null },
+    actorMembershipId?: string
+  ): Promise<Section> {
+    const { rows: existingRows } = await client.query(
+      `select id, institution_id as "institutionId", class_id as "classId", name, capacity, class_teacher_membership_id as "classTeacherMembershipId"
+       from section where id = $1 and institution_id = $2`,
+      [id, institutionId]
+    );
+    if (!existingRows[0]) {
+      throw new Error('Section not found');
+    }
+    const existing = existingRows[0];
+
+    const newName = data.name !== undefined ? data.name.trim() : existing.name;
+    const newCapacity = data.capacity !== undefined ? data.capacity : existing.capacity;
+    const newTeacher = data.classTeacherMembershipId !== undefined ? data.classTeacherMembershipId : existing.classTeacherMembershipId;
+
+    const { rows } = await client.query(
+      `update section
+       set name = $1, capacity = $2, class_teacher_membership_id = $3
+       where id = $4 and institution_id = $5
+       returning id, institution_id as "institutionId", class_id as "classId", name, capacity, class_teacher_membership_id as "classTeacherMembershipId"`,
+      [newName, newCapacity, newTeacher, id, institutionId]
+    );
+    const updated = rows[0];
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'update',
+      entityType: 'section',
+      entityId: id,
+      before: existing,
+      after: updated,
+    });
+    return updated;
+  },
+
   async listSubjects(client: PoolClient, institutionId: string): Promise<Subject[]> {
     const { rows } = await client.query(
       `select id, institution_id as "institutionId", name, code

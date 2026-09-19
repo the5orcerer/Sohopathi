@@ -472,6 +472,20 @@ export async function createSection(data: {
   });
 }
 
+export async function updateSection(
+  id: string,
+  data: {
+    name?: string;
+    capacity?: number | null;
+    classTeacherMembershipId?: string | null;
+  }
+): Promise<SectionItem> {
+  return fetchWithAuth<SectionItem>(`/api/core/sections/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
 export async function fetchSubjects(): Promise<SubjectItem[]> {
   return fetchWithAuth<SubjectItem[]>('/api/core/subjects');
 }

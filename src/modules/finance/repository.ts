@@ -1,6 +1,7 @@
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
 import { coreRepository } from '../core/repository';
+import { dispatchNotificationAndTask } from '../core/notification-task-service';
 
 export interface InvoiceItem {
   label: string;
@@ -356,29 +357,47 @@ export const financeRepository = {
     const created = await financeRepository.getInvoiceById(client, institutionId, rows[0].id);
     if (!created) throw new Error('Failed to retrieve created invoice');
 
-    // Dispatch notification
+    // Dispatch notification and task
     try {
       if (recipientType === 'student' && data.studentId) {
         const { rows: sRows } = await client.query(
-          `select user_id from student where id = $1 and institution_id = $2`,
+          `select s.user_id, m.id as membership_id 
+           from student s 
+           left join membership m on m.user_id = s.user_id and m.institution_id = s.institution_id
+           where s.id = $1 and s.institution_id = $2 limit 1`,
           [data.studentId, institutionId]
         );
-        if (sRows[0]?.user_id) {
-          await coreRepository.createNotification(client, institutionId, {
-            recipientUserId: sRows[0].user_id,
+        const uId = sRows[0]?.user_id;
+        const mId = sRows[0]?.membership_id;
+        if (mId || uId) {
+          await dispatchNotificationAndTask({
+            client,
+            institutionId,
+            creatorMembershipId: actorMembershipId,
+            recipientMembershipIds: mId ? [mId] : [],
+            recipientUserIds: mId ? [] : (uId ? [uId] : []),
             title: `Fee Invoice Issued: ${cleanTitle}`,
             body: `A new fee invoice (${invoiceNumber}) for ৳${(computedTotal - discountAmount).toLocaleString()} is due on ${data.dueDate}.`,
             type: 'fee_invoice',
-            data: { invoiceId: created.id, amount: computedTotal - discountAmount },
+            priority: 'medium',
+            dueDate: data.dueDate,
+            createTask: Boolean(mId),
+            metadata: { invoiceId: created.id, amount: computedTotal - discountAmount },
           });
         }
       } else if (recipientType === 'employee' && data.employeeMembershipId) {
-        await coreRepository.createNotification(client, institutionId, {
-          recipientMembershipId: data.employeeMembershipId,
+        await dispatchNotificationAndTask({
+          client,
+          institutionId,
+          creatorMembershipId: actorMembershipId,
+          recipientMembershipIds: [data.employeeMembershipId],
           title: `Salary / Billing Entry Issued: ${cleanTitle}`,
           body: `A new payment invoice (${invoiceNumber}) for ৳${computedTotal.toLocaleString()} has been prepared.`,
           type: 'salary_disbursement',
-          data: { invoiceId: created.id, amount: computedTotal },
+          priority: 'medium',
+          dueDate: data.dueDate,
+          createTask: true,
+          metadata: { invoiceId: created.id, amount: computedTotal },
         });
       }
     } catch {}
@@ -568,6 +587,48 @@ export const financeRepository = {
       entityId: payment.id,
       after: { payment, invoiceStatus: nextStatus, newPaidAmount },
     });
+
+    // Dispatch payment receipt notification
+    try {
+      const recipientMembershipIds: string[] = [];
+      const recipientUserIds: string[] = [];
+
+      if (invoice.recipientType === 'student' && invoice.studentId) {
+        const { rows: sRows } = await client.query(
+          `select s.user_id, m.id as membership_id 
+           from student s 
+           left join membership m on m.user_id = s.user_id and m.institution_id = s.institution_id
+           where s.id = $1 and s.institution_id = $2 limit 1`,
+          [invoice.studentId, institutionId]
+        );
+        if (sRows[0]?.membership_id) recipientMembershipIds.push(sRows[0].membership_id);
+        else if (sRows[0]?.user_id) recipientUserIds.push(sRows[0].user_id);
+      } else if (invoice.recipientType === 'employee' && invoice.employeeMembershipId) {
+        recipientMembershipIds.push(invoice.employeeMembershipId);
+      }
+
+      if (recipientMembershipIds.length > 0 || recipientUserIds.length > 0) {
+        await dispatchNotificationAndTask({
+          client,
+          institutionId,
+          creatorMembershipId: actorMembershipId,
+          recipientMembershipIds,
+          recipientUserIds,
+          title: `Payment Receipt: ৳${payAmount.toLocaleString()}`,
+          body: `Payment of ৳${payAmount.toLocaleString()} recorded via ${data.method || 'cash'} (Receipt: ${receiptNumber}). Invoice ${invoice.invoiceNumber} remaining balance: ৳${Math.max(0, netTotal - newPaidAmount).toLocaleString()}.`,
+          type: 'payment_receipt',
+          priority: 'low',
+          createTask: false,
+          metadata: {
+            paymentId: payment.id,
+            invoiceId,
+            receiptNumber,
+            amount: payAmount,
+            status: nextStatus,
+          },
+        });
+      }
+    } catch {}
 
     return { payment, invoice: updatedInvoice };
   },

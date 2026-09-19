@@ -1,6 +1,7 @@
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
 import { provisionStudentUserAccount } from '../core/repository';
+import { dispatchNotificationAndTask } from '../core/notification-task-service';
 
 export interface AdmissionApplication {
   id: string;
@@ -447,6 +448,35 @@ export const admissionRepository = {
       entityId: applicationId,
       after: { studentId: student.id, username, admissionNo: admNo },
     });
+
+    try {
+      const { rows: memRows } = await client.query(
+        `select id from membership where user_id = $1 and institution_id = $2 limit 1`,
+        [userId, institutionId]
+      );
+      const studentMembershipId = memRows[0]?.id;
+
+      await dispatchNotificationAndTask({
+        client,
+        institutionId,
+        creatorMembershipId: actorMembershipId,
+        recipientMembershipIds: studentMembershipId ? [studentMembershipId] : [],
+        recipientUserIds: studentMembershipId ? [] : [userId],
+        title: 'Welcome to the Institution - Admission Approved',
+        body: `Congratulations ${app.applicantName}! Your admission has been approved (Admission No: ${admNo}). Your login username is: ${username}`,
+        type: 'admission',
+        priority: 'high',
+        createTask: false,
+        metadata: {
+          applicationId,
+          studentId: student.id,
+          admissionNo: admNo,
+          username,
+        },
+      });
+    } catch {
+      // Non-blocking notification dispatch
+    }
 
     return {
       student,

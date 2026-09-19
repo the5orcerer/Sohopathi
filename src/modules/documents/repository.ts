@@ -550,28 +550,36 @@ export const documentsRepo = {
     ).catch(() => ({ rows: [] }));
     const settings = instSettings?.settings || {};
 
-    // 3. Fetch student data if studentId provided
+    // 3. Fetch entity data (student, employee, admission, invoice)
     let studentData: any = {};
     const targetStudentId = options.studentId || (options.entityType === 'student' ? options.entityId : undefined);
     if (targetStudentId) {
-      const { rows: [student] } = await client.query(
-        `select s.id, s.admission_no as "admissionNo", s.roll_no as "rollNo", s.gender, s.date_of_birth as "dateOfBirth",
-                s.blood_group as "bloodGroup", s.address, p.full_name as "name", p.phone, p.email,
-                c.name as "className", sec.name as "sectionName",
-                g_p.full_name as "guardianName", g_p.phone as "guardianPhone"
-         from student s
-         left join profile p on s.user_id = p.id
-         left join enrollment e on e.student_id = s.id and e.status = 'active'
-         left join class c on e.class_id = c.id
-         left join section sec on e.section_id = sec.id
-         left join student_guardian sg on sg.student_id = s.id and sg.is_primary = true
-         left join guardian g on sg.guardian_id = g.id
-         left join profile g_p on g.user_id = g_p.id
-         where s.id = $1 and s.institution_id = $2`,
-        [targetStudentId, institutionId]
-      );
-      if (student) {
-        studentData = student;
+      try {
+        const { rows: [student] } = await client.query(
+          `select s.id, s.admission_no as "admissionNo", coalesce(e.roll_no, '') as "rollNo",
+                  s.gender, s.date_of_birth as "dateOfBirth",
+                  coalesce(s.name, p.name) as "name", p.phone, p.email,
+                  (s.custom_fields->>'blood_group') as "bloodGroup",
+                  (s.custom_fields->>'address') as "address",
+                  c.name as "className", sec.name as "sectionName",
+                  coalesce(s.guardian_name, g.name, g_p.name) as "guardianName",
+                  coalesce(s.guardian_phone, g.phone, g_p.phone) as "guardianPhone"
+           from student s
+           left join profile p on s.user_id = p.id
+           left join enrollment e on e.student_id = s.id and e.status = 'active'
+           left join class c on e.class_id = c.id
+           left join section sec on e.section_id = sec.id
+           left join student_guardian sg on sg.student_id = s.id and sg.is_primary = true
+           left join guardian g on sg.guardian_id = g.id
+           left join profile g_p on g.user_id = g_p.id
+           where s.id = $1 and s.institution_id = $2`,
+          [targetStudentId, institutionId]
+        );
+        if (student) {
+          studentData = student;
+        }
+      } catch {
+        // Fallback gracefully without crash
       }
     }
 
@@ -580,6 +588,91 @@ export const documentsRepo = {
       month: 'long',
       day: 'numeric',
     });
+
+    let employeeData: any = {};
+    const targetMemberId = (options.entityType === 'member' || options.entityType === 'employee') ? options.entityId : undefined;
+    if (targetMemberId) {
+      try {
+        const { rows: [member] } = await client.query(
+          `select m.id, m.login_username as "loginUsername", m.custom_fields as "customFields",
+                  coalesce(p.name, m.login_username, 'Faculty') as name,
+                  p.email, p.phone, p.avatar_url as "avatarUrl",
+                  r.name as "roleName"
+           from membership m
+           join profile p on m.user_id = p.id
+           join role r on m.role_id = r.id
+           where m.id = $1 and m.institution_id = $2`,
+          [targetMemberId, institutionId]
+        );
+        if (member) {
+          employeeData = {
+            name: member.name,
+            email: member.email,
+            phone: member.phone,
+            designation: member.customFields?.designation || member.roleName || 'Faculty / Staff',
+            department: member.customFields?.department || 'Academic Department',
+            code: member.customFields?.employee_id || member.loginUsername || `EMP-${member.id.slice(0, 5)}`,
+            joiningDate: member.customFields?.joining_date ? new Date(member.customFields.joining_date).toLocaleDateString() : today,
+            salary: member.customFields?.salary ? `৳ ${Number(member.customFields.salary).toLocaleString()}` : '৳ 35,000',
+          };
+        }
+      } catch {
+        // Safe fallback
+      }
+    }
+
+    let admissionData: any = {};
+    const targetAdmissionId = options.entityType === 'admission' ? options.entityId : undefined;
+    if (targetAdmissionId) {
+      try {
+        const { rows: [admission] } = await client.query(
+          `select a.id, a.application_no as "applicationNo", a.applicant_name as "applicantName",
+                  a.date_of_birth as "dateOfBirth", a.gender,
+                  a.guardian_name as "guardianName", a.guardian_phone as "guardianPhone", a.guardian_email as "guardianEmail",
+                  a.address, a.previous_school as "previousSchool", a.status,
+                  a.application_fee as "applicationFee", a.fee_status as "feeStatus",
+                  c.name as "className", ay.name as "academicYear"
+           from admission_application a
+           left join class c on a.class_id = c.id
+           left join academic_year ay on a.academic_year_id = ay.id
+           where a.id = $1 and a.institution_id = $2`,
+          [targetAdmissionId, institutionId]
+        );
+        if (admission) {
+          admissionData = admission;
+        }
+      } catch {
+        // Safe fallback
+      }
+    }
+
+    let invoiceData: any = {};
+    const targetInvoiceId = (options.entityType === 'invoice' || options.entityType === 'receipt') ? options.entityId : undefined;
+    if (targetInvoiceId) {
+      try {
+        const { rows: [inv] } = await client.query(
+          `select fi.id, fi.title, fi.amount, fi.due_date as "dueDate", fi.status,
+                  s.name as "studentName", s.admission_no as "admissionNo",
+                  c.name as "className", sec.name as "sectionName",
+                  coalesce(s.guardian_name, '') as "guardianName",
+                  coalesce(s.guardian_phone, '') as "guardianPhone",
+                  ay.name as "academicYear"
+           from fee_invoice fi
+           left join student s on fi.student_id = s.id
+           left join enrollment e on e.student_id = s.id and e.status = 'active'
+           left join class c on e.class_id = c.id
+           left join section sec on e.section_id = sec.id
+           left join academic_year ay on fi.academic_year_id = ay.id
+           where fi.id = $1 and fi.institution_id = $2`,
+          [targetInvoiceId, institutionId]
+        );
+        if (inv) {
+          invoiceData = inv;
+        }
+      } catch {
+        // Safe fallback
+      }
+    }
 
     const defaults: Record<string, any> = {
       // Institution
@@ -617,22 +710,40 @@ export const documentsRepo = {
       certificateNo: `DOC-${Date.now().toString().slice(-6)}`,
 
       // Student Defaults
-      'student.name': studentData.name || 'Sample Student',
-      'student.admissionNo': studentData.admissionNo || 'ADM-2026-001',
+      'student.name': studentData.name || admissionData.applicantName || invoiceData.studentName || 'Sample Student',
+      'student.admissionNo': studentData.admissionNo || admissionData.applicationNo || invoiceData.admissionNo || 'ADM-2026-001',
       'student.rollNo': studentData.rollNo || '01',
       'student.roll': studentData.rollNo || '01',
-      'student.className': studentData.className || 'Grade 10',
-      'student.sectionName': studentData.sectionName || 'Section A',
-      'student.gender': studentData.gender || 'Unspecified',
+      'student.className': studentData.className || admissionData.className || invoiceData.className || 'Grade 10',
+      'student.sectionName': studentData.sectionName || invoiceData.sectionName || 'Section A',
+      'student.gender': studentData.gender || admissionData.gender || 'Unspecified',
       'student.dateOfBirth': studentData.dateOfBirth
         ? new Date(studentData.dateOfBirth).toLocaleDateString()
+        : admissionData.dateOfBirth
+        ? new Date(admissionData.dateOfBirth).toLocaleDateString()
         : 'January 1, 2010',
       'student.bloodGroup': studentData.bloodGroup || 'O+',
-      'student.address': studentData.address || 'House 12, Road 4, Campus City',
-      'student.fatherName': studentData.guardianName || 'Mr. Guardian',
+      'student.address': studentData.address || admissionData.address || 'House 12, Road 4, Campus City',
+      'student.fatherName': studentData.guardianName || admissionData.guardianName || invoiceData.guardianName || 'Mr. Guardian',
       'student.motherName': 'Mrs. Guardian',
-      'guardian.name': studentData.guardianName || 'Mr. Guardian',
-      'guardian.phone': studentData.guardianPhone || '+880 1700-000000',
+      'guardian.name': studentData.guardianName || admissionData.guardianName || invoiceData.guardianName || 'Mr. Guardian',
+      'guardian.phone': studentData.guardianPhone || admissionData.guardianPhone || invoiceData.guardianPhone || '+880 1700-000000',
+
+      // Employee / Staff Defaults
+      'employee.name': employeeData.name || 'Faculty Member',
+      'employee.designation': employeeData.designation || 'Senior Faculty Member',
+      'employee.department': employeeData.department || 'Science & Humanities',
+      'employee.code': employeeData.code || 'EMP-0142',
+      'employee.joiningDate': employeeData.joiningDate || today,
+      'employee.phone': employeeData.phone || '+880 1711-000000',
+      'employee.email': employeeData.email || 'faculty@institution.edu.bd',
+      'employee.salary': employeeData.salary || '৳ 42,000',
+
+      // Admission Defaults
+      'admission.number': admissionData.applicationNo || 'ADM-APP-2026-001',
+      'admission.status': admissionData.status || 'Admitted',
+      'admission.fee': admissionData.applicationFee ? `৳ ${Number(admissionData.applicationFee).toLocaleString()}` : '৳ 500',
+      'admission.feeStatus': admissionData.feeStatus || 'Paid',
 
       // Exam / Result Defaults
       'exam.name': 'Annual Examination 2026',
@@ -646,13 +757,13 @@ export const documentsRepo = {
       'result.remarks': 'Exemplary scholastic diligence and analytical excellence.',
 
       // Invoice / Fee Defaults
-      'invoice.number': `INV-${Date.now().toString().slice(-5)}`,
+      'invoice.number': invoiceData.id ? `INV-${invoiceData.id.slice(0, 8).toUpperCase()}` : `INV-${Date.now().toString().slice(-5)}`,
       'invoice.date': today,
-      'invoice.dueDate': today,
-      'invoice.amount': '৳ 6,500',
+      'invoice.dueDate': invoiceData.dueDate ? new Date(invoiceData.dueDate).toLocaleDateString() : today,
+      'invoice.amount': invoiceData.amount ? `৳ ${Number(invoiceData.amount).toLocaleString()}` : '৳ 6,500',
       'receipt.number': `RCP-${Date.now().toString().slice(-5)}`,
       'receipt.date': today,
-      'receipt.amount': '৳ 6,500',
+      'receipt.amount': invoiceData.amount ? `৳ ${Number(invoiceData.amount).toLocaleString()}` : '৳ 6,500',
       'receipt.method': 'bKash Merchant Pay',
     };
 

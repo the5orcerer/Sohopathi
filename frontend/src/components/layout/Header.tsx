@@ -331,9 +331,17 @@ export const Header: React.FC<HeaderProps> = ({
                   justifyContent: 'center',
                   fontWeight: 700,
                   fontSize: '0.85rem',
+                  overflow: 'hidden',
+                  flexShrink: 0,
                 }}
               >
-                {user?.name ? user.name.charAt(0).toUpperCase() : <UserCheck size={14} />}
+                {user?.avatarUrl ? (
+                  <img src={user.avatarUrl} alt={user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : user?.name ? (
+                  user.name.charAt(0).toUpperCase()
+                ) : (
+                  <UserCheck size={14} />
+                )}
               </div>
             </button>
 

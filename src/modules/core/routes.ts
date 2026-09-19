@@ -119,6 +119,17 @@ export async function createSection(req: Request, res: Response, client: PoolCli
   res.status(201).json(sec);
 }
 
+export async function updateSection(req: Request, res: Response, client: PoolClient) {
+  const sec = await coreRepository.updateSection(
+    client,
+    req.ctx!.institutionId,
+    req.params.id,
+    req.body,
+    req.ctx?.membershipId
+  );
+  res.json(sec);
+}
+
 export async function listSubjects(req: Request, res: Response, client: PoolClient) {
   const subjects = await coreRepository.listSubjects(client, req.ctx!.institutionId);
   res.json(subjects);

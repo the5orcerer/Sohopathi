@@ -1,6 +1,7 @@
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
 import { assertContentLength, CONTENT_LIMITS } from '../../core/validation/content-limits';
+import { dispatchNotificationAndTask } from '../core/notification-task-service';
 
 export interface Notice {
   id: string;
@@ -96,6 +97,63 @@ export const noticeRepository = {
       entityId: notice.id,
       after: notice,
     });
+
+    // Dispatch notice notification to audience
+    try {
+      let recipientMembershipIds: string[] = [];
+
+      if (data.targetClassIds && data.targetClassIds.length > 0) {
+        // Fetch memberships of students enrolled in these classes
+        const { rows: studentMembers } = await client.query(
+          `select distinct m.id
+           from enrollment e
+           join student s on s.id = e.student_id
+           join membership m on m.user_id = s.user_id and m.institution_id = e.institution_id
+           where e.institution_id = $1 and e.class_id = any($2::text[]) and m.status = 'active'`,
+          [institutionId, data.targetClassIds]
+        );
+        recipientMembershipIds.push(...studentMembers.map((r: any) => r.id));
+      } else if (data.targetRoles && data.targetRoles.length > 0) {
+        // Fetch memberships with matching roles
+        const { rows: roleMembers } = await client.query(
+          `select distinct m.id
+           from membership m
+           join role r on r.id = m.role_id
+           where m.institution_id = $1 and m.status = 'active' and lower(r.name) = any($2::text[])`,
+          [institutionId, data.targetRoles.map((r: string) => r.toLowerCase())]
+        );
+        recipientMembershipIds.push(...roleMembers.map((r: any) => r.id));
+      } else {
+        // Broad broadcast: active institution members
+        const { rows: allMembers } = await client.query(
+          `select id from membership where institution_id = $1 and status = 'active' and id != $2 limit 500`,
+          [institutionId, publishedByMembershipId]
+        );
+        recipientMembershipIds.push(...allMembers.map((r: any) => r.id));
+      }
+
+      recipientMembershipIds = Array.from(
+        new Set(recipientMembershipIds.filter((id) => id && id !== publishedByMembershipId))
+      );
+
+      if (recipientMembershipIds.length > 0) {
+        await dispatchNotificationAndTask({
+          client,
+          institutionId,
+          creatorMembershipId: publishedByMembershipId,
+          recipientMembershipIds,
+          title: `Notice: ${cleanTitle}`,
+          body: cleanBody.length > 180 ? `${cleanBody.substring(0, 177)}...` : cleanBody,
+          type: 'notice',
+          priority: 'medium',
+          createTask: false,
+          metadata: { noticeId: notice.id, audienceScope: data.audienceScope || 'institution' },
+        });
+      }
+    } catch {
+      // Non-blocking notification dispatch
+    }
+
     return notice;
   },
 

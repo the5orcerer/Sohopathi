@@ -32,12 +32,15 @@ import {
   DollarSign,
   GraduationCap,
   Loader2,
+  FileBadge,
 } from 'lucide-react';
 import { Button, Badge, Modal, SearchBar, EmptyState, Pagination } from '../components/common';
 import { useSession } from '../context/SessionContext';
+import { AdmissionDocumentModal } from '../components/admission/AdmissionDocumentModal';
 
 export const AdmissionsPage: React.FC = () => {
   const [applications, setApplications] = useState<AdmissionApplicationItem[]>([]);
+  const [documentTargetApp, setDocumentTargetApp] = useState<AdmissionApplicationItem | null>(null);
   const [stats, setStats] = useState<AdmissionStatsData | null>(null);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
@@ -565,6 +568,15 @@ export const AdmissionsPage: React.FC = () => {
 
                     <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDocumentTargetApp(app)}
+                          title="Generate Admission Document / Admit Card / Form"
+                        >
+                          <FileBadge size={14} style={{ color: 'var(--brand-primary)' }} />
+                        </Button>
+
                         {canWrite && (
                           <Button variant="ghost" size="sm" onClick={() => handleOpenReview(app)} title="Review Application">
                             <Edit2 size={14} />
@@ -1035,6 +1047,13 @@ export const AdmissionsPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Modal: Generate Admission Document */}
+      <AdmissionDocumentModal
+        application={documentTargetApp}
+        isOpen={!!documentTargetApp}
+        onClose={() => setDocumentTargetApp(null)}
+      />
     </div>
   );
 };

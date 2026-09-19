@@ -153,9 +153,26 @@ export const coreManifest: ModuleManifest = {
           classId: z.string().uuid(),
           name: z.string().min(1),
           capacity: z.number().optional(),
+          classTeacherMembershipId: z.string().uuid().nullable().optional(),
         }),
       },
       handler: routes.createSection,
+    },
+    {
+      method: 'PATCH',
+      path: '/sections/:id',
+      requiredPermission: 'sections.manage',
+      validation: {
+        params: z.object({
+          id: z.string().uuid(),
+        }),
+        body: z.object({
+          name: z.string().min(1).optional(),
+          capacity: z.number().nullable().optional(),
+          classTeacherMembershipId: z.string().uuid().nullable().optional(),
+        }),
+      },
+      handler: routes.updateSection,
     },
     { method: 'GET', path: '/subjects', requiredPermission: 'subjects.manage', handler: routes.listSubjects },
     {

@@ -41,7 +41,9 @@ import {
   Printer,
   AlertCircle,
   TrendingDown,
+  FileBadge,
 } from 'lucide-react';
+import { InvoiceDocumentModal } from '../components/finance/InvoiceDocumentModal';
 
 const PAYMENT_METHODS = [
   'Cash',
@@ -118,6 +120,7 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
   const [showReceiptModal, setShowReceiptModal] = useState<boolean>(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState<boolean>(false);
+  const [documentTargetInvoice, setDocumentTargetInvoice] = useState<Invoice | null>(null);
 
   const canWriteFinance = hasPermission('finance.write') || hasPermission('institution.manage');
   const canMakePayment = hasPermission('finance.payment') || canWriteFinance;
@@ -613,6 +616,15 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
                           Receipt
                         </Button>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDocumentTargetInvoice(inv)}
+                        icon={<FileBadge size={13} style={{ color: 'var(--brand-primary)' }} />}
+                        title="Generate Official Invoice / Voucher / Receipt Document"
+                      >
+                        Voucher
+                      </Button>
                     </div>
                   );
                 },
@@ -1228,6 +1240,13 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
             </div>
           )}
         </Modal>
+
+        {/* Modal: Official Billing Document / Voucher */}
+        <InvoiceDocumentModal
+          invoice={documentTargetInvoice}
+          isOpen={!!documentTargetInvoice}
+          onClose={() => setDocumentTargetInvoice(null)}
+        />
       </div>
     </ProtectedRoute>
   );

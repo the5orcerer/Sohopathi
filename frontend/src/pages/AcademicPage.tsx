@@ -6,6 +6,7 @@ import {
   createClass,
   fetchSections,
   createSection,
+  updateSection,
   fetchSubjects,
   createSubject,
   fetchTeacherAssignments,
@@ -23,7 +24,7 @@ import type {
   TeacherAssignment,
   ClassScheduleItem,
 } from '../types';
-import { Layers, Plus, Calendar, BookOpen, UserCheck, AlertCircle, Clock, Trash2, MapPin } from 'lucide-react';
+import { Layers, Plus, Calendar, BookOpen, UserCheck, AlertCircle, Clock, Trash2, MapPin, Edit3 } from 'lucide-react';
 import { Button, Badge, Modal } from '../components/common';
 import { AcademicMigrationModal } from '../components/academic/AcademicMigrationModal';
 
@@ -68,6 +69,13 @@ export const AcademicPage: React.FC = () => {
   const [sectionName, setSectionName] = useState('');
   const [sectionClassId, setSectionClassId] = useState('');
   const [sectionCapacity, setSectionCapacity] = useState(40);
+  const [sectionClassTeacherId, setSectionClassTeacherId] = useState('');
+
+  // Edit Section & Manager Modal
+  const [editingSection, setEditingSection] = useState<SectionItem | null>(null);
+  const [editSectionName, setEditSectionName] = useState('');
+  const [editSectionCapacity, setEditSectionCapacity] = useState(40);
+  const [editSectionClassTeacherId, setEditSectionClassTeacherId] = useState('');
 
   const [showSubjectModal, setShowSubjectModal] = useState(false);
   const [subjectName, setSubjectName] = useState('');
@@ -182,12 +190,40 @@ export const AcademicPage: React.FC = () => {
         name: sectionName.trim(),
         classId: sectionClassId,
         capacity: Number(sectionCapacity),
+        classTeacherMembershipId: sectionClassTeacherId || undefined,
       });
       setShowSectionModal(false);
       setSectionName('');
+      setSectionClassTeacherId('');
       loadData();
     } catch (err: any) {
       alert(err.message || 'Failed to create section');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleOpenEditSection = (sec: SectionItem) => {
+    setEditingSection(sec);
+    setEditSectionName(sec.name);
+    setEditSectionCapacity(sec.capacity || 40);
+    setEditSectionClassTeacherId(sec.classTeacherMembershipId || '');
+  };
+
+  const handleUpdateSection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSection || !editSectionName.trim()) return;
+    setSubmitting(true);
+    try {
+      await updateSection(editingSection.id, {
+        name: editSectionName.trim(),
+        capacity: Number(editSectionCapacity),
+        classTeacherMembershipId: editSectionClassTeacherId || null,
+      });
+      setEditingSection(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update section');
     } finally {
       setSubmitting(false);
     }
@@ -362,9 +398,31 @@ export const AcademicPage: React.FC = () => {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                     {clsSections.map((sec) => (
-                      <div key={sec.id} style={{ padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-                        <span>Section {sec.name}</span>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Cap: {sec.capacity || 40}</span>
+                      <div
+                        key={sec.id}
+                        style={{
+                          padding: '0.65rem 0.85rem',
+                          borderRadius: 'var(--radius-sm)',
+                          background: 'var(--surface-sunken)',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: '0.85rem',
+                          border: '1px solid var(--border-subtle)',
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 600 }}>Section {sec.name}</div>
+                          <div style={{ fontSize: '0.75rem', color: sec.classTeacherName ? 'var(--brand-primary)' : 'var(--text-muted)', marginTop: '0.15rem' }}>
+                            {sec.classTeacherName ? `Teacher / Manager: ${sec.classTeacherName}` : 'No Class Teacher Assigned'}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Cap: {sec.capacity || 40}</span>
+                          <Button size="sm" variant="ghost" icon={<Edit3 size={13} />} onClick={() => handleOpenEditSection(sec)}>
+                            Edit
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -697,9 +755,70 @@ export const AcademicPage: React.FC = () => {
               <input type="number" value={sectionCapacity} onChange={(e) => setSectionCapacity(Number(e.target.value))} style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }} />
             </div>
           </div>
+          <div>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Assigned Class Teacher / Section Manager (Optional)</label>
+            <select
+              value={sectionClassTeacherId}
+              onChange={(e) => setSectionClassTeacherId(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+            >
+              <option value="">-- No Class Teacher Assigned --</option>
+              {teachers.map((tch) => (
+                <option key={tch.membershipId} value={tch.membershipId}>
+                  {tch.name} ({tch.email || 'Faculty'})
+                </option>
+              ))}
+            </select>
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
             <Button variant="secondary" onClick={() => setShowSectionModal(false)}>Cancel</Button>
             <Button variant="primary" type="submit" loading={submitting}>Create Section</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Edit Section & Manager */}
+      <Modal isOpen={!!editingSection} onClose={() => setEditingSection(null)} title={`Edit Section: ${editingSection?.name || ''}`}>
+        <form onSubmit={handleUpdateSection} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <div>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Section Name</label>
+              <input
+                type="text"
+                required
+                value={editSectionName}
+                onChange={(e) => setEditSectionName(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Capacity</label>
+              <input
+                type="number"
+                value={editSectionCapacity}
+                onChange={(e) => setEditSectionCapacity(Number(e.target.value))}
+                style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              />
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Class Teacher / Section Manager</label>
+            <select
+              value={editSectionClassTeacherId}
+              onChange={(e) => setEditSectionClassTeacherId(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+            >
+              <option value="">-- No Class Teacher Assigned --</option>
+              {teachers.map((tch) => (
+                <option key={tch.membershipId} value={tch.membershipId}>
+                  {tch.name} ({tch.email || 'Faculty'})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+            <Button variant="secondary" onClick={() => setEditingSection(null)}>Cancel</Button>
+            <Button variant="primary" type="submit" loading={submitting}>Save Changes</Button>
           </div>
         </form>
       </Modal>

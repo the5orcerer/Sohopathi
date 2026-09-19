@@ -22,9 +22,11 @@ import {
   Users,
   Download,
   LogIn,
+  FileBadge,
 } from 'lucide-react';
 import { Button, Badge, Modal, SearchBar, EmptyState, CustomFieldsRenderer } from '../components/common';
 import { useSession } from '../context/SessionContext';
+import { MemberDocumentModal } from '../components/members/MemberDocumentModal';
 
 export const MembersPage: React.FC = () => {
   const { user, hasPermission, impersonateUser } = useSession();
@@ -33,6 +35,7 @@ export const MembersPage: React.FC = () => {
   const [roles, setRoles] = useState<Role[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string>('');
+  const [documentTargetMember, setDocumentTargetMember] = useState<Member | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -550,6 +553,13 @@ export const MembersPage: React.FC = () => {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => setDocumentTargetMember(m)}
+                          icon={<FileBadge size={13} style={{ color: 'var(--brand-primary)' }} />}
+                          title="Generate Staff Document / ID Card / Appointment"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => handleOpenEdit(m)}
                           icon={<Edit2 size={13} />}
                           title="Edit Staff Member"
@@ -785,6 +795,13 @@ export const MembersPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Modal: Generate Employee Document / Certificate */}
+      <MemberDocumentModal
+        member={documentTargetMember}
+        isOpen={!!documentTargetMember}
+        onClose={() => setDocumentTargetMember(null)}
+      />
     </div>
   );
 };
