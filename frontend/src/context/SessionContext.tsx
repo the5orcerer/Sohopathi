@@ -156,7 +156,6 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     password?: string;
     institutionId?: string;
   }) => {
-    setLoading(true);
     const effectiveSubdomain = params.subdomain || params.institutionCode || hostTenant;
     const payload = {
       ...params,
@@ -171,7 +170,6 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Login failed' }));
-      setLoading(false);
       throw new Error(err.error || 'Login failed');
     }
 

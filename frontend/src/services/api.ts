@@ -134,6 +134,27 @@ export function invalidateApiCache(prefix?: string) {
   }
 }
 
+export function sanitizeClientErrorMessage(rawMessage?: string): string {
+  if (!rawMessage) return 'An unexpected error occurred';
+  const msg = rawMessage.toLowerCase();
+  if (msg.includes('institution_subdomain_key') || (msg.includes('unique constraint') && msg.includes('subdomain'))) {
+    return 'This subdomain is already taken. Please choose a different subdomain.';
+  }
+  if (msg.includes('unique constraint') && msg.includes('email')) {
+    return 'An account with this email address already exists. Please use a different email or sign in.';
+  }
+  if (msg.includes('unique constraint') && msg.includes('username')) {
+    return 'This username is already taken. Please choose another username.';
+  }
+  if (msg.includes('unique constraint')) {
+    return 'A record with these unique details already exists. Please verify your input and try again.';
+  }
+  if (msg.includes('cannot be matched') || msg.includes('syntax error') || msg.includes('column "')) {
+    return 'A database query error occurred while processing the request.';
+  }
+  return rawMessage;
+}
+
 export async function fetchWithAuth<T = any>(
   url: string,
   options: RequestInit = {}
@@ -209,7 +230,7 @@ export async function fetchWithAuth<T = any>(
         responsePayload: err,
         durationMs,
       });
-      throw new Error(err.error || `HTTP ${res.status}`);
+      throw new Error(sanitizeClientErrorMessage(err.error || `HTTP ${res.status}`));
     }
   } catch (error: any) {
     if (!error.message?.startsWith('HTTP') && !error.message?.includes('Request failed')) {

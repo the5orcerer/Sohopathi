@@ -133,7 +133,56 @@ export function withDb(
 ) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      await withTenantContext(req.ctx!.institutionId, (client) => handler(req, res, client));
+      await withTenantContext(req.ctx!.institutionId, async (client) => {
+        let finished = false;
+        const finishTx = async () => {
+          if (!finished) {
+            finished = true;
+            if (res.statusCode >= 400) {
+              await client.query('ROLLBACK');
+            } else {
+              await client.query('COMMIT');
+            }
+          }
+        };
+
+        const originalJson = res.json.bind(res);
+        const originalSend = res.send.bind(res);
+        const originalEnd = res.end.bind(res);
+
+        res.json = function (body?: any): Response {
+          res.json = originalJson;
+          res.send = originalSend;
+          res.end = originalEnd;
+          finishTx()
+            .then(() => originalJson(body))
+            .catch((err) => next(err));
+          return res;
+        };
+
+        res.send = function (body?: any): Response {
+          res.json = originalJson;
+          res.send = originalSend;
+          res.end = originalEnd;
+          finishTx()
+            .then(() => originalSend(body))
+            .catch((err) => next(err));
+          return res;
+        };
+
+        res.end = function (...args: any[]): Response {
+          res.json = originalJson;
+          res.send = originalSend;
+          res.end = originalEnd;
+          finishTx()
+            .then(() => (originalEnd as any)(...args))
+            .catch((err) => next(err));
+          return res;
+        };
+
+        await handler(req, res, client);
+        await finishTx();
+      });
     } catch (err) {
       next(err);
     }

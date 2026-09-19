@@ -1166,7 +1166,7 @@ export const attendanceRepository = {
         ea.check_in_time as "checkInTime",
         ea.check_out_time as "checkOutTime",
         ea.notes,
-        coalesce(ea.date::text, $2) as date,
+        coalesce(ea.date::text, $2::text) as date,
         ea.created_at as "recordedAt"
       from membership m
       join profile p on p.id = m.user_id

@@ -46,9 +46,7 @@ export const PermissionMatrixPage: React.FC = () => {
   const [selectedPermKeys, setSelectedPermKeys] = useState<string[]>([]);
 
   const displayRoleName = (name: string) => {
-    const n = (name || '').toLowerCase();
-    if (n === 'guardian' || n === 'student') return 'Guardian / Student';
-    return name;
+    return name || 'Custom Role';
   };
 
   const loadData = async () => {
@@ -56,10 +54,21 @@ export const PermissionMatrixPage: React.FC = () => {
     setError(null);
     try {
       const [permData, roleData] = await Promise.all([fetchPermissions(), fetchRoles()]);
-      setPermissions(permData);
-      setRoles(roleData);
-      if (roleData.length > 0 && !selectedRoleId) {
-        setSelectedRoleId(roleData[0].id);
+      setPermissions(permData || []);
+      
+      // Deduplicate roles by normalized name
+      const uniqueRoles: Role[] = [];
+      const seen = new Set<string>();
+      for (const r of (roleData || [])) {
+        const key = (r.name || '').toLowerCase().trim();
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          uniqueRoles.push(r);
+        }
+      }
+      setRoles(uniqueRoles);
+      if (uniqueRoles.length > 0 && !selectedRoleId) {
+        setSelectedRoleId(uniqueRoles[0].id);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load permission matrix');

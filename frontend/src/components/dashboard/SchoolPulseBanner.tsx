@@ -21,6 +21,7 @@ import {
   Receipt,
   Bell,
   FileCheck,
+  Award,
 } from 'lucide-react';
 import { Button, Badge } from '../common';
 import { useSession } from '../../context/SessionContext';
@@ -32,9 +33,19 @@ interface SchoolPulseBannerProps {
 
 export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate }) => {
   const { t } = useLanguage();
-  const { activeMembership } = useSession();
-  const role = activeMembership?.roleName?.toLowerCase() || '';
+  const { activeMembership, hasPermission } = useSession();
+  const role = (activeMembership?.roleName || '').toLowerCase();
   const isStudent = role.includes('student');
+  const isGuardian = role.includes('guardian');
+  const isTeacher = role.includes('teacher');
+  const isAdmin = role.includes('admin') || (!isStudent && !isGuardian && !isTeacher);
+
+  const canReadStudents = (hasPermission('students.read') || isAdmin) && !isStudent && !isGuardian;
+  const canReadMembers = (hasPermission('members.read') || hasPermission('roles.manage') || isAdmin) && !isStudent && !isGuardian;
+  const canReadClasses = hasPermission('classes.manage') || hasPermission('academic.read') || isTeacher || isAdmin;
+  const canReadAttendance = hasPermission('attendance.read') || hasPermission('attendance.create') || isStudent || isTeacher || isAdmin;
+  const canReadAdmissions = (hasPermission('admissions.read') || hasPermission('admissions.manage') || isAdmin) && !isStudent && !isGuardian;
+  const canReadReports = (hasPermission('reports.read') || isAdmin) && !isStudent && !isGuardian;
 
   const [loading, setLoading] = useState(true);
   const [studentCount, setStudentCount] = useState<number>(0);
@@ -49,34 +60,43 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
     let isMounted = true;
     const loadPulseData = async () => {
       try {
-        const [stRes, memRes, clsRes, admRes, attRes] = await Promise.allSettled([
-          fetchStudents(),
-          fetchMembers(),
-          fetchClasses(),
-          fetchAdmissionStats(),
-          fetchAttendanceSummary(),
-        ]);
+        const promises: Promise<any>[] = [];
+        if (canReadStudents) {
+          promises.push(fetchStudents().then((res) => ({ type: 'students', res })).catch(() => null));
+        }
+        if (canReadMembers) {
+          promises.push(fetchMembers().then((res) => ({ type: 'members', res })).catch(() => null));
+        }
+        if (canReadClasses) {
+          promises.push(fetchClasses().then((res) => ({ type: 'classes', res })).catch(() => null));
+        }
+        if (canReadAdmissions) {
+          promises.push(fetchAdmissionStats().then((res) => ({ type: 'admissions', res })).catch(() => null));
+        }
+        if (canReadAttendance) {
+          promises.push(fetchAttendanceSummary().then((res) => ({ type: 'attendance', res })).catch(() => null));
+        }
 
+        const results = await Promise.all(promises);
         if (!isMounted) return;
 
-        if (stRes.status === 'fulfilled' && Array.isArray(stRes.value)) {
-          setStudentCount(stRes.value.length);
-        }
-        if (memRes.status === 'fulfilled' && Array.isArray(memRes.value)) {
-          setMemberCount(memRes.value.length);
-        }
-        if (clsRes.status === 'fulfilled' && Array.isArray(clsRes.value)) {
-          setClassCount(clsRes.value.length);
-        }
-        if (admRes.status === 'fulfilled' && admRes.value?.summary) {
-          setPendingAdmissions(admRes.value.summary.under_review || admRes.value.summary.submitted || 0);
-          setAdmittedCount(admRes.value.summary.admitted || 0);
-        }
-        if (attRes.status === 'fulfilled' && Array.isArray(attRes.value) && attRes.value.length > 0) {
-          const total = attRes.value.reduce((acc, curr) => acc + (curr.totalStudents || 0), 0);
-          const present = attRes.value.reduce((acc, curr) => acc + (curr.presentCount || 0), 0);
-          if (total > 0) {
-            setAttendanceRate(Math.round((present / total) * 100));
+        for (const item of results) {
+          if (!item) continue;
+          if (item.type === 'students' && Array.isArray(item.res)) {
+            setStudentCount(item.res.length);
+          } else if (item.type === 'members' && Array.isArray(item.res)) {
+            setMemberCount(item.res.length);
+          } else if (item.type === 'classes' && Array.isArray(item.res)) {
+            setClassCount(item.res.length);
+          } else if (item.type === 'admissions' && item.res?.summary) {
+            setPendingAdmissions(item.res.summary.under_review || item.res.summary.submitted || 0);
+            setAdmittedCount(item.res.summary.admitted || 0);
+          } else if (item.type === 'attendance' && Array.isArray(item.res) && item.res.length > 0) {
+            const total = item.res.reduce((acc: number, curr: any) => acc + (curr.totalStudents || 0), 0);
+            const present = item.res.reduce((acc: number, curr: any) => acc + (curr.presentCount || 0), 0);
+            if (total > 0) {
+              setAttendanceRate(Math.round((present / total) * 100));
+            }
           }
         }
       } catch (e) {
@@ -90,7 +110,7 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [canReadStudents, canReadMembers, canReadClasses, canReadAdmissions, canReadAttendance]);
 
   const handleExportFullSchoolReport = () => {
     const reportData = [
@@ -115,224 +135,416 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
           gap: '1rem',
         }}
       >
-        {/* Total Students */}
-        <div
-          onClick={() => onNavigate('/students')}
-          className="glass-panel"
-          style={{
-            padding: '1rem 1.15rem',
-            cursor: 'pointer',
-            transition: 'transform 0.15s ease, border-color 0.15s ease',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.5rem',
-            border: '1px solid var(--border-subtle)',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
-          onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-              {t('dashboard.students_enrolled', 'Enrolled Students')}
-            </span>
+        {isStudent || isGuardian ? (
+          <>
+            {/* Student: Daily Attendance */}
             <div
+              onClick={() => onNavigate('/attendance')}
+              className="glass-panel"
               style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: 'var(--radius-sm)',
-                background: 'rgba(99, 102, 241, 0.12)',
-                color: 'var(--brand-primary)',
+                padding: '1rem 1.15rem',
+                cursor: 'pointer',
+                transition: 'transform 0.15s ease, border-color 0.15s ease',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                flexDirection: 'column',
+                gap: '0.5rem',
+                border: '1px solid var(--border-subtle)',
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
             >
-              <GraduationCap size={18} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  {t('dashboard.attendance_rate', 'Daily Attendance')}
+                </span>
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(30, 95, 91, 0.15)',
+                    color: 'var(--brand-primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <CalendarCheck size={18} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {loading ? '...' : `${attendanceRate}%`}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: attendanceRate >= 80 ? 'var(--status-success)' : 'var(--status-danger)' }}>
+                  {attendanceRate >= 80 ? t('dashboard.healthy', 'Present') : t('dashboard.below_target', 'Below Target')}
+                </span>
+              </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              {loading ? '...' : studentCount}
-            </span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--status-success)', display: 'flex', alignItems: 'center' }}>
-              <ArrowUpRight size={12} /> {t('dashboard.active_status', 'Active')}
-            </span>
-          </div>
-        </div>
 
-        {/* Faculty & Staff */}
-        <div
-          onClick={() => onNavigate('/members')}
-          className="glass-panel"
-          style={{
-            padding: '1rem 1.15rem',
-            cursor: 'pointer',
-            transition: 'transform 0.15s ease, border-color 0.15s ease',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.5rem',
-            border: '1px solid var(--border-subtle)',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
-          onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-              {t('dashboard.faculty_staff', 'Faculty & Staff')}
-            </span>
+            {/* Student: Active Classes & Courses */}
             <div
+              onClick={() => onNavigate('/academic')}
+              className="glass-panel"
               style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: 'var(--radius-sm)',
-                background: 'rgba(16, 185, 129, 0.12)',
-                color: 'var(--status-success)',
+                padding: '1rem 1.15rem',
+                cursor: 'pointer',
+                transition: 'transform 0.15s ease, border-color 0.15s ease',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                flexDirection: 'column',
+                gap: '0.5rem',
+                border: '1px solid var(--border-subtle)',
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
             >
-              <Users size={18} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  {t('dashboard.active_classes', 'Academic Classes')}
+                </span>
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(245, 158, 11, 0.12)',
+                    color: 'var(--status-warning)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <BookOpen size={18} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {loading ? '...' : classCount}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('dashboard.active_status', 'Enrolled')}</span>
+              </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              {loading ? '...' : memberCount}
-            </span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('dashboard.members_label', 'Members')}</span>
-          </div>
-        </div>
 
-        {/* Classes & Sections */}
-        <div
-          onClick={() => onNavigate('/academic')}
-          className="glass-panel"
-          style={{
-            padding: '1rem 1.15rem',
-            cursor: 'pointer',
-            transition: 'transform 0.15s ease, border-color 0.15s ease',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.5rem',
-            border: '1px solid var(--border-subtle)',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
-          onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-              {t('dashboard.active_classes', 'Academic Classes')}
-            </span>
+            {/* Student: Coursework & Homework */}
             <div
+              onClick={() => onNavigate('/assignments')}
+              className="glass-panel"
               style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: 'var(--radius-sm)',
-                background: 'rgba(245, 158, 11, 0.12)',
-                color: 'var(--status-warning)',
+                padding: '1rem 1.15rem',
+                cursor: 'pointer',
+                transition: 'transform 0.15s ease, border-color 0.15s ease',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                flexDirection: 'column',
+                gap: '0.5rem',
+                border: '1px solid var(--border-subtle)',
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
             >
-              <BookOpen size={18} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  {t('nav.assignments', 'Assignments')}
+                </span>
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(99, 102, 241, 0.12)',
+                    color: 'var(--brand-primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <FileCheck size={18} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {t('common.active', 'Active')}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--status-success)', display: 'flex', alignItems: 'center' }}>
+                  <ArrowUpRight size={12} /> View Tasks
+                </span>
+              </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              {loading ? '...' : classCount}
-            </span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('dashboard.active_status', 'Active')}</span>
-          </div>
-        </div>
 
-        {/* Attendance Rate */}
-        <div
-          onClick={() => onNavigate('/attendance')}
-          className="glass-panel"
-          style={{
-            padding: '1rem 1.15rem',
-            cursor: 'pointer',
-            transition: 'transform 0.15s ease, border-color 0.15s ease',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.5rem',
-            border: '1px solid var(--border-subtle)',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
-          onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-              {t('dashboard.attendance_rate', 'Daily Attendance')}
-            </span>
+            {/* Student: Examination Marks */}
             <div
+              onClick={() => onNavigate('/examinations')}
+              className="glass-panel"
               style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: 'var(--radius-sm)',
-                background: 'rgba(30, 95, 91, 0.15)',
-                color: 'var(--brand-primary)',
+                padding: '1rem 1.15rem',
+                cursor: 'pointer',
+                transition: 'transform 0.15s ease, border-color 0.15s ease',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                flexDirection: 'column',
+                gap: '0.5rem',
+                border: '1px solid var(--border-subtle)',
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
             >
-              <CalendarCheck size={18} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  {t('nav.examinations', 'Examinations')}
+                </span>
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(147, 51, 234, 0.12)',
+                    color: '#9333ea',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Award size={18} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Published
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--brand-primary)' }}>Mark sheets</span>
+              </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              {loading ? '...' : `${attendanceRate}%`}
-            </span>
-            <span style={{ fontSize: '0.75rem', color: attendanceRate >= 80 ? 'var(--status-success)' : 'var(--status-danger)' }}>
-              {attendanceRate >= 80 ? t('dashboard.healthy', 'Healthy') : t('dashboard.below_target', 'Below Target')}
-            </span>
-          </div>
-        </div>
+          </>
+        ) : (
+          <>
+            {/* Total Students */}
+            {canReadStudents && (
+              <div
+                onClick={() => onNavigate('/students')}
+                className="glass-panel"
+                style={{
+                  padding: '1rem 1.15rem',
+                  cursor: 'pointer',
+                  transition: 'transform 0.15s ease, border-color 0.15s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem',
+                  border: '1px solid var(--border-subtle)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {t('dashboard.students_enrolled', 'Enrolled Students')}
+                  </span>
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(99, 102, 241, 0.12)',
+                      color: 'var(--brand-primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <GraduationCap size={18} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {loading ? '...' : studentCount}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--status-success)', display: 'flex', alignItems: 'center' }}>
+                    <ArrowUpRight size={12} /> {t('dashboard.active_status', 'Active')}
+                  </span>
+                </div>
+              </div>
+            )}
 
-        {/* Prospective Admissions */}
-        <div
-          onClick={() => onNavigate('/admissions')}
-          className="glass-panel"
-          style={{
-            padding: '1rem 1.15rem',
-            cursor: 'pointer',
-            transition: 'transform 0.15s ease, border-color 0.15s ease',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.5rem',
-            border: '1px solid var(--border-subtle)',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
-          onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-              {t('dashboard.pending_admissions', 'New Admissions')}
-            </span>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: 'var(--radius-sm)',
-                background: 'rgba(147, 51, 234, 0.12)',
-                color: '#9333ea',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <UserPlus size={18} />
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              {loading ? '...' : pendingAdmissions}
-            </span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--status-warning)' }}>{t('dashboard.pending_review', 'Pending Review')}</span>
-          </div>
-        </div>
+            {/* Faculty & Staff */}
+            {canReadMembers && (
+              <div
+                onClick={() => onNavigate('/members')}
+                className="glass-panel"
+                style={{
+                  padding: '1rem 1.15rem',
+                  cursor: 'pointer',
+                  transition: 'transform 0.15s ease, border-color 0.15s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem',
+                  border: '1px solid var(--border-subtle)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {t('dashboard.faculty_staff', 'Faculty & Staff')}
+                  </span>
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(16, 185, 129, 0.12)',
+                      color: 'var(--status-success)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Users size={18} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {loading ? '...' : memberCount}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('dashboard.members_label', 'Members')}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Classes & Sections */}
+            {canReadClasses && (
+              <div
+                onClick={() => onNavigate('/academic')}
+                className="glass-panel"
+                style={{
+                  padding: '1rem 1.15rem',
+                  cursor: 'pointer',
+                  transition: 'transform 0.15s ease, border-color 0.15s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem',
+                  border: '1px solid var(--border-subtle)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {t('dashboard.active_classes', 'Academic Classes')}
+                  </span>
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(245, 158, 11, 0.12)',
+                      color: 'var(--status-warning)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <BookOpen size={18} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {loading ? '...' : classCount}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('dashboard.active_status', 'Active')}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Attendance Rate */}
+            {canReadAttendance && (
+              <div
+                onClick={() => onNavigate('/attendance')}
+                className="glass-panel"
+                style={{
+                  padding: '1rem 1.15rem',
+                  cursor: 'pointer',
+                  transition: 'transform 0.15s ease, border-color 0.15s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem',
+                  border: '1px solid var(--border-subtle)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {t('dashboard.attendance_rate', 'Daily Attendance')}
+                  </span>
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(30, 95, 91, 0.15)',
+                      color: 'var(--brand-primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <CalendarCheck size={18} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {loading ? '...' : `${attendanceRate}%`}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: attendanceRate >= 80 ? 'var(--status-success)' : 'var(--status-danger)' }}>
+                    {attendanceRate >= 80 ? t('dashboard.healthy', 'Healthy') : t('dashboard.below_target', 'Below Target')}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Prospective Admissions */}
+            {canReadAdmissions && (
+              <div
+                onClick={() => onNavigate('/admissions')}
+                className="glass-panel"
+                style={{
+                  padding: '1rem 1.15rem',
+                  cursor: 'pointer',
+                  transition: 'transform 0.15s ease, border-color 0.15s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem',
+                  border: '1px solid var(--border-subtle)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brand-primary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {t('dashboard.pending_admissions', 'New Admissions')}
+                  </span>
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(147, 51, 234, 0.12)',
+                      color: '#9333ea',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <UserPlus size={18} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {loading ? '...' : pendingAdmissions}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--status-warning)' }}>{t('dashboard.pending_review', 'Pending Review')}</span>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Quick Action Shortcuts & Analytics Toggle */}
@@ -351,16 +563,42 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
           <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginRight: '0.25rem' }}>
             {t('dashboard.quick_actions', 'Quick Operational Shortcuts')}:
           </span>
-          <Button variant="secondary" size="sm" onClick={() => onNavigate('/attendance')}>
-            <CalendarCheck size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.take_attendance', 'Take Attendance')}
-          </Button>
-          {!isStudent && (
+
+          {/* Role & Permission-based dynamic action buttons */}
+          {isStudent || isGuardian ? (
             <>
-              <Button variant="secondary" size="sm" onClick={() => onNavigate('/fees')}>
-                <Receipt size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.collect_fees', 'Collect Fees')}
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/attendance')}>
+                <CalendarCheck size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.attendance', 'My Attendance')}
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => onNavigate('/admissions')}>
-                <UserPlus size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.admissions', 'Admissions')}
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/assignments')}>
+                <BookOpen size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.assignments', 'Assignments')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/examinations')}>
+                <Award size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.examinations', 'Examinations')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/notices')}>
+                <Bell size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.notices', 'Notice Board')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/requests')}>
+                <FileCheck size={13} style={{ marginRight: '0.35rem' }} /> {t('requests.new_request', 'Submit Request')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/fees')}>
+                <Receipt size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.finance', 'Fee Invoices')}
+              </Button>
+            </>
+          ) : isTeacher ? (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/attendance')}>
+                <CalendarCheck size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.take_attendance', 'Class Attendance')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/assignments')}>
+                <BookOpen size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.assignments', 'Assignments')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/examinations')}>
+                <Award size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.examinations', 'Examinations & Marks')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onNavigate('/academic')}>
+                <Layers size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.academic', 'Classes & Sections')}
               </Button>
               <Button variant="secondary" size="sm" onClick={() => onNavigate('/notices')}>
                 <Bell size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.create_notice', 'New Notice')}
@@ -368,41 +606,79 @@ export const SchoolPulseBanner: React.FC<SchoolPulseBannerProps> = ({ onNavigate
               <Button variant="secondary" size="sm" onClick={() => onNavigate('/requests')}>
                 <FileCheck size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.review_requests', 'Review Requests')}
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => onNavigate('/students')}>
-                <GraduationCap size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.students', 'Students')}
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => onNavigate('/academic')}>
-                <Layers size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.academic', 'Classes & Sections')}
-              </Button>
+            </>
+          ) : (
+            <>
+              {(hasPermission('attendance.create') || hasPermission('attendance.read') || isAdmin) && (
+                <Button variant="secondary" size="sm" onClick={() => onNavigate('/attendance')}>
+                  <CalendarCheck size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.take_attendance', 'Take Attendance')}
+                </Button>
+              )}
+              {(hasPermission('fees.manage') || hasPermission('fees.read') || isAdmin) && (
+                <Button variant="secondary" size="sm" onClick={() => onNavigate('/fees')}>
+                  <Receipt size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.collect_fees', 'Collect Fees')}
+                </Button>
+              )}
+              {(hasPermission('admissions.manage') || hasPermission('admissions.read') || isAdmin) && (
+                <Button variant="secondary" size="sm" onClick={() => onNavigate('/admissions')}>
+                  <UserPlus size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.admissions', 'Admissions')}
+                </Button>
+              )}
+              {(hasPermission('notices.create') || hasPermission('notices.read') || isAdmin) && (
+                <Button variant="secondary" size="sm" onClick={() => onNavigate('/notices')}>
+                  <Bell size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.create_notice', 'New Notice')}
+                </Button>
+              )}
+              {(hasPermission('requests.create') || hasPermission('requests.read') || isAdmin) && (
+                <Button variant="secondary" size="sm" onClick={() => onNavigate('/requests')}>
+                  <FileCheck size={13} style={{ marginRight: '0.35rem' }} /> {t('dashboard.review_requests', 'Review Requests')}
+                </Button>
+              )}
+              {(hasPermission('students.read') || isAdmin) && (
+                <Button variant="secondary" size="sm" onClick={() => onNavigate('/students')}>
+                  <GraduationCap size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.students', 'Students')}
+                </Button>
+              )}
+              {(hasPermission('classes.manage') || isAdmin) && (
+                <Button variant="secondary" size="sm" onClick={() => onNavigate('/academic')}>
+                  <Layers size={13} style={{ marginRight: '0.35rem' }} /> {t('nav.academic', 'Classes & Sections')}
+                </Button>
+              )}
             </>
           )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => onNavigate('/reports')}
-          >
-            <BarChart3 size={13} style={{ marginRight: '0.35rem' }} />
-            {t('dashboard.reports_center', 'Reports Center')}
-          </Button>
-          <Button
-            variant={showAnalytics ? 'primary' : 'secondary'}
-            size="sm"
-            onClick={() => setShowAnalytics(!showAnalytics)}
-          >
-            <TrendingUp size={13} style={{ marginRight: '0.35rem' }} />
-            {showAnalytics ? t('dashboard.hide_stats', 'Hide Quick Stats') : t('dashboard.quick_stats', 'Quick Stats')}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleExportFullSchoolReport} title={t('dashboard.export_report', 'Download Executive Report')}>
-            <Download size={14} />
-          </Button>
+          {canReadReports && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onNavigate('/reports')}
+            >
+              <BarChart3 size={13} style={{ marginRight: '0.35rem' }} />
+              {t('dashboard.reports_center', 'Reports Center')}
+            </Button>
+          )}
+          {!isStudent && !isGuardian && (
+            <Button
+              variant={showAnalytics ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => setShowAnalytics(!showAnalytics)}
+            >
+              <TrendingUp size={13} style={{ marginRight: '0.35rem' }} />
+              {showAnalytics ? t('dashboard.hide_stats', 'Hide Quick Stats') : t('dashboard.quick_stats', 'Quick Stats')}
+            </Button>
+          )}
+          {canReadReports && (
+            <Button variant="ghost" size="sm" onClick={handleExportFullSchoolReport} title={t('dashboard.export_report', 'Download Executive Report')}>
+              <Download size={14} />
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Interactive School Analytics & Operational Report Panel */}
-      {showAnalytics && (
+      {showAnalytics && !isStudent && !isGuardian && (
         <div
           className="glass-panel animate-fade-in"
           style={{

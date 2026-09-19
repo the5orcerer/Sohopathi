@@ -275,15 +275,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div
                   style={{
                     fontWeight: 800,
-                    fontFamily: 'bold',
-                    fontSize: '1.25rem',
-                    textTransform: 'uppercase',
-                    background: isDarkMode 
-                      ? 'linear-gradient(135deg, #a78bfa, #60a5fa)' 
-                      : 'linear-gradient(135deg, var(--brand-primary), #60a5fa)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
+                    fontSize: '1.2rem',
+                    letterSpacing: '-0.02em',
+                    color: 'var(--text-primary)',
+                    lineHeight: 1.2,
                   }}
                 >
                   Biddyapith

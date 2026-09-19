@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProtectedRoute } from '../components/auth/ProtectedRoute';
 import { useSession } from '../context/SessionContext';
+import { useLanguage } from '../context/LanguageContext';
 import {
   fetchAssignments,
   createAssignment,
@@ -34,6 +35,7 @@ import {
 } from 'lucide-react';
 
 export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
+  const { t } = useLanguage();
   const { hasPermission } = useSession();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
@@ -63,9 +65,6 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
 
   // Student Submit Work Modal
   const [submitTargetAssignment, setSubmitTargetAssignment] = useState<Assignment | null>(null);
-  const [submitFile, setSubmitFile] = useState<File | null>(null);
-  const [submitFileKey, setSubmitFileKey] = useState('');
-  const [submitFileUrl, setSubmitFileUrl] = useState('');
   const [submitNotes, setSubmitNotes] = useState('');
   const [submittingWork, setSubmittingWork] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
@@ -154,18 +153,6 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
     }
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSubmitFile(file);
-      if (!submitFileKey) setSubmitFileKey(file.name);
-      const reader = new FileReader();
-      reader.onload = () => {
-        setSubmitFileUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   const handleSubmitWork = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,23 +160,15 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
     setSubmittingWork(true);
     try {
       await submitAssignment(submitTargetAssignment.id, {
-        fileKey: submitFileKey.trim() || submitFile?.name || 'homework_solution.pdf',
-        fileUrl: submitFileUrl.trim() || undefined,
-        fileName: submitFile?.name || (submitFileKey.trim() ? submitFileKey.trim() : undefined),
-        fileSize: submitFile?.size,
-        mimeType: submitFile?.type,
-        submissionNotes: submitNotes.trim() || undefined,
+        submissionNotes: submitNotes.trim() || 'Completed by student',
       });
       setSubmitSuccess(true);
       setTimeout(() => {
         setSubmitTargetAssignment(null);
         setSubmitSuccess(false);
-        setSubmitFile(null);
-        setSubmitFileKey('');
-        setSubmitFileUrl('');
         setSubmitNotes('');
         loadData();
-      }, 1200);
+      }, 1500);
     } catch (err: any) {
       alert(err.message || 'Failed to submit assignment');
     } finally {
@@ -311,16 +290,16 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
             <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <BookOpen size={26} style={{ color: 'var(--brand-primary)' }} /> Curriculum Assignments & Homework
+              <BookOpen size={26} style={{ color: 'var(--brand-primary)' }} /> {t('assignments.title', 'Curriculum Assignments & Homework')}
             </h1>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Manage homework deliverables, handwritten photo submissions, grading rubrics, and automated pending reminders.
+              {t('assignments.subtitle', 'Manage homework deliverables, submission notes, grading rubrics, and automated pending reminders.')}
             </p>
           </div>
 
           {canCreate && (
             <Button variant="primary" icon={<Plus size={15} />} onClick={() => setShowCreateModal(true)}>
-              Create Assignment
+              {t('assignments.create_button', 'Create Assignment')}
             </Button>
           )}
         </div>
@@ -696,55 +675,17 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
                     )}
 
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      Upload a photo of your handwritten homework, attach a document file, or provide notes for your teacher.
+                      Provide any notes, answers, or remarks for your instructor regarding this assignment submission.
                     </p>
 
-                    {/* Photo / File Upload */}
                     <div>
-                      <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.35rem' }}>
-                        <ImageIcon size={14} style={{ color: 'var(--brand-primary)' }} /> Handwritten Homework Photo / Document
-                      </label>
-                      <input
-                        type="file"
-                        accept="image/*,.pdf,.doc,.docx"
-                        onChange={handlePhotoUpload}
-                        style={{ width: '100%', padding: '0.4rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.82rem' }}
-                      />
-                    </div>
-
-                    {/* Photo Preview if loaded */}
-                    {submitFileUrl && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Homework Photo Preview:</span>
-                        <div style={{ position: 'relative', width: '100%', maxHeight: '160px', overflow: 'hidden', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: '#000' }}>
-                          <img
-                            src={submitFileUrl}
-                            alt="Homework preview"
-                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>File Identifier or Document Link</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. math_hw_ch4.jpg or Google Drive / OneDrive URL"
-                        value={submitFileKey}
-                        onChange={(e) => setSubmitFileKey(e.target.value)}
-                        style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Submission Notes / Remarks</label>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>Submission Notes / Remarks</label>
                       <textarea
-                        rows={2}
-                        placeholder="e.g. Solved exercises 1-12. Question 7 attempted with second method."
+                        rows={4}
+                        placeholder="e.g. Completed questions 1-10. All assigned exercises answered in detail."
                         value={submitNotes}
                         onChange={(e) => setSubmitNotes(e.target.value)}
-                        style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
                       />
                     </div>
 

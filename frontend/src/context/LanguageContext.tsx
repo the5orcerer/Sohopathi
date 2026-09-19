@@ -109,6 +109,30 @@ const en: Translations = {
   'templates.default_badge': 'Default',
   'templates.bulk_generate': 'Bulk Generate',
 
+  // Attendance
+  'attendance.title': 'Attendance Management',
+  'attendance.subtitle': 'Real-time student roll-call & staff presence tracking with instant guardian SMS alerts.',
+  'attendance.student_tab': 'Student Roll Call',
+  'attendance.employee_tab': 'Staff Attendance',
+  'attendance.self_checkin': 'Self Check-in',
+  'attendance.present': 'Present',
+  'attendance.absent': 'Absent',
+  'attendance.late': 'Late',
+  'attendance.excused': 'Excused',
+  'attendance.save': 'Save Attendance Sheet',
+  'attendance.saved': 'Attendance Recorded Successfully',
+  'attendance.date': 'Attendance Date',
+  'attendance.section': 'Class Section',
+  'attendance.period': 'Period / Slot',
+
+  // Assignments
+  'assignments.title': 'Assignments & Homework',
+  'assignments.my_assignments': 'My Assignments',
+  'assignments.submit_assignment': 'Submit Assignment',
+  'assignments.submission_notes': 'Submission Notes / Remarks',
+  'assignments.turn_in': 'Turn In',
+  'assignments.due_date': 'Due Date',
+
   // Login
   'login.portal_title': 'Biddyapith Institutional Portal',
   'login.portal_subtitle': 'Sign In to Your Institution',
@@ -226,6 +250,30 @@ const bn: Translations = {
   'templates.system_badge': 'সিস্টেম টেমপ্লেট',
   'templates.default_badge': 'ডিফল্ট',
   'templates.bulk_generate': 'একসাথে প্রিন্ট/জেনারেট',
+
+  // Attendance
+  'attendance.title': 'উপস্থিতি ব্যবস্থাপনা',
+  'attendance.subtitle': 'রিয়েল-টাইম শিক্ষার্থী রোল কল এবং শিক্ষক ও স্টাফ উপস্থিতি ট্র্যাকিং।',
+  'attendance.student_tab': 'শিক্ষার্থী রোল কল',
+  'attendance.employee_tab': 'স্টাফ ও শিক্ষক উপস্থিতি',
+  'attendance.self_checkin': 'সেলফ চেক-ইন',
+  'attendance.present': 'উপস্থিত',
+  'attendance.absent': 'অনুপস্থিত',
+  'attendance.late': 'দেরি',
+  'attendance.excused': 'ছুটি/মার্জনাকৃত',
+  'attendance.save': 'উপস্থিতি শিট সংরক্ষণ',
+  'attendance.saved': 'উপস্থিতি সফলভাবে সংরক্ষিত হয়েছে',
+  'attendance.date': 'তারিখ',
+  'attendance.section': 'শ্রেণি ও শাখা',
+  'attendance.period': 'পিরিয়ড',
+
+  // Assignments
+  'assignments.title': 'অ্যাসাইনমেন্ট ও হোমওয়ার্ক',
+  'assignments.my_assignments': 'আমার অ্যাসাইনমেন্ট',
+  'assignments.submit_assignment': 'অ্যাসাইনমেন্ট জমা দিন',
+  'assignments.submission_notes': 'মন্তব্য ও নোট',
+  'assignments.turn_in': 'জমা দিন',
+  'assignments.due_date': 'জমার শেষ তারিখ',
 
   // Login
   'login.portal_title': 'বিদ্যাপিঠ প্রাতিষ্ঠানিক পোর্টাল',

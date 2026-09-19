@@ -58,6 +58,12 @@ export async function syncModuleCatalog(manifest: ModuleManifest, client: PoolCl
   }
 }
 
+export async function syncAllRegisteredModules(client: PoolClient): Promise<void> {
+  for (const manifest of registeredManifests) {
+    await syncModuleCatalog(manifest, client);
+  }
+}
+
 /**
  * Registers module routes into the Express router in-memory without blocking database queries.
  * Ensures instant cold starts (<5ms) for serverless environments.

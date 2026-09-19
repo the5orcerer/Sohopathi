@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSession } from '../context/SessionContext';
+import { useLanguage } from '../context/LanguageContext';
 import {
   fetchSections,
   fetchAttendanceSheet,
@@ -31,6 +32,7 @@ interface AttendancePageProps {
 }
 
 export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'students' }) => {
+  const { t } = useLanguage();
   const { activeMembership } = useSession();
 
   // Active top-level tab: Students vs Employees
@@ -142,13 +144,17 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
   useEffect(() => {
     fetchSections()
       .then((data) => {
-        setSections(data);
-        if (data.length > 0 && !selectedSectionId) {
-          setSelectedSectionId(data[0].id);
+        const sectionList = data || [];
+        setSections(sectionList);
+        if (sectionList.length > 0 && !selectedSectionId) {
+          setSelectedSectionId(sectionList[0].id);
+        } else {
+          setLoadingStudents(false);
         }
       })
       .catch((err) => {
         console.error('Failed to load sections', err);
+        setLoadingStudents(false);
       });
   }, []);
 
@@ -159,13 +165,16 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
     sType: string = sessionType,
     pNum: number = periodNumber
   ) => {
-    if (!sectionId) return;
+    if (!sectionId) {
+      setLoadingStudents(false);
+      return;
+    }
     try {
       setLoadingStudents(true);
       setStudentError(null);
       setStudentSavedSuccess(false);
       const data = await fetchAttendanceSheet(sectionId, date, sType, pNum);
-      setSheetStudents(data);
+      setSheetStudents(data || []);
     } catch (err: any) {
       setStudentError(err.message || 'Failed to load student attendance records');
     } finally {
@@ -367,10 +376,10 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0, color: 'var(--text-primary)' }}>
-            <CalendarCheck size={26} style={{ color: 'var(--brand-primary)' }} /> Attendance & Presence Tracking
+            <CalendarCheck size={26} style={{ color: 'var(--brand-primary)' }} /> {t('attendance.title', 'Attendance & Presence Tracking')}
           </h1>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0' }}>
-            Daily attendance recording, roll call registers, and staff presence management.
+            {t('attendance.subtitle', 'Daily attendance recording, roll call registers, and staff presence management.')}
           </p>
         </div>
 
@@ -394,7 +403,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
               transition: 'all 0.15s ease',
             }}
           >
-            <Users size={16} /> Students Roll Call
+            <Users size={16} /> {t('attendance.student_tab', 'Students Roll Call')}
           </button>
           <button
             onClick={() => setActiveTab('employees')}
@@ -414,7 +423,7 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
               transition: 'all 0.15s ease',
             }}
           >
-            <Briefcase size={16} /> Employee & Staff Attendance
+            <Briefcase size={16} /> {t('attendance.employee_tab', 'Employee & Staff Attendance')}
           </button>
         </div>
       </div>
@@ -693,6 +702,14 @@ export const AttendancePage: React.FC<AttendancePageProps> = ({ initialTab = 'st
               <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                 <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem auto' }} />
                 <span>Loading student records...</span>
+              </div>
+            ) : sections.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No class sections found. Please configure academic classes and sections first.
+              </div>
+            ) : !selectedSectionId ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Please select a section above to view the roll call sheet.
               </div>
             ) : sheetStudents.length === 0 ? (
               <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>

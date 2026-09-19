@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
 import { logger } from '../../core/logger';
+import { sanitizeDatabaseError } from '../../core/errors';
 
 export async function onboardInstitution(req: Request, res: Response, client: PoolClient) {
   try {
@@ -31,6 +32,10 @@ export async function onboardInstitution(req: Request, res: Response, client: Po
 
     // Set transaction context to the newly created institution ID so RLS policies pass
     await client.query(`SET LOCAL app.current_institution_id = '${institutionId}'`);
+
+    // Sync all module manifests & permissions to database catalog
+    const { syncAllRegisteredModules } = await import('../../core/registry/module-registry');
+    await syncAllRegisteredModules(client);
 
     // 2. Enable all active modules for the new institution
     await client.query(
@@ -167,7 +172,8 @@ export async function onboardInstitution(req: Request, res: Response, client: Po
     });
   } catch (err: any) {
     logger.error(err, 'Error in onboardInstitution');
-    res.status(500).json({ error: err.message || 'Onboarding failed', code: 'ONBOARDING_ERROR' });
+    const sanitized = sanitizeDatabaseError(err);
+    res.status(sanitized.statusCode).json({ error: sanitized.message, code: sanitized.code });
   }
 }
 

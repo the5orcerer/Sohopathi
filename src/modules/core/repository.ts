@@ -375,21 +375,27 @@ export const coreRepository = {
     institutionId: string,
     options?: { excludeNonEmployeeRoles?: boolean }
   ): Promise<Role[]> {
-    let query = `select 
-        r.id,
-        r.institution_id as "institutionId",
-        r.name,
-        r.is_system as "isSystem",
-        (select count(*)::int from membership m where m.role_id = r.id and m.institution_id = $1) as "memberCount"
-       from role r
-       where (r.institution_id = $1 or r.institution_id is null)`;
+    let whereClause = `where (r.institution_id = $1 or r.institution_id is null)`;
     const params: any[] = [institutionId];
 
     if (options?.excludeNonEmployeeRoles) {
-      query += ` and lower(r.name) not in ('student', 'guardian')`;
+      whereClause += ` and lower(r.name) not in ('student', 'guardian')`;
     }
 
-    query += ` order by r.institution_id nulls first, r.name asc`;
+    const query = `
+      with ranked_roles as (
+        select distinct on (lower(r.name))
+          r.id,
+          r.institution_id as "institutionId",
+          r.name,
+          r.is_system as "isSystem",
+          (select count(*)::int from membership m where m.role_id = r.id and m.institution_id = $1) as "memberCount"
+        from role r
+        ${whereClause}
+        order by lower(r.name), r.institution_id nulls last
+      )
+      select * from ranked_roles order by name asc
+    `;
     const { rows } = await client.query(query, params);
     return rows;
   },
@@ -459,11 +465,13 @@ export const coreRepository = {
     await client.query(`delete from role_permission where role_id = $1`, [roleId]);
 
     for (const p of permissions) {
+      const { rows: pRows } = await client.query(`select id from permission where key = $1 limit 1`, [p.permissionKey]);
+      if (pRows.length === 0) continue;
       await client.query(
         `insert into role_permission (institution_id, role_id, permission_id, scope)
-         values ($1, $2, (select id from permission where key = $3), $4)
+         values ($1, $2, $3, $4)
          on conflict (role_id, permission_id) do update set scope = excluded.scope`,
-        [institutionId, roleId, p.permissionKey, p.scope]
+        [institutionId, roleId, pRows[0].id, p.scope]
       );
     }
 
