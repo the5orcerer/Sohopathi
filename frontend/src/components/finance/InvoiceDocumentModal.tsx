@@ -159,6 +159,27 @@ export const InvoiceDocumentModal: React.FC<InvoiceDocumentModalProps> = ({
             </select>
           </div>
 
+          <div style={{ flex: '1 1 160px' }}>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+              Issue Date
+            </label>
+            <input
+              type="date"
+              value={issueDate}
+              onChange={(e) => setIssueDate(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.45rem 0.65rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--surface)',
+                fontSize: '0.82rem',
+                color: 'var(--text-primary)',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
           <div style={{ flex: '1 1 180px' }}>
             <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.35rem' }}>
               Payment Method (for Receipt)

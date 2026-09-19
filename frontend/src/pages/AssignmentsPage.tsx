@@ -17,9 +17,7 @@ import {
   BookOpen,
   Trash2,
   Eye,
-  FileText,
   Calendar,
-  Layers,
   Award,
 } from 'lucide-react';
 
@@ -255,8 +253,16 @@ export const AssignmentsPage: React.FC<{ onNavigateHome: () => void }> = ({ onNa
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <Badge tone="primary">{selectedAssignment.subjectName || 'Academics'}</Badge>
                 {selectedAssignment.sectionName && <Badge tone="neutral">Section {selectedAssignment.sectionName}</Badge>}
-                <Badge tone={selectedAssignment.status === 'published' ? 'success' : 'neutral'}>
-                  {selectedAssignment.status.toUpperCase()}
+                <Badge
+                  tone={
+                    selectedAssignment.status === 'published'
+                      ? 'success'
+                      : selectedAssignment.status === 'closed'
+                      ? 'danger'
+                      : 'neutral'
+                  }
+                >
+                  {(selectedAssignment.status || 'published').toUpperCase()}
                 </Badge>
               </div>
 
