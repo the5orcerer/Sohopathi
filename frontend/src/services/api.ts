@@ -51,6 +51,9 @@ import type {
   PaymentRecord,
   FinanceSummaryData,
   ReceiptData,
+  FeeSettings,
+  FeePolicy,
+  PaymentLedgerItem,
 } from '../types';
 
 import { getTenantSubdomain } from '../utils/tenant';
@@ -793,6 +796,35 @@ export async function fetchEmployeeAttendanceSummary(date?: string): Promise<Emp
   return fetchWithAuth<EmployeeAttendanceSummaryData>(url);
 }
 
+export interface PersonalAttendanceHistory {
+  summary: {
+    totalDays: number;
+    presentDays: number;
+    absentDays: number;
+    lateDays: number;
+    leaveDays: number;
+    attendanceRate: number;
+  };
+  records: {
+    date: string;
+    status: string;
+    checkInTime?: string;
+    checkOutTime?: string;
+    notes?: string;
+    remarks?: string;
+  }[];
+}
+
+export async function fetchMyEmployeeAttendanceHistory(month?: string): Promise<PersonalAttendanceHistory> {
+  const url = month ? `/api/attendance/employee/my-history?month=${month}` : '/api/attendance/employee/my-history';
+  return fetchWithAuth<PersonalAttendanceHistory>(url);
+}
+
+export async function fetchMyStudentAttendanceHistory(month?: string): Promise<PersonalAttendanceHistory> {
+  const url = month ? `/api/attendance/student/my-history?month=${month}` : '/api/attendance/student/my-history';
+  return fetchWithAuth<PersonalAttendanceHistory>(url);
+}
+
 // ============================================================
 // EXAMINATIONS & PAPERS
 // ============================================================
@@ -1138,6 +1170,8 @@ export async function fetchTasks(filter: 'my_tasks' | 'assigned_by_me' | 'all' =
 export async function createTask(data: {
   assigneeMembershipId?: string;
   assigneeMembershipIds?: string[];
+  assigneeStudentId?: string;
+  assigneeStudentIds?: string[];
   title: string;
   description?: string;
   priority?: 'low' | 'medium' | 'high' | 'urgent';
@@ -1843,5 +1877,102 @@ export async function recordInvoicePayment(
 
 export async function fetchReceiptData(paymentId: string): Promise<ReceiptData> {
   return fetchWithAuth<ReceiptData>(`/api/finance/receipts/${paymentId}`);
+}
+
+export async function fetchFeeSettings(): Promise<FeeSettings> {
+  return fetchWithAuth<FeeSettings>('/api/finance/settings');
+}
+
+export async function updateFeeSettings(data: Partial<FeeSettings>): Promise<FeeSettings> {
+  return fetchWithAuth<FeeSettings>('/api/finance/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function generateAbsentFines(data: {
+  month: string;
+  finePerDay?: number;
+  classId?: string;
+  dueDate?: string;
+}): Promise<{ count: number; invoices: Invoice[]; totalAmount: number }> {
+  return fetchWithAuth<{ count: number; invoices: Invoice[]; totalAmount: number }>('/api/finance/generate-absent-fines', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function fetchFeePolicies(): Promise<FeePolicy[]> {
+  return fetchWithAuth<FeePolicy[]>('/api/finance/policies');
+}
+
+export async function createFeePolicy(data: Partial<FeePolicy>): Promise<FeePolicy> {
+  return fetchWithAuth<FeePolicy>('/api/finance/policies', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateFeePolicy(id: string, data: Partial<FeePolicy>): Promise<FeePolicy> {
+  return fetchWithAuth<FeePolicy>(`/api/finance/policies/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteFeePolicy(id: string): Promise<{ message: string }> {
+  return fetchWithAuth<{ message: string }>(`/api/finance/policies/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function applyFeePolicy(
+  id: string,
+  data?: {
+    targetMonth?: string;
+    dueDate?: string;
+    overrideAmount?: number;
+    classId?: string;
+    sectionId?: string;
+  }
+): Promise<{ appliedCount: number; totalAmount: number; invoices: Invoice[] }> {
+  return fetchWithAuth<{ appliedCount: number; totalAmount: number; invoices: Invoice[] }>(
+    `/api/finance/policies/${id}/apply`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }
+  );
+}
+
+export async function fetchPaymentsLedger(options?: {
+  method?: string;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ payments: PaymentLedgerItem[]; totalCount: number; totalCollected: number }> {
+  const query = new URLSearchParams();
+  if (options?.method && options.method !== 'all') query.set('method', options.method);
+  if (options?.startDate) query.set('startDate', options.startDate);
+  if (options?.endDate) query.set('endDate', options.endDate);
+  if (options?.search) query.set('search', options.search);
+  if (options?.limit) query.set('limit', String(options.limit));
+  if (options?.offset) query.set('offset', String(options.offset));
+  const qs = query.toString();
+  return fetchWithAuth<{ payments: PaymentLedgerItem[]; totalCount: number; totalCollected: number }>(
+    `/api/finance/payments${qs ? `?${qs}` : ''}`
+  );
+}
+
+export async function voidInvoice(
+  invoiceId: string,
+  reason?: string
+): Promise<Invoice> {
+  return fetchWithAuth<Invoice>(`/api/finance/invoices/${invoiceId}/void`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
 }
 

@@ -118,7 +118,15 @@ export async function getNav(req: Request, res: Response, client?: PoolClient) {
   for (const item of authorizedNavItems) {
     if (!seenPaths.has(item.path)) {
       seenPaths.add(item.path);
-      deduplicatedNavItems.push(item);
+      const cloned = { ...item };
+      if (cloned.path === '/billing') {
+        const scope = req.ctx?.permissions.get('finance.read');
+        const roleName = req.ctx?.roleName?.toLowerCase() || '';
+        if (scope === 'self' || roleName.includes('student') || roleName.includes('guardian')) {
+          cloned.label = 'My Fees & Invoices';
+        }
+      }
+      deduplicatedNavItems.push(cloned);
     }
   }
 

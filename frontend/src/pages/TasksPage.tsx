@@ -6,9 +6,10 @@ import {
   updateTaskStatus,
   deleteTask,
   fetchMembers,
+  fetchStudents,
   exportToCsv,
 } from '../services/api';
-import type { UserTaskItem, Member } from '../types';
+import type { UserTaskItem, Member, StudentItem } from '../types';
 import {
   ClipboardList,
   CheckCircle2,
@@ -23,40 +24,55 @@ import {
 import { Modal, Button, Badge } from '../components/common';
 
 export const TasksPage: React.FC = () => {
-  const { hasPermission } = useSession();
+  const { activeMembership, hasPermission } = useSession();
+  const roleNameLower = (activeMembership?.roleName || '').toLowerCase();
+  const isStudent = roleNameLower.includes('student') || roleNameLower.includes('guardian');
+  const canManageTasks = !isStudent && (hasPermission('tasks.manage') || hasPermission('roles.manage') || roleNameLower.includes('admin') || roleNameLower.includes('principal'));
+  const canCreateTasks = !isStudent;
+
   const [tasks, setTasks] = useState<UserTaskItem[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [students, setStudents] = useState<StudentItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
-  const [activeTab, setActiveTab] = useState<'all' | 'my_tasks' | 'assigned_by_me'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'my_tasks' | 'assigned_by_me'>(isStudent ? 'my_tasks' : 'all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Create Task Modal State
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
+  const [assigneeType, setAssigneeType] = useState<'staff' | 'student'>('staff');
   const [newTitle, setNewTitle] = useState<string>('');
   const [newDescription, setNewDescription] = useState<string>('');
   const [newAssigneeId, setNewAssigneeId] = useState<string>('');
+  const [newAssigneeStudentId, setNewAssigneeStudentId] = useState<string>('');
   const [newPriority, setNewPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [newDueDate, setNewDueDate] = useState<string>('');
   const [savingTask, setSavingTask] = useState<boolean>(false);
-
-  const canManageTasks = hasPermission('tasks.manage') || hasPermission('roles.manage');
 
   const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const [tasksRes, membersRes] = await Promise.all([
-        fetchTasks(activeTab),
+      const effectiveTab = isStudent ? 'my_tasks' : activeTab;
+      const promises: Promise<any>[] = [
+        fetchTasks(effectiveTab),
         fetchMembers().catch(() => []),
-      ]);
+      ];
+      if (!isStudent) {
+        promises.push(fetchStudents().catch(() => []));
+      }
+      const [tasksRes, membersRes, studentsRes] = await Promise.all(promises);
       setTasks(tasksRes);
-      setMembers(membersRes);
-      if (membersRes.length > 0 && !newAssigneeId) {
+      setMembers(membersRes || []);
+      if (studentsRes) setStudents(studentsRes);
+      if (membersRes && membersRes.length > 0 && !newAssigneeId) {
         setNewAssigneeId(membersRes[0].id);
+      }
+      if (studentsRes && studentsRes.length > 0 && !newAssigneeStudentId) {
+        setNewAssigneeStudentId(studentsRes[0].id);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load task records');
@@ -91,12 +107,15 @@ export const TasksPage: React.FC = () => {
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim() || !newAssigneeId) return;
+    if (!newTitle.trim()) return;
+    if (assigneeType === 'staff' && !newAssigneeId) return;
+    if (assigneeType === 'student' && !newAssigneeStudentId) return;
 
     try {
       setSavingTask(true);
       const created = await createTask({
-        assigneeMembershipId: newAssigneeId,
+        assigneeMembershipId: assigneeType === 'staff' ? newAssigneeId : undefined,
+        assigneeStudentId: assigneeType === 'student' ? newAssigneeStudentId : undefined,
         title: newTitle.trim(),
         description: newDescription.trim() || undefined,
         priority: newPriority,
@@ -123,6 +142,7 @@ export const TasksPage: React.FC = () => {
         Priority: t.priority,
         Status: t.status,
         Assignee: t.assigneeName || 'Unassigned',
+        AssigneeType: t.assigneeType || 'staff',
         Role: t.assigneeRole || '',
         DueDate: t.dueDate || '',
         CreatedAt: new Date(t.createdAt).toLocaleDateString(),
@@ -165,10 +185,12 @@ export const TasksPage: React.FC = () => {
         <div>
           <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <ClipboardList size={26} style={{ color: 'var(--primary)' }} />
-            Staff Tasks & Work Orders
+            {isStudent ? 'My Academic Tasks & Assignments' : 'Staff Tasks & Work Orders'}
           </h1>
           <p style={{ margin: '0.25rem 0 0', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            Assign, track, and complete academic duties, marks entry deadlines, and administrative work orders.
+            {isStudent
+              ? 'View, track, and complete homework and responsibilities assigned to you.'
+              : 'Assign, track, and complete academic duties, marks entry deadlines, and administrative work orders.'}
           </p>
         </div>
 
@@ -178,7 +200,7 @@ export const TasksPage: React.FC = () => {
             <span>Export CSV</span>
           </Button>
 
-          {canManageTasks && (
+          {canCreateTasks && (
             <Button variant="primary" onClick={() => setShowCreateModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <Plus size={16} />
               <span>Assign Work Order</span>
@@ -223,56 +245,63 @@ export const TasksPage: React.FC = () => {
       {/* Control Bar: Filter Tabs & Search */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', background: 'var(--surface)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
         {/* Scope Tabs */}
-        <div style={{ display: 'flex', gap: '0.35rem', background: 'var(--surface-sunken)', padding: '0.2rem', borderRadius: 'var(--radius-sm)' }}>
-          <button
-            onClick={() => setActiveTab('all')}
-            style={{
-              padding: '0.35rem 0.75rem',
-              borderRadius: 'var(--radius-sm)',
-              border: 'none',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: activeTab === 'all' ? 'var(--surface)' : 'transparent',
-              color: activeTab === 'all' ? 'var(--primary)' : 'var(--text-secondary)',
-              boxShadow: activeTab === 'all' ? 'var(--shadow-sm)' : 'none',
-            }}
-          >
-            All Tasks
-          </button>
-          <button
-            onClick={() => setActiveTab('my_tasks')}
-            style={{
-              padding: '0.35rem 0.75rem',
-              borderRadius: 'var(--radius-sm)',
-              border: 'none',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: activeTab === 'my_tasks' ? 'var(--surface)' : 'transparent',
-              color: activeTab === 'my_tasks' ? 'var(--primary)' : 'var(--text-secondary)',
-              boxShadow: activeTab === 'my_tasks' ? 'var(--shadow-sm)' : 'none',
-            }}
-          >
-            Assigned to Me
-          </button>
-          <button
-            onClick={() => setActiveTab('assigned_by_me')}
-            style={{
-              padding: '0.35rem 0.75rem',
-              borderRadius: 'var(--radius-sm)',
-              border: 'none',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: activeTab === 'assigned_by_me' ? 'var(--surface)' : 'transparent',
-              color: activeTab === 'assigned_by_me' ? 'var(--primary)' : 'var(--text-secondary)',
-              boxShadow: activeTab === 'assigned_by_me' ? 'var(--shadow-sm)' : 'none',
-            }}
-          >
-            Delegated by Me
-          </button>
-        </div>
+        {!isStudent ? (
+          <div style={{ display: 'flex', gap: '0.35rem', background: 'var(--surface-sunken)', padding: '0.2rem', borderRadius: 'var(--radius-sm)' }}>
+            <button
+              onClick={() => setActiveTab('all')}
+              style={{
+                padding: '0.35rem 0.75rem',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                background: activeTab === 'all' ? 'var(--surface)' : 'transparent',
+                color: activeTab === 'all' ? 'var(--primary)' : 'var(--text-secondary)',
+                boxShadow: activeTab === 'all' ? 'var(--shadow-sm)' : 'none',
+              }}
+            >
+              All Tasks
+            </button>
+            <button
+              onClick={() => setActiveTab('my_tasks')}
+              style={{
+                padding: '0.35rem 0.75rem',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                background: activeTab === 'my_tasks' ? 'var(--surface)' : 'transparent',
+                color: activeTab === 'my_tasks' ? 'var(--primary)' : 'var(--text-secondary)',
+                boxShadow: activeTab === 'my_tasks' ? 'var(--shadow-sm)' : 'none',
+              }}
+            >
+              Assigned to Me
+            </button>
+            <button
+              onClick={() => setActiveTab('assigned_by_me')}
+              style={{
+                padding: '0.35rem 0.75rem',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                background: activeTab === 'assigned_by_me' ? 'var(--surface)' : 'transparent',
+                color: activeTab === 'assigned_by_me' ? 'var(--primary)' : 'var(--text-secondary)',
+                boxShadow: activeTab === 'assigned_by_me' ? 'var(--shadow-sm)' : 'none',
+              }}
+            >
+              Delegated by Me
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-primary)' }}>
+            <ClipboardList size={16} style={{ color: 'var(--primary)' }} />
+            <span>My Assigned Tasks</span>
+          </div>
+        )}
 
         {/* Status Filter & Search */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -381,7 +410,12 @@ export const TasksPage: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                       <User size={13} />
-                      <span>Assignee: <strong>{task.assigneeName || 'Staff Member'}</strong> ({task.assigneeRole || 'Member'})</span>
+                      <span>
+                        Assignee: <strong>{task.assigneeName || (task.assigneeType === 'student' ? 'Student' : 'Staff Member')}</strong>{' '}
+                        <Badge tone={task.assigneeType === 'student' ? 'info' : 'neutral'}>
+                          {task.assigneeType === 'student' ? 'Student' : (task.assigneeRole || 'Staff')}
+                        </Badge>
+                      </span>
                     </div>
 
                     {task.dueDate && (
@@ -469,32 +503,92 @@ export const TasksPage: React.FC = () => {
       )}
 
       {/* Modal: Assign New Task */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Assign New Academic Work Order">
+      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Assign New Academic Work Order or Duty">
         <form onSubmit={handleCreateSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
-            <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
-              Assignee (Staff Member) <span style={{ color: 'var(--danger)' }}>*</span>
+            <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>
+              Assignee Category <span style={{ color: 'var(--danger)' }}>*</span>
             </label>
-            <select
-              value={newAssigneeId}
-              onChange={(e) => setNewAssigneeId(e.target.value)}
-              required
-              style={{
-                width: '100%',
-                padding: '0.55rem',
-                borderRadius: 'var(--radius-sm)',
-                background: 'var(--surface-sunken)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-subtle)',
-                fontSize: '0.85rem',
-              }}
-            >
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name} — {m.roleName} ({m.email})
-                </option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.65rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer', fontWeight: assigneeType === 'staff' ? 600 : 400 }}>
+                <input
+                  type="radio"
+                  name="assigneeType"
+                  value="staff"
+                  checked={assigneeType === 'staff'}
+                  onChange={() => setAssigneeType('staff')}
+                />
+                Staff Member / Colleague
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer', fontWeight: assigneeType === 'student' ? 600 : 400 }}>
+                <input
+                  type="radio"
+                  name="assigneeType"
+                  value="student"
+                  checked={assigneeType === 'student'}
+                  onChange={() => setAssigneeType('student')}
+                />
+                Enrolled Student
+              </label>
+            </div>
+
+            {assigneeType === 'staff' ? (
+              <div>
+                <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>
+                  Select Colleague / Staff
+                </label>
+                <select
+                  value={newAssigneeId}
+                  onChange={(e) => setNewAssigneeId(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-subtle)',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  {members.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} — {m.roleName} ({m.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>
+                  Select Enrolled Student
+                </label>
+                <select
+                  value={newAssigneeStudentId}
+                  onChange={(e) => setNewAssigneeStudentId(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--surface-sunken)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-subtle)',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  {students.length === 0 ? (
+                    <option value="">No enrolled students found</option>
+                  ) : (
+                    students.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} (Roll: {s.rollNo || s.admissionNo || 'N/A'}{s.className ? ` • ${s.className}` : ''})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            )}
           </div>
 
           <div>

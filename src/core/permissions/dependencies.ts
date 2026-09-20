@@ -20,6 +20,7 @@ export const PERMISSION_DEPENDENCIES: Record<string, string[]> = {
   'teachers.assign': ['classes.manage', 'subjects.manage'],
   'schedules.manage': ['schedules.read', 'classes.manage'],
   'tasks.manage': ['tasks.read'],
+  'requests.manage': ['requests.create'],
 
   // Attendance & Employee Attendance
   'attendance.create': ['attendance.read'],

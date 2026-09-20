@@ -71,6 +71,8 @@ export const attendanceManifest: ModuleManifest = {
       handler: routes.markEmployeeAttendance,
     },
     { method: 'GET', path: '/employees/summary', requiredPermission: 'attendance.employee.read', handler: routes.getEmployeeAttendanceSummary },
+    { method: 'GET', path: '/employee/my-history', requiredPermission: 'attendance.employee.read', handler: routes.getMyEmployeeAttendanceHistory },
+    { method: 'GET', path: '/student/my-history', requiredPermission: 'attendance.read', handler: routes.getMyStudentAttendanceHistory },
 
     // Examinations
     { method: 'GET', path: '/exams', requiredPermission: 'marks.read', handler: routes.listExams },

@@ -11,6 +11,15 @@ import {
   fetchClasses,
   fetchStudents,
   fetchMembers,
+  fetchFeeSettings,
+  updateFeeSettings,
+  fetchFeePolicies,
+  createFeePolicy,
+  updateFeePolicy,
+  deleteFeePolicy,
+  applyFeePolicy,
+  fetchPaymentsLedger,
+  voidInvoice,
   exportToCsv,
 } from '../services/api';
 import type {
@@ -21,6 +30,9 @@ import type {
   StudentItem,
   Member,
   InvoiceItem,
+  FeeSettings,
+  FeePolicy,
+  PaymentLedgerItem,
 } from '../types';
 import {
   SearchBar,
@@ -42,6 +54,14 @@ import {
   AlertCircle,
   TrendingDown,
   FileBadge,
+  Zap,
+  Sliders,
+  Wallet,
+  Trash2,
+  Play,
+  FileText,
+  Ban,
+  History,
 } from 'lucide-react';
 import { InvoiceDocumentModal } from '../components/finance/InvoiceDocumentModal';
 
@@ -69,11 +89,75 @@ const FEE_CATEGORIES = [
 ];
 
 export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome }) => {
-  const { hasPermission } = useSession();
+  const { hasPermission, activeMembership } = useSession();
+  const roleName = (activeMembership?.roleName || '').toLowerCase();
+  const isStudent = roleName.includes('student');
+  const isGuardian = roleName.includes('guardian');
+  const isAdmin = roleName.includes('admin') || roleName.includes('principal') || roleName.includes('head') || roleName.includes('owner');
+
+  const canGenerateDocuments = hasPermission('templates.read') || hasPermission('templates.manage');
   const [summary, setSummary] = useState<FinanceSummaryData | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Tab State for Admins: 'invoices' | 'ledger' | 'policies'
+  const [activeTab, setActiveTab] = useState<'invoices' | 'ledger' | 'policies'>('invoices');
+
+  // Fee Policies State
+  const [policies, setPolicies] = useState<FeePolicy[]>([]);
+  const [loadingPolicies, setLoadingPolicies] = useState<boolean>(false);
+  const [showCreatePolicyModal, setShowCreatePolicyModal] = useState<boolean>(false);
+  const [savingPolicy, setSavingPolicy] = useState<boolean>(false);
+  const [policyForm, setPolicyForm] = useState<Partial<FeePolicy>>({
+    name: '',
+    description: '',
+    category: 'Tuition Fee',
+    amount: 2500,
+    billingCycle: 'monthly',
+    targetAudience: 'all_students',
+    targetClassId: '',
+    targetSectionId: '',
+    dueDaysAfter: 15,
+    autoApplyOnAbsence: false,
+    finePerDay: 50,
+    isActive: true,
+  });
+
+  // Apply Policy Modal State
+  const [showApplyPolicyModal, setShowApplyPolicyModal] = useState<boolean>(false);
+  const [selectedPolicyToApply, setSelectedPolicyToApply] = useState<FeePolicy | null>(null);
+  const [applyMonth, setApplyMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [applyDueDate, setApplyDueDate] = useState<string>(
+    new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  );
+  const [applyOverrideAmount, setApplyOverrideAmount] = useState<string>('');
+  const [applyClassId, setApplyClassId] = useState<string>('');
+  const [applyingPolicy, setApplyingPolicy] = useState<boolean>(false);
+
+  // Payments Ledger State
+  const [paymentsLedger, setPaymentsLedger] = useState<PaymentLedgerItem[]>([]);
+  const [loadingLedger, setLoadingLedger] = useState<boolean>(false);
+  const [ledgerMethodFilter, setLedgerMethodFilter] = useState<string>('all');
+  const [ledgerSearchQuery, setLedgerSearchQuery] = useState<string>('');
+  const [ledgerTotalCollected, setLedgerTotalCollected] = useState<number>(0);
+  const [ledgerTotalCount, setLedgerTotalCount] = useState<number>(0);
+
+  // Void Invoice State
+  const [showVoidModal, setShowVoidModal] = useState<boolean>(false);
+  const [voidingInvoiceId, setVoidingInvoiceId] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState<string>('');
+  const [savingVoid, setSavingVoid] = useState<boolean>(false);
+
+  // Fee Settings State
+  const [feeSettings, setFeeSettings] = useState<FeeSettings>({
+    enableAbsentFine: true,
+    absentFinePerDay: 50,
+    enableLatePaymentFine: true,
+    latePaymentFine: 200,
+    customFeeCategories: ['Tuition Fee', 'Exam Fee', 'Lab Fee', 'Sports Fee', 'Absenteeism Fine'],
+  });
+  const [savingFeeSettings, setSavingFeeSettings] = useState<boolean>(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -122,9 +206,34 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
   const [loadingReceipt, setLoadingReceipt] = useState<boolean>(false);
   const [documentTargetInvoice, setDocumentTargetInvoice] = useState<Invoice | null>(null);
 
-  const canWriteFinance = hasPermission('finance.write') || hasPermission('institution.manage');
+  const canWriteFinance = hasPermission('finance.write') || hasPermission('institution.manage') || isAdmin;
   const canMakePayment = hasPermission('finance.payment') || canWriteFinance;
   const canViewReports = hasPermission('finance.reports') || hasPermission('finance.read');
+
+  const loadFeeSettingsData = async () => {
+    try {
+      const settings = await fetchFeeSettings();
+      if (settings) {
+        setFeeSettings(settings);
+      }
+    } catch (err) {
+      console.error('Failed to load fee settings', err);
+    }
+  };
+
+  const handleSaveFeeSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSavingFeeSettings(true);
+      const updated = await updateFeeSettings(feeSettings);
+      setFeeSettings(updated);
+      alert('Fee settings and fine policies updated successfully!');
+    } catch (err: any) {
+      alert(err.message || 'Failed to update fee settings');
+    } finally {
+      setSavingFeeSettings(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -148,9 +257,153 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
     }
   };
 
+  const loadPoliciesData = async () => {
+    try {
+      setLoadingPolicies(true);
+      const res = await fetchFeePolicies();
+      setPolicies(res || []);
+    } catch (err: any) {
+      console.error('Failed to load fee policies', err);
+    } finally {
+      setLoadingPolicies(false);
+    }
+  };
+
+  const loadLedgerData = async () => {
+    try {
+      setLoadingLedger(true);
+      const res = await fetchPaymentsLedger({
+        method: ledgerMethodFilter !== 'all' ? ledgerMethodFilter : undefined,
+        search: ledgerSearchQuery || undefined,
+      });
+      setPaymentsLedger(res.payments || []);
+      setLedgerTotalCollected(res.totalCollected || 0);
+      setLedgerTotalCount(res.totalCount || 0);
+    } catch (err: any) {
+      console.error('Failed to load payments ledger', err);
+    } finally {
+      setLoadingLedger(false);
+    }
+  };
+
+  const handleCreatePolicy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!policyForm.name?.trim()) {
+      alert('Policy name is required');
+      return;
+    }
+    try {
+      setSavingPolicy(true);
+      await createFeePolicy({
+        ...policyForm,
+        name: policyForm.name.trim(),
+        description: policyForm.description?.trim() || undefined,
+        amount: Number(policyForm.amount) || 0,
+        finePerDay: Number(policyForm.finePerDay) || 0,
+        dueDaysAfter: Number(policyForm.dueDaysAfter) || 15,
+        targetClassId: policyForm.targetClassId || undefined,
+        targetSectionId: policyForm.targetSectionId || undefined,
+      });
+      setShowCreatePolicyModal(false);
+      setPolicyForm({
+        name: '',
+        description: '',
+        category: 'Tuition Fee',
+        amount: 2500,
+        billingCycle: 'monthly',
+        targetAudience: 'all_students',
+        targetClassId: '',
+        targetSectionId: '',
+        dueDaysAfter: 15,
+        autoApplyOnAbsence: false,
+        finePerDay: 50,
+        isActive: true,
+      });
+      await loadPoliciesData();
+      alert('Fee policy saved and activated successfully!');
+    } catch (err: any) {
+      alert(err.message || 'Failed to create fee policy');
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
+  const handleTogglePolicyActive = async (policy: FeePolicy) => {
+    try {
+      await updateFeePolicy(policy.id, { isActive: !policy.isActive });
+      await loadPoliciesData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update fee policy');
+    }
+  };
+
+  const handleDeletePolicy = async (policyId: string) => {
+    if (!window.confirm('Are you sure you want to delete this fee policy?')) return;
+    try {
+      await deleteFeePolicy(policyId);
+      await loadPoliciesData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete fee policy');
+    }
+  };
+
+  const handleOpenApplyPolicy = (policy: FeePolicy) => {
+    setSelectedPolicyToApply(policy);
+    setApplyOverrideAmount(String(policy.amount));
+    setApplyClassId(policy.targetClassId || '');
+    setShowApplyPolicyModal(true);
+  };
+
+  const handleApplyPolicySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPolicyToApply) return;
+    try {
+      setApplyingPolicy(true);
+      const res = await applyFeePolicy(selectedPolicyToApply.id, {
+        targetMonth: applyMonth,
+        dueDate: applyDueDate,
+        overrideAmount: applyOverrideAmount ? Number(applyOverrideAmount) : undefined,
+        classId: applyClassId || undefined,
+      });
+      alert(`Generated ${res.appliedCount} invoices totaling ৳${res.totalAmount.toLocaleString()} successfully!`);
+      setShowApplyPolicyModal(false);
+      setSelectedPolicyToApply(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to apply fee policy');
+    } finally {
+      setApplyingPolicy(false);
+    }
+  };
+
+  const handleVoidInvoiceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!voidingInvoiceId) return;
+    try {
+      setSavingVoid(true);
+      await voidInvoice(voidingInvoiceId, voidReason.trim() || 'Voided by accounts officer');
+      setShowVoidModal(false);
+      setVoidingInvoiceId(null);
+      setVoidReason('');
+      loadData();
+      alert('Invoice has been voided/cancelled successfully.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to void invoice');
+    } finally {
+      setSavingVoid(false);
+    }
+  };
+
   useEffect(() => {
-    loadData();
-  }, [statusFilter, recipientFilter, categoryFilter]);
+    if (activeTab === 'invoices') {
+      loadData();
+    } else if (activeTab === 'ledger') {
+      loadLedgerData();
+    } else if (activeTab === 'policies') {
+      loadPoliciesData();
+      if (canWriteFinance) loadFeeSettingsData();
+    }
+  }, [activeTab, statusFilter, recipientFilter, categoryFilter, canWriteFinance, ledgerMethodFilter, ledgerSearchQuery]);
 
   useEffect(() => {
     fetchClasses().then(setClasses).catch(console.error);
@@ -321,26 +574,96 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
           <div>
             <h1 style={{ fontSize: '1.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <CreditCard size={26} style={{ color: 'var(--primary)' }} />
-              Invoicing & Billing Management
+              {isStudent || isGuardian ? 'My Fee Invoices & Payment Ledger' : 'Invoicing & Billing Management'}
             </h1>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
-              Institutional fee collection, student invoices, payroll disbursements, and payment receipts.
+              {isStudent || isGuardian
+                ? 'View your personal fee statements, pay outstanding dues online, and download official receipts.'
+                : 'Institutional fee collection, student invoices, payroll disbursements, and payment receipts.'}
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            {canWriteFinance && (
-              <Button variant="primary" icon={<Plus size={15} />} onClick={() => setShowCreateModal(true)}>
-                Generate Invoice
-              </Button>
-            )}
-            {canViewReports && (
-              <Button variant="secondary" icon={<FileSpreadsheet size={15} />} onClick={handleExportCsv}>
-                Export Ledger CSV
-              </Button>
-            )}
-          </div>
+          {!isStudent && !isGuardian && (
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {canWriteFinance && (
+                <Button variant="primary" icon={<Plus size={15} />} onClick={() => setShowCreateModal(true)}>
+                  Generate Invoice
+                </Button>
+              )}
+              {canViewReports && (
+                <Button variant="secondary" icon={<FileSpreadsheet size={15} />} onClick={handleExportCsv}>
+                  Export Ledger CSV
+                </Button>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Tab Switcher for Admins */}
+        {canWriteFinance && !isStudent && !isGuardian && (
+          <div style={{ display: 'flex', gap: '0.4rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.25rem' }}>
+            <button
+              type="button"
+              onClick={() => setActiveTab('invoices')}
+              style={{
+                padding: '0.45rem 0.9rem',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                background: activeTab === 'invoices' ? 'var(--surface)' : 'transparent',
+                color: activeTab === 'invoices' ? 'var(--primary)' : 'var(--text-secondary)',
+                fontWeight: activeTab === 'invoices' ? 700 : 500,
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                borderBottom: activeTab === 'invoices' ? '2px solid var(--primary)' : '2px solid transparent',
+              }}
+            >
+              <FileText size={14} /> Invoices & Billing Hub
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('ledger')}
+              style={{
+                padding: '0.45rem 0.9rem',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                background: activeTab === 'ledger' ? 'var(--surface)' : 'transparent',
+                color: activeTab === 'ledger' ? 'var(--primary)' : 'var(--text-secondary)',
+                fontWeight: activeTab === 'ledger' ? 700 : 500,
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                borderBottom: activeTab === 'ledger' ? '2px solid var(--primary)' : '2px solid transparent',
+              }}
+            >
+              <History size={14} /> Payments Ledger & Cashflow
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('policies')}
+              style={{
+                padding: '0.45rem 0.9rem',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                background: activeTab === 'policies' ? 'var(--surface)' : 'transparent',
+                color: activeTab === 'policies' ? 'var(--primary)' : 'var(--text-secondary)',
+                fontWeight: activeTab === 'policies' ? 700 : 500,
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                borderBottom: activeTab === 'policies' ? '2px solid var(--primary)' : '2px solid transparent',
+              }}
+            >
+              <Sliders size={14} /> Fee Policies & Automation
+            </button>
+          </div>
+        )}
 
         {errorMsg && (
           <div style={{ padding: '0.75rem 1rem', background: 'var(--danger-bg)', color: 'var(--danger)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
@@ -349,87 +672,118 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
           </div>
         )}
 
-        {/* Telemetry Metrics */}
-        {summary && (
-          <div className="stat-grid">
-            <StatCard
-              label="Total Invoiced"
-              value={`৳${summary.totalBilled.toLocaleString()}`}
-              sublabel="Current term billing"
-              icon={<DollarSign size={18} />}
-            />
-            <StatCard
-              label="Reconciled Deposits"
-              value={`৳${summary.totalCollected.toLocaleString()}`}
-              sublabel="Verified payments"
-              accentColor="var(--status-success)"
-              icon={<ArrowUpRight size={18} />}
-            />
-            <StatCard
-              label="Outstanding Due"
-              value={`৳${summary.totalPending.toLocaleString()}`}
-              sublabel="Pending collection"
-              accentColor="var(--status-warning)"
-              icon={<Clock size={18} />}
-            />
-            <StatCard
-              label="Payroll / Disbursements"
-              value={`৳${(summary.totalDisbursements || 0).toLocaleString()}`}
-              sublabel="Salaries & expenses"
-              accentColor="var(--text-secondary)"
-              icon={<TrendingDown size={18} />}
-            />
-            <StatCard
-              label="Collection Efficiency"
-              value={`${summary.collectionRate}%`}
-              sublabel="Net collection rate"
-              accentColor="var(--primary-light)"
-            />
-          </div>
-        )}
+        {(activeTab === 'invoices' || isStudent || isGuardian) && (
+          <>
+            {/* Telemetry Metrics */}
+            {summary && (
+              <div className="stat-grid">
+                {isStudent || isGuardian ? (
+                  <>
+                    <StatCard
+                      label="My Outstanding Due"
+                      value={`৳${(summary.totalPending || 0).toLocaleString()}`}
+                      sublabel="Pending payment balance"
+                      accentColor="var(--status-warning)"
+                      icon={<Clock size={18} />}
+                    />
+                    <StatCard
+                      label="My Settled Payments"
+                      value={`৳${(summary.totalCollected || 0).toLocaleString()}`}
+                      sublabel="Verified payments"
+                      accentColor="var(--status-success)"
+                      icon={<ArrowUpRight size={18} />}
+                    />
+                    <StatCard
+                      label="Total Invoiced Fees"
+                      value={`৳${(summary.totalBilled || 0).toLocaleString()}`}
+                      sublabel="Term tuition & fees"
+                      icon={<DollarSign size={18} />}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <StatCard
+                      label="Total Invoiced"
+                      value={`৳${summary.totalBilled.toLocaleString()}`}
+                      sublabel="Current term billing"
+                      icon={<DollarSign size={18} />}
+                    />
+                    <StatCard
+                      label="Reconciled Deposits"
+                      value={`৳${summary.totalCollected.toLocaleString()}`}
+                      sublabel="Verified payments"
+                      accentColor="var(--status-success)"
+                      icon={<ArrowUpRight size={18} />}
+                    />
+                    <StatCard
+                      label="Outstanding Due"
+                      value={`৳${summary.totalPending.toLocaleString()}`}
+                      sublabel="Pending collection"
+                      accentColor="var(--status-warning)"
+                      icon={<Clock size={18} />}
+                    />
+                    <StatCard
+                      label="Payroll / Disbursements"
+                      value={`৳${(summary.totalDisbursements || 0).toLocaleString()}`}
+                      sublabel="Salaries & expenses"
+                      accentColor="var(--text-secondary)"
+                      icon={<TrendingDown size={18} />}
+                    />
+                    <StatCard
+                      label="Collection Efficiency"
+                      value={`${summary.collectionRate}%`}
+                      sublabel="Net collection rate"
+                      accentColor="var(--primary-light)"
+                    />
+                  </>
+                )}
+              </div>
+            )}
 
-        {/* Control Bar: Filters & Search */}
-        <div
-          className="glass-panel"
-          style={{
-            padding: '1rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.75rem',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <SearchBar
-              placeholder="Search by invoice #, student name, roll, or class..."
-              value={searchQuery}
-              onChange={setSearchQuery}
-              style={{ maxWidth: '380px' }}
-            />
+            {/* Control Bar: Filters & Search */}
+            <div
+              className="glass-panel"
+              style={{
+                padding: '1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <SearchBar
+                  placeholder="Search by invoice #, student name, roll, or class..."
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  style={{ maxWidth: '380px' }}
+                />
 
-            {/* Recipient Type Segmented Control */}
-            <div style={{ display: 'flex', gap: '0.3rem', background: 'var(--surface-sunken)', padding: '0.2rem', borderRadius: 'var(--radius-sm)' }}>
-              {(['all', 'student', 'employee', 'institution'] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setRecipientFilter(t)}
-                  style={{
-                    padding: '0.3rem 0.65rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: 'none',
-                    fontSize: '0.75rem',
-                    fontWeight: recipientFilter === t ? 600 : 400,
-                    background: recipientFilter === t ? 'var(--surface)' : 'transparent',
-                    color: recipientFilter === t ? 'var(--primary)' : 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    textTransform: 'capitalize',
-                  }}
-                >
-                  {t === 'all' ? 'All Recipients' : t === 'student' ? 'Students' : t === 'employee' ? 'Employees' : 'Institution'}
-                </button>
-              ))}
-            </div>
-          </div>
+                {/* Recipient Type Segmented Control (Admin only) */}
+                {!isStudent && !isGuardian && (
+                  <div style={{ display: 'flex', gap: '0.3rem', background: 'var(--surface-sunken)', padding: '0.2rem', borderRadius: 'var(--radius-sm)' }}>
+                    {(['all', 'student', 'employee', 'institution'] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setRecipientFilter(t)}
+                        style={{
+                          padding: '0.3rem 0.65rem',
+                          borderRadius: 'var(--radius-sm)',
+                          border: 'none',
+                          fontSize: '0.75rem',
+                          fontWeight: recipientFilter === t ? 600 : 400,
+                          background: recipientFilter === t ? 'var(--surface)' : 'transparent',
+                          color: recipientFilter === t ? 'var(--primary)' : 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          textTransform: 'capitalize',
+                        }}
+                      >
+                        {t === 'all' ? 'All Recipients' : t === 'student' ? 'Students' : t === 'employee' ? 'Employees' : 'Institution'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.8rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -601,9 +955,9 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
                           variant="primary"
                           size="sm"
                           onClick={() => handleOpenPayment(inv)}
-                          icon={<DollarSign size={13} />}
+                          icon={isStudent || isGuardian ? <Wallet size={13} /> : <DollarSign size={13} />}
                         >
-                          Collect
+                          {isStudent || isGuardian ? 'Pay Online' : 'Collect'}
                         </Button>
                       )}
                       {hasPayments && (
@@ -616,15 +970,31 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
                           Receipt
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDocumentTargetInvoice(inv)}
-                        icon={<FileBadge size={13} style={{ color: 'var(--brand-primary)' }} />}
-                        title="Generate Official Invoice / Voucher / Receipt Document"
-                      >
-                        Voucher
-                      </Button>
+                      {canGenerateDocuments && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDocumentTargetInvoice(inv)}
+                          icon={<FileBadge size={13} style={{ color: 'var(--brand-primary)' }} />}
+                          title="Generate Official Invoice / Voucher / Receipt Document"
+                        >
+                          Voucher
+                        </Button>
+                      )}
+                      {canWriteFinance && inv.status !== 'cancelled' && (inv.paidAmount ?? 0) === 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setVoidingInvoiceId(inv.id);
+                            setShowVoidModal(true);
+                          }}
+                          style={{ color: 'var(--danger)' }}
+                          title="Void / Cancel this invoice"
+                        >
+                          <Ban size={13} />
+                        </Button>
+                      )}
                     </div>
                   );
                 },
@@ -632,6 +1002,411 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
             ]}
           />
         </div>
+      </>
+    )}
+
+        {/* Tab 2: Payments Ledger & Real-Time Cashflow */}
+        {activeTab === 'ledger' && canWriteFinance && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div className="stat-grid">
+              <StatCard
+                label="Reconciled Collections"
+                value={`৳${ledgerTotalCollected.toLocaleString()}`}
+                sublabel="Total deposits recorded"
+                accentColor="var(--status-success)"
+                icon={<ArrowUpRight size={18} />}
+              />
+              <StatCard
+                label="Payment Receipts Issued"
+                value={`${ledgerTotalCount}`}
+                sublabel="Transactions verified"
+                icon={<Receipt size={18} />}
+              />
+            </div>
+
+            {/* Ledger Filter Bar */}
+            <div
+              className="glass-panel"
+              style={{
+                padding: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+              }}
+            >
+              <SearchBar
+                placeholder="Search by receipt #, transaction ID, invoice #, or student..."
+                value={ledgerSearchQuery}
+                onChange={setLedgerSearchQuery}
+                style={{ maxWidth: '380px' }}
+              />
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Method:</span>
+                <select
+                  value={ledgerMethodFilter}
+                  onChange={(e) => setLedgerMethodFilter(e.target.value)}
+                  style={{
+                    padding: '0.4rem 0.65rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  <option value="all">All Payment Methods</option>
+                  {PAYMENT_METHODS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                <Button variant="secondary" size="sm" icon={<FileSpreadsheet size={14} />} onClick={handleExportCsv}>
+                  Export CSV
+                </Button>
+              </div>
+            </div>
+
+            {/* Ledger Data Table */}
+            <div className="glass-panel" style={{ padding: '0.5rem' }}>
+              <DataTable<PaymentLedgerItem>
+                data={paymentsLedger}
+                keyExtractor={(p) => p.id}
+                isLoading={loadingLedger}
+                emptyMessage="No payment transactions found in ledger."
+                columns={[
+                  {
+                    key: 'receiptNumber',
+                    header: 'Receipt #',
+                    render: (p: PaymentLedgerItem) => (
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--primary)' }}>
+                        {p.receiptNumber}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'paymentDate',
+                    header: 'Date',
+                    render: (p: PaymentLedgerItem) => (
+                      <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                        {new Date(p.paymentDate).toLocaleDateString()}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'invoiceNumber',
+                    header: 'Invoice #',
+                    render: (p: PaymentLedgerItem) => (
+                      <span style={{ fontSize: '0.82rem', fontFamily: 'monospace' }}>
+                        {p.invoiceNumber}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'payerName',
+                    header: 'Payer / Student',
+                    render: (p: PaymentLedgerItem) => (
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{p.payerName}</div>
+                        {p.className && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {p.className} {p.studentRollNo ? `· Roll ${p.studentRollNo}` : ''}
+                          </div>
+                        )}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: 'category',
+                    header: 'Category',
+                    render: (p: PaymentLedgerItem) => (
+                      <Badge tone="neutral">
+                        {p.category}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    key: 'method',
+                    header: 'Method',
+                    render: (p: PaymentLedgerItem) => (
+                      <Badge tone="info">
+                        {p.method}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    key: 'transactionId',
+                    header: 'Txn / Slip Ref',
+                    render: (p: PaymentLedgerItem) => (
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                        {p.transactionId || 'Counter Deposit'}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'cashierName',
+                    header: 'Cashier',
+                    render: (p: PaymentLedgerItem) => (
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        {p.cashierName || 'Accounts Office'}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'amount',
+                    header: 'Amount Paid',
+                    align: 'right',
+                    render: (p: PaymentLedgerItem) => (
+                      <span style={{ fontWeight: 700, color: 'var(--status-success)', fontSize: '0.9rem' }}>
+                        ৳{p.amount.toLocaleString()}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'actions',
+                    header: 'Receipt',
+                    align: 'right',
+                    render: (p: PaymentLedgerItem) => (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleViewReceipt(p.id)}
+                        icon={<Receipt size={13} />}
+                      >
+                        Receipt
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: Institutional Fee Policies & Automation Engine */}
+        {activeTab === 'policies' && canWriteFinance && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {/* Top Action Bar */}
+            <div
+              className="glass-panel"
+              style={{
+                padding: '1.25rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '1rem',
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                  <Sliders size={20} style={{ color: 'var(--primary)' }} />
+                  Customizable Institutional Fee Policies & Billing Structures
+                </h3>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                  Define tuition rules, exam fees, laboratory dues, and automated daily absence fines with custom filters by class or audience.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <Button
+                  variant="primary"
+                  icon={<Plus size={15} />}
+                  onClick={() => setShowCreatePolicyModal(true)}
+                >
+                  Create Fee Policy
+                </Button>
+              </div>
+            </div>
+
+            {/* Active Fee Policies Cards Grid */}
+            {loadingPolicies ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Loading institutional fee policies...
+              </div>
+            ) : policies.length === 0 ? (
+              <div
+                className="glass-panel"
+                style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}
+              >
+                <p style={{ margin: 0, fontSize: '0.95rem' }}>No fee policies configured yet.</p>
+                <p style={{ fontSize: '0.82rem', margin: '0.5rem 0 1rem' }}>
+                  Create your first fee policy to automate class tuition, exam fees, or absenteeism fines.
+                </p>
+                <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setShowCreatePolicyModal(true)}>
+                  Create Policy Now
+                </Button>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
+                {policies.map((p) => (
+                  <div
+                    key={p.id}
+                    className="glass-panel"
+                    style={{
+                      padding: '1.15rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '0.85rem',
+                      border: p.isActive ? '1px solid var(--border-subtle)' : '1px dashed var(--border-subtle)',
+                      opacity: p.isActive ? 1 : 0.7,
+                      position: 'relative',
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.4rem' }}>
+                        <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>{p.name}</h4>
+                        <Badge tone={p.isActive ? 'success' : 'neutral'}>
+                          {p.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </div>
+
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.5rem' }}>
+                        <Badge tone="info">{p.category}</Badge>
+                        <Badge tone="neutral">{p.billingCycle.toUpperCase()}</Badge>
+                        {p.autoApplyOnAbsence && (
+                          <Badge tone="success">⚡ Auto-Absence Fine</Badge>
+                        )}
+                      </div>
+
+                      {p.description && (
+                        <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0 0 0.5rem', lineHeight: 1.4 }}>
+                          {p.description}
+                        </p>
+                      )}
+
+                      <div style={{ background: 'var(--surface-sunken)', padding: '0.65rem 0.75rem', borderRadius: 'var(--radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Amount / Rate</span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--primary)' }}>
+                          ৳{p.amount.toLocaleString()}
+                          {p.autoApplyOnAbsence ? ' / day' : ''}
+                        </span>
+                      </div>
+
+                      <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        <div>
+                          <strong>Target:</strong>{' '}
+                          {p.targetAudience === 'all_students'
+                            ? 'All Enrolled Students'
+                            : p.targetAudience === 'class'
+                            ? `Class: ${p.targetClassName || 'Assigned Class'}`
+                            : p.targetAudience === 'section'
+                            ? `Section: ${p.targetSectionName || 'Assigned Section'}`
+                            : 'Custom Selection'}
+                        </div>
+                        <div>
+                          <strong>Due Terms:</strong> Due {p.dueDaysAfter} days after invoice issuance
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.4rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        icon={<Play size={13} />}
+                        onClick={() => handleOpenApplyPolicy(p)}
+                        style={{ flex: 1 }}
+                      >
+                        Apply & Issue
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleTogglePolicyActive(p)}
+                      >
+                        {p.isActive ? 'Deactivate' : 'Activate'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        style={{ color: 'var(--danger)' }}
+                        onClick={() => handleDeletePolicy(p.id)}
+                        title="Delete policy"
+                      >
+                        <Trash2 size={13} />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Quick Fee Rules & Fine Settings */}
+            <div className="glass-panel" style={{ padding: '1.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Zap size={16} style={{ color: '#f59e0b' }} />
+                    Default Daily Absence Fine & Late Penalty Configuration
+                  </h4>
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    These global fine defaults automatically trigger whenever a teacher or staff marks any student absent in daily or period attendance.
+                  </p>
+                </div>
+                <Button variant="primary" size="sm" onClick={handleSaveFeeSettings} loading={savingFeeSettings}>
+                  Save Fine Defaults
+                </Button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                <div style={{ padding: '0.85rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Daily Absence Fine</span>
+                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '0.35rem', fontSize: '0.75rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={feeSettings.enableAbsentFine}
+                        onChange={(e) => setFeeSettings((prev) => ({ ...prev, enableAbsentFine: e.target.checked }))}
+                      />
+                      <span>Active</span>
+                    </label>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 700 }}>৳</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={feeSettings.absentFinePerDay}
+                      disabled={!feeSettings.enableAbsentFine}
+                      onChange={(e) => setFeeSettings((prev) => ({ ...prev, absentFinePerDay: Number(e.target.value) }))}
+                      style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--surface)' }}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>/ absent day</span>
+                  </div>
+                </div>
+
+                <div style={{ padding: '0.85rem', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Late Payment Surcharge</span>
+                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '0.35rem', fontSize: '0.75rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={feeSettings.enableLatePaymentFine}
+                        onChange={(e) => setFeeSettings((prev) => ({ ...prev, enableLatePaymentFine: e.target.checked }))}
+                      />
+                      <span>Active</span>
+                    </label>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 700 }}>৳</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={feeSettings.latePaymentFine}
+                      disabled={!feeSettings.enableLatePaymentFine}
+                      onChange={(e) => setFeeSettings((prev) => ({ ...prev, latePaymentFine: Number(e.target.value) }))}
+                      style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--surface)' }}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>fixed fee</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modal 1: Generate Invoice Modal */}
         <Modal
@@ -1239,6 +2014,299 @@ export const BillingPage: React.FC<{ onNavigateHome?: () => void }> = ({ onNavig
               </div>
             </div>
           )}
+        </Modal>
+
+        {/* Modal 4: Create Fee Policy */}
+        <Modal
+          isOpen={showCreatePolicyModal}
+          onClose={() => setShowCreatePolicyModal(false)}
+          title="Create Institutional Fee Policy"
+          subtitle="Define recurring or automated billing structures with targeted cohort rules"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setShowCreatePolicyModal(false)}>Cancel</Button>
+              <Button variant="primary" onClick={handleCreatePolicy} loading={savingPolicy}>
+                Save Policy
+              </Button>
+            </>
+          }
+        >
+          <form onSubmit={handleCreatePolicy} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                Policy Name <span style={{ color: 'var(--danger)' }}>*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Class 9 Monthly Tuition, Computer Lab Fee, Annual Sports"
+                value={policyForm.name || ''}
+                onChange={(e) => setPolicyForm((prev) => ({ ...prev, name: e.target.value }))}
+                required
+                style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                  Fee Category
+                </label>
+                <select
+                  value={policyForm.category || 'Tuition Fee'}
+                  onChange={(e) => setPolicyForm((prev) => ({ ...prev, category: e.target.value }))}
+                  style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                >
+                  {FEE_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                  Billing Frequency
+                </label>
+                <select
+                  value={policyForm.billingCycle || 'monthly'}
+                  onChange={(e) => setPolicyForm((prev) => ({ ...prev, billingCycle: e.target.value as any }))}
+                  style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                >
+                  <option value="monthly">Monthly Cycle</option>
+                  <option value="term">Per Term / Semester</option>
+                  <option value="annual">Annual / Session</option>
+                  <option value="one_time">One-Time Fee</option>
+                  <option value="per_absence">Per Absent Occurrence</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                  Amount / Rate (৳) <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={policyForm.amount || 0}
+                  onChange={(e) => setPolicyForm((prev) => ({ ...prev, amount: Number(e.target.value) }))}
+                  required
+                  style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                  Due Terms (Days after Issue)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="90"
+                  value={policyForm.dueDaysAfter || 15}
+                  onChange={(e) => setPolicyForm((prev) => ({ ...prev, dueDaysAfter: Number(e.target.value) }))}
+                  style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+              <div>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                  Target Audience
+                </label>
+                <select
+                  value={policyForm.targetAudience || 'all_students'}
+                  onChange={(e) => setPolicyForm((prev) => ({ ...prev, targetAudience: e.target.value as any }))}
+                  style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                >
+                  <option value="all_students">All Enrolled Students</option>
+                  <option value="class">Specific Academic Class</option>
+                </select>
+              </div>
+
+              {policyForm.targetAudience === 'class' && (
+                <div>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                    Select Class
+                  </label>
+                  <select
+                    value={policyForm.targetClassId || ''}
+                    onChange={(e) => setPolicyForm((prev) => ({ ...prev, targetClassId: e.target.value }))}
+                    style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                  >
+                    <option value="">-- Choose Class --</option>
+                    {classes.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                Description / Terms
+              </label>
+              <textarea
+                placeholder="Details of fees included, waiver eligibility, or conditions..."
+                rows={2}
+                value={policyForm.description || ''}
+                onChange={(e) => setPolicyForm((prev) => ({ ...prev, description: e.target.value }))}
+                style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem', resize: 'vertical' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--surface-sunken)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={policyForm.autoApplyOnAbsence || false}
+                  onChange={(e) => setPolicyForm((prev) => ({ ...prev, autoApplyOnAbsence: e.target.checked }))}
+                />
+                <span style={{ fontWeight: 600 }}>⚡ Auto-Apply on Student Absence</span>
+              </label>
+              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                When checked, any teacher or staff who marks a student absent will automatically trigger this fine onto their ledger.
+              </p>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer', marginTop: '0.3rem' }}>
+                <input
+                  type="checkbox"
+                  checked={policyForm.isActive ?? true}
+                  onChange={(e) => setPolicyForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+                />
+                <span style={{ fontWeight: 600 }}>Policy is Active immediately</span>
+              </label>
+            </div>
+          </form>
+        </Modal>
+
+        {/* Modal 5: Apply Fee Policy */}
+        <Modal
+          isOpen={showApplyPolicyModal}
+          onClose={() => setShowApplyPolicyModal(false)}
+          title={`Apply Policy: ${selectedPolicyToApply?.name || ''}`}
+          subtitle="Generate itemized student invoices for all eligible cohort members"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setShowApplyPolicyModal(false)}>Cancel</Button>
+              <Button variant="primary" onClick={handleApplyPolicySubmit} loading={applyingPolicy} icon={<Play size={14} />}>
+                Generate Invoices Now
+              </Button>
+            </>
+          }
+        >
+          {selectedPolicyToApply && (
+            <form onSubmit={handleApplyPolicySubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ background: 'var(--surface-sunken)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Standard Fee Amount:</span>
+                  <span style={{ fontWeight: 700, color: 'var(--primary)' }}>৳{selectedPolicyToApply.amount.toLocaleString()}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Target Filter:</span>
+                  <span style={{ fontWeight: 600 }}>
+                    {selectedPolicyToApply.targetAudience === 'all_students'
+                      ? 'All Enrolled Students'
+                      : `Class: ${selectedPolicyToApply.targetClassName || 'Selected Class'}`}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                    Billing Cycle / Month
+                  </label>
+                  <input
+                    type="month"
+                    value={applyMonth}
+                    onChange={(e) => setApplyMonth(e.target.value)}
+                    style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                    Invoice Due Date
+                  </label>
+                  <input
+                    type="date"
+                    value={applyDueDate}
+                    onChange={(e) => setApplyDueDate(e.target.value)}
+                    style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                    Override Amount (Optional)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder={`Default: ৳${selectedPolicyToApply.amount}`}
+                    value={applyOverrideAmount}
+                    onChange={(e) => setApplyOverrideAmount(e.target.value)}
+                    style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                    Target Class Filter (Optional)
+                  </label>
+                  <select
+                    value={applyClassId}
+                    onChange={(e) => setApplyClassId(e.target.value)}
+                    style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+                  >
+                    <option value="">Policy Default Target</option>
+                    {classes.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </form>
+          )}
+        </Modal>
+
+        {/* Modal 6: Void Invoice Confirmation */}
+        <Modal
+          isOpen={showVoidModal}
+          onClose={() => setShowVoidModal(false)}
+          title="Void / Cancel Fee Invoice"
+          subtitle="Are you sure you want to void this invoice? This will cancel the receivable."
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setShowVoidModal(false)}>Keep Invoice</Button>
+              <Button variant="danger" onClick={handleVoidInvoiceSubmit} loading={savingVoid} icon={<Ban size={14} />}>
+                Confirm Void Invoice
+              </Button>
+            </>
+          }
+        >
+          <form onSubmit={handleVoidInvoiceSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                Reason for Voiding
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Student granted scholarship waiver, duplicate entry, incorrect cohort"
+                value={voidReason}
+                onChange={(e) => setVoidReason(e.target.value)}
+                required
+                style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}
+              />
+            </div>
+            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Note: Invoices with already recorded payments cannot be voided. You must first refund payments if required.
+            </p>
+          </form>
         </Modal>
 
         {/* Modal: Official Billing Document / Voucher */}

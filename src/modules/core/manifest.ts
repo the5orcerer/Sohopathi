@@ -361,11 +361,13 @@ export const coreManifest: ModuleManifest = {
     {
       method: 'POST',
       path: '/tasks',
-      requiredPermission: 'tasks.manage',
+      requiredPermission: 'tasks.read',
       validation: {
         body: z.object({
           assigneeMembershipId: z.string().uuid().optional(),
           assigneeMembershipIds: z.array(z.string().uuid()).optional(),
+          assigneeStudentId: z.string().uuid().optional(),
+          assigneeStudentIds: z.array(z.string().uuid()).optional(),
           title: z.string().min(1).max(120),
           description: z.string().max(2000).optional().nullable(),
           priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),

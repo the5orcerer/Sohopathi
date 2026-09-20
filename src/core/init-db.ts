@@ -111,6 +111,13 @@ export async function initializeDatabase(reset = true) {
       ['assignments.grade', 'assignments', 'Grade student submissions and provide feedback', ['assigned_sections', 'institution']],
       ['notices.read', 'notices', 'View campus notices and circulars', ['institution', 'self']],
       ['notices.write', 'notices', 'Publish and manage campus announcements', ['institution']],
+      ['requests.create', 'core', 'Submit leave, break, or schedule change requests to manager', ['institution', 'assigned_sections', 'self']],
+      ['requests.manage', 'core', 'Review and approve team and student requests', ['institution', 'assigned_sections']],
+      ['templates.read', 'core', 'View document templates and generated certificates', ['institution', 'assigned_sections', 'self']],
+      ['templates.manage', 'core', 'Create and edit document certificates and print templates', ['institution']],
+      ['reports.read', 'core', 'View consolidated institutional reports and executive analytics', ['institution', 'assigned_sections', 'self']],
+      ['attendance.employee.read', 'attendance', 'View staff and employee attendance records', ['institution', 'self']],
+      ['attendance.employee.create', 'attendance', 'Record daily staff and employee attendance', ['institution']],
     ];
 
     for (const [key, moduleKey, desc, scopes] of permissions) {
@@ -174,6 +181,13 @@ export async function initializeDatabase(reset = true) {
         { key: 'notices.read', scope: 'institution' },
         { key: 'notices.write', scope: 'institution' },
         { key: 'users.impersonate', scope: 'institution' },
+        { key: 'requests.create', scope: 'institution' },
+        { key: 'requests.manage', scope: 'institution' },
+        { key: 'templates.read', scope: 'institution' },
+        { key: 'templates.manage', scope: 'institution' },
+        { key: 'reports.read', scope: 'institution' },
+        { key: 'attendance.employee.read', scope: 'institution' },
+        { key: 'attendance.employee.create', scope: 'institution' },
       ],
       Teacher: [
         { key: 'students.read', scope: 'assigned_sections' },
@@ -188,6 +202,8 @@ export async function initializeDatabase(reset = true) {
         { key: 'assignments.update', scope: 'assigned_sections' },
         { key: 'assignments.grade', scope: 'assigned_sections' },
         { key: 'notices.read', scope: 'institution' },
+        { key: 'requests.create', scope: 'self' },
+        { key: 'attendance.employee.read', scope: 'self' },
       ],
       Student: [
         { key: 'students.read', scope: 'self' },
@@ -197,6 +213,10 @@ export async function initializeDatabase(reset = true) {
         { key: 'assignments.read', scope: 'self' },
         { key: 'assignments.submit', scope: 'self' },
         { key: 'notices.read', scope: 'institution' },
+        { key: 'requests.create', scope: 'self' },
+        { key: 'tasks.read', scope: 'self' },
+        { key: 'finance.read', scope: 'self' },
+        { key: 'finance.payment', scope: 'self' },
       ],
       Guardian: [
         { key: 'students.read', scope: 'self' },
@@ -205,6 +225,9 @@ export async function initializeDatabase(reset = true) {
         { key: 'marks.read', scope: 'self' },
         { key: 'assignments.read', scope: 'self' },
         { key: 'notices.read', scope: 'institution' },
+        { key: 'requests.create', scope: 'self' },
+        { key: 'finance.read', scope: 'self' },
+        { key: 'finance.payment', scope: 'self' },
       ],
     };
 

@@ -298,7 +298,11 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
           ('marks.read', 'self'),
           ('assignments.read', 'self'),
           ('assignments.submit', 'self'),
-          ('notices.read', 'institution')
+          ('notices.read', 'institution'),
+          ('finance.read', 'self'),
+          ('finance.payment', 'self'),
+          ('tasks.read', 'self'),
+          ('requests.create', 'self')
         ) as g(permission_key, scope)
         join public.permission p on p.key = g.permission_key
         on conflict (role_id, permission_id) do update set scope = excluded.scope;
@@ -379,6 +383,189 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
     select null, student_role.id, perm.id, 'self'
     from student_role, perm
     on conflict (role_id, permission_id) do nothing;
+
+    -- 16. Support Student Task Assignment in user_task
+    alter table public.user_task alter column assignee_membership_id drop not null;
+    alter table public.user_task add column if not exists assignee_student_id uuid references public.student(id) on delete cascade;
+    create index if not exists idx_user_task_assignee_student on public.user_task (institution_id, assignee_student_id);
+
+    -- 17. Classrooms
+    create table if not exists public.classroom (
+      id uuid primary key default gen_random_uuid(),
+      institution_id uuid not null references public.institution(id) on delete cascade,
+      room_number text not null,
+      capacity int default 40,
+      building text,
+      floor int,
+      created_at timestamptz not null default now(),
+      unique (institution_id, room_number)
+    );
+
+    -- 18. Schedule Substitutions
+    create table if not exists public.schedule_substitution (
+      id uuid primary key default gen_random_uuid(),
+      institution_id uuid not null references public.institution(id) on delete cascade,
+      schedule_id uuid references public.class_schedule(id) on delete cascade,
+      date date not null,
+      original_teacher_membership_id uuid references public.membership(id) on delete set null,
+      substitute_teacher_membership_id uuid references public.membership(id) on delete set null,
+      room_id uuid references public.classroom(id) on delete set null,
+      status text not null default 'substituted' check (status in ('substituted', 'cancelled', 'rescheduled')),
+      reason text,
+      recorded_by_membership_id uuid references public.membership(id) on delete set null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      unique (institution_id, schedule_id, date)
+    );
+    create index if not exists idx_sched_sub_inst_date on public.schedule_substitution (institution_id, date);
+
+    -- 19. Member Requests (Universal for Staff & Students)
+    create table if not exists public.member_request (
+      id uuid primary key default gen_random_uuid(),
+      institution_id uuid not null references public.institution(id) on delete cascade,
+      requester_membership_id uuid references public.membership(id) on delete cascade,
+      requester_student_id uuid references public.student(id) on delete cascade,
+      manager_membership_id uuid references public.membership(id) on delete set null,
+      category text not null check (category in ('leave', 'break', 'schedule_change', 'resource', 'general')),
+      title text not null,
+      description text,
+      start_date date,
+      end_date date,
+      status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'cancelled')),
+      reviewer_notes text,
+      reviewed_at timestamptz,
+      metadata jsonb default '{}'::jsonb,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+    create index if not exists idx_member_request_inst on public.member_request (institution_id, status);
+    create index if not exists idx_member_request_manager on public.member_request (manager_membership_id);
+
+    -- 20. Document Templates & Generated Documents
+    create table if not exists public.template (
+      id uuid primary key default gen_random_uuid(),
+      institution_id uuid references public.institution(id) on delete cascade,
+      type text not null,
+      context text not null default 'custom',
+      name text not null,
+      description text,
+      content text not null,
+      version int not null default 1,
+      is_system boolean not null default false,
+      is_default boolean not null default false,
+      is_archived boolean not null default false,
+      page_size text not null default 'A4',
+      orientation text not null default 'portrait',
+      margins jsonb default '{"top": "20mm", "bottom": "20mm", "left": "20mm", "right": "20mm"}'::jsonb,
+      metadata jsonb default '{}'::jsonb,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+    alter table public.template drop constraint if exists template_type_check;
+    alter table public.template add column if not exists context text not null default 'custom';
+    alter table public.template add column if not exists version int not null default 1;
+    alter table public.template add column if not exists is_system boolean not null default false;
+    alter table public.template add column if not exists is_default boolean not null default false;
+    alter table public.template add column if not exists is_archived boolean not null default false;
+    alter table public.template add column if not exists page_size text not null default 'A4';
+    alter table public.template add column if not exists orientation text not null default 'portrait';
+    alter table public.template add column if not exists margins jsonb default '{"top": "20mm", "bottom": "20mm", "left": "20mm", "right": "20mm"}'::jsonb;
+    create index if not exists idx_template_inst_type on public.template (institution_id, type);
+    create index if not exists idx_template_inst_context on public.template (institution_id, context);
+
+    create table if not exists public.generated_document (
+      id uuid primary key default gen_random_uuid(),
+      institution_id uuid not null references public.institution(id) on delete cascade,
+      template_id uuid references public.template(id) on delete set null,
+      template_version int not null default 1,
+      document_type text not null,
+      title text not null,
+      entity_type text,
+      entity_id uuid,
+      rendered_content text not null,
+      variables_snapshot jsonb not null default '{}'::jsonb,
+      generated_by_membership_id uuid references public.membership(id) on delete set null,
+      created_at timestamptz not null default now()
+    );
+    create index if not exists idx_generated_doc_inst_entity on public.generated_document (institution_id, entity_type, entity_id);
+    create index if not exists idx_generated_doc_template on public.generated_document (template_id);
+
+    -- 21. Customizable Institutional Fee Policies & Structure
+    create table if not exists public.fee_policy (
+      id uuid primary key default gen_random_uuid(),
+      institution_id uuid not null references public.institution(id) on delete cascade,
+      name text not null,
+      description text,
+      category text not null default 'Tuition Fee',
+      amount numeric not null default 0,
+      billing_cycle text not null default 'monthly',
+      target_audience text not null default 'all_students',
+      target_class_id uuid references public.class(id) on delete set null,
+      target_section_id uuid references public.section(id) on delete set null,
+      target_student_ids jsonb not null default '[]'::jsonb,
+      is_active boolean not null default true,
+      auto_apply_on_absence boolean not null default false,
+      fine_per_day numeric default 0,
+      due_days_after int not null default 15,
+      created_by_membership_id uuid references public.membership(id) on delete set null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+    create index if not exists idx_fee_policy_inst on public.fee_policy (institution_id);
+    create index if not exists idx_fee_policy_class on public.fee_policy (target_class_id);
+
+    -- 22. Ensure All System Permissions Exist in Catalog
+    with core_m as (select id from public.module where key = 'core')
+    insert into public.permission (key, module_id, description, scope_options)
+    select p.key, coalesce(m.id, core_m.id), p.description, p.scope_options
+    from (values
+      ('requests.create', 'core', 'Submit leave, break, or schedule change requests', array['institution', 'assigned_sections', 'self']),
+      ('requests.manage', 'core', 'Review and approve team and student requests', array['institution', 'assigned_sections']),
+      ('templates.read', 'core', 'View document templates and generated certificates', array['institution', 'assigned_sections', 'self']),
+      ('templates.manage', 'core', 'Create and edit document certificates and print templates', array['institution']),
+      ('reports.read', 'core', 'View consolidated institutional reports and executive analytics', array['institution', 'assigned_sections', 'self']),
+      ('attendance.employee.read', 'attendance', 'View employee and staff attendance records', array['institution', 'self']),
+      ('attendance.employee.create', 'attendance', 'Record and manage daily employee attendance', array['institution', 'self'])
+    ) as p(key, module_key, description, scope_options)
+    cross join core_m
+    left join public.module m on m.key = p.module_key
+    on conflict (key) do update set description = excluded.description, scope_options = excluded.scope_options;
+
+    -- Grant requests.create (self), tasks.read (self), finance.read (self), finance.payment (self) to Student & Guardian roles
+    insert into public.role_permission (institution_id, role_id, permission_id, scope)
+    select r.institution_id, r.id, p.id, 'self'
+    from public.role r
+    cross join public.permission p
+    where p.key in ('requests.create', 'tasks.read', 'finance.read', 'finance.payment')
+      and lower(r.name) in ('student', 'guardian')
+    on conflict (role_id, permission_id) do nothing;
+
+    -- Grant requests.create (self) and tasks.read (self) to Teacher roles
+    insert into public.role_permission (institution_id, role_id, permission_id, scope)
+    select r.institution_id, r.id, p.id, 'self'
+    from public.role r
+    cross join public.permission p
+    where p.key in ('requests.create', 'tasks.read')
+      and lower(r.name) = 'teacher'
+    on conflict (role_id, permission_id) do nothing;
+
+    -- Grant employee attendance read (self) to Teacher roles
+    insert into public.role_permission (institution_id, role_id, permission_id, scope)
+    select r.institution_id, r.id, p.id, 'self'
+    from public.role r
+    cross join public.permission p
+    where p.key = 'attendance.employee.read'
+      and lower(r.name) = 'teacher'
+    on conflict (role_id, permission_id) do nothing;
+
+    -- Grant all new permissions to Admin roles across all institutions
+    insert into public.role_permission (institution_id, role_id, permission_id, scope)
+    select r.institution_id, r.id, p.id, 'institution'
+    from public.role r
+    cross join public.permission p
+    where lower(r.name) in ('institution admin', 'admin', 'principal')
+      and p.key in ('requests.create', 'requests.manage', 'templates.read', 'templates.manage', 'reports.read', 'attendance.employee.read', 'attendance.employee.create')
+    on conflict (role_id, permission_id) do nothing;
   `);
 
   const tenantTables = [
@@ -392,7 +579,8 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
     'custom_field_definition','class_schedule','exam_paper',
     'notification','user_task','institution_setting',
     'admission_application','notice_read_receipt','employee_attendance',
-    'classroom', 'schedule_substitution', 'member_request', 'template', 'exam_room_assignment'
+    'classroom', 'schedule_substitution', 'member_request', 'template', 'generated_document', 'exam_room_assignment',
+    'fee_policy'
   ];
 
   await client.query(`

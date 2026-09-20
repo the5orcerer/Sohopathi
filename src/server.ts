@@ -3,8 +3,21 @@ import { bootApp } from './app';
 import { env } from './core/env';
 import { logger } from './core/logger';
 import { getStorageAdapter, s3StorageAdapter } from './core/storage';
+import { pool, ensureTenantRLS } from './core/db';
 
 async function main() {
+  try {
+    const client = await pool.connect();
+    try {
+      await ensureTenantRLS(client);
+      logger.info('Database schema and tenant RLS policies verified');
+    } finally {
+      client.release();
+    }
+  } catch (dbErr) {
+    logger.error(dbErr, 'Warning: Failed to auto-run ensureTenantRLS on startup');
+  }
+
   const app = await bootApp();
 
   let dbProvider = 'Local PostgreSQL';

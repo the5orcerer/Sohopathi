@@ -39,6 +39,7 @@ import { StudentDocumentModal } from '../components/students/StudentDocumentModa
 export const StudentsPage: React.FC = () => {
   const { activeMembership, user, hasPermission, impersonateUser } = useSession();
   const canImpersonate = hasPermission('users.impersonate') || hasPermission('memberships.manage');
+  const canGenerateDocuments = hasPermission('templates.read') || hasPermission('templates.manage');
   
   // Role detection
   const role = activeMembership?.roleName?.toLowerCase() || '';
@@ -791,14 +792,16 @@ ADM-2026-103,Shadman Sakib,Male,07`
                           </Button>
                         )}
                         {/* ✅ Document Generator - TC, Marksheet, Certificate */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDocumentTargetStudent(st)}
-                          title="Generate Document / TC / Marksheet"
-                        >
-                          <FileText size={13} style={{ color: 'var(--brand-primary)' }} />
-                        </Button>
+                        {canGenerateDocuments && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDocumentTargetStudent(st)}
+                            title="Generate Document / TC / Marksheet"
+                          >
+                            <FileText size={13} style={{ color: 'var(--brand-primary)' }} />
+                          </Button>
+                        )}
 
                         {/* ✅ Edit - Admin, Teacher এবং Student (শুধু নিজের প্রোফাইল) দেখতে পারে */}
                         {(canEdit && !isStudent) || (isStudent && st.id === ownStudentId) ? (

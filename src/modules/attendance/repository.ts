@@ -170,6 +170,124 @@ export const attendanceRepository = {
     return gRows[0]?.student_id ?? null;
   },
 
+  // --- Real-time Absenteeism Fine Automation ---
+  async syncStudentAbsentFine(
+    client: PoolClient,
+    institutionId: string,
+    studentId: string,
+    date: string,
+    newStatus: string,
+    priorStatus?: string,
+    actorMembershipId?: string
+  ): Promise<void> {
+    try {
+      // If status changed away from absent, cancel any pending auto absent fine for this date
+      if (priorStatus === 'absent' && newStatus !== 'absent') {
+        await client.query(
+          `update fee_invoice
+           set status = 'cancelled', updated_at = now()
+           where institution_id = $1
+             and student_id = $2
+             and category = 'Absenteeism Fine'
+             and status = 'pending'
+             and notes like '%auto_absent_fine:' || $3 || '%'`,
+          [institutionId, studentId, date]
+        );
+        return;
+      }
+
+      // If marked absent, check if absent fine policy or setting is active
+      if (newStatus === 'absent') {
+        let fineAmount = 0;
+        // Check fee_policy first
+        const { rows: polRows } = await client.query(
+          `select amount, fine_per_day
+           from fee_policy
+           where institution_id = $1
+             and is_active = true
+             and (auto_apply_on_absence = true or category = 'Absenteeism Fine')
+           order by created_at desc
+           limit 1`,
+          [institutionId]
+        );
+
+        if (polRows.length > 0) {
+          fineAmount = Number(polRows[0].fine_per_day || polRows[0].amount || 0);
+        } else {
+          // Fallback to institution_setting
+          const { rows: setRows } = await client.query(
+            `select value from institution_setting where institution_id = $1 and key = 'fee_settings' limit 1`,
+            [institutionId]
+          );
+          if (setRows.length > 0 && setRows[0].value) {
+            const val = setRows[0].value;
+            if (val.enableAbsentFine && Number(val.absentFinePerDay) > 0) {
+              fineAmount = Number(val.absentFinePerDay);
+            }
+          }
+        }
+
+        if (fineAmount <= 0) return;
+
+        // Check if an active invoice for this student and date already exists
+        const { rows: existingRows } = await client.query(
+          `select id from fee_invoice
+           where institution_id = $1
+             and student_id = $2
+             and category = 'Absenteeism Fine'
+             and status != 'cancelled'
+             and notes like '%auto_absent_fine:' || $3 || '%'
+           limit 1`,
+          [institutionId, studentId, date]
+        );
+
+        if (existingRows.length > 0) return; // already fined for this date
+
+        // Get active academic year if available
+        const { rows: ayRows } = await client.query(
+          `select id from academic_year where institution_id = $1 and is_active = true limit 1`,
+          [institutionId]
+        );
+        const academicYearId = ayRows[0]?.id || null;
+
+        const randSuffix = Math.floor(1000 + Math.random() * 9000);
+        const invNum = `INV-ABS-${date.replace(/-/g, '')}-${randSuffix}`;
+        const itemsJson = JSON.stringify([
+          { label: `Unexcused Absence Fine (${date})`, amount: fineAmount },
+        ]);
+
+        await client.query(
+          `insert into fee_invoice (
+             institution_id, student_id, academic_year_id, recipient_type, category,
+             invoice_number, title, description, amount, total_amount, discount_amount, paid_amount,
+             due_date, status, items, notes, created_by_membership_id
+           ) values (
+             $1, $2, $3, 'student', 'Absenteeism Fine',
+             $4, $5, $6, $7, $7, 0, 0,
+             (to_date($8, 'YYYY-MM-DD') + interval '7 days')::date,
+             'pending', $9::jsonb, $10, $11
+           )`,
+          [
+            institutionId,
+            studentId,
+            academicYearId,
+            invNum,
+            `Daily Absence Fine - ${date}`,
+            `Automated fine for unexcused absence recorded on ${date}`,
+            fineAmount,
+            date,
+            itemsJson,
+            `auto_absent_fine:${date}`,
+            actorMembershipId || null,
+          ]
+        );
+      }
+    } catch (fineErr) {
+      // Don't fail attendance recording if fee invoicing encountered an issue
+      console.error('Failed to sync absent fine for student:', fineErr);
+    }
+  },
+
   // --- Attendance ---
   async markAttendance(
     client: PoolClient,
@@ -257,6 +375,16 @@ export const attendanceRepository = {
       }
 
       results.push(rows[0]);
+
+      await this.syncStudentAbsentFine(
+        client,
+        institutionId,
+        r.studentId,
+        r.date,
+        r.status,
+        priorRows[0]?.status,
+        recordedByMembershipId
+      );
 
       if (isEdit) {
         updatedCount++;
@@ -962,7 +1090,7 @@ export const attendanceRepository = {
         m.student_id as "studentId",
         s.name as "studentName",
         s.admission_no as "admissionNo",
-        s.roll_no as "rollNo",
+        e.roll_no as "rollNo",
         m.subject_id as "subjectId",
         sub.name as "subjectName",
         m.marks_obtained as "marksObtained",
@@ -997,7 +1125,7 @@ export const attendanceRepository = {
       query += ` and e.section_id = any($${params.length})`;
     }
 
-    query += ` order by s.roll_no asc nulls last, s.name asc`;
+    query += ` order by e.roll_no asc nulls last, s.name asc`;
     const { rows } = await client.query(query, params);
     return rows;
   },
@@ -1309,6 +1437,146 @@ export const attendanceRepository = {
       halfDayToday: stats.half_day || 0,
       unmarkedToday,
       attendanceRate,
+    };
+  },
+
+  async getMyEmployeeAttendanceHistory(
+    client: PoolClient,
+    institutionId: string,
+    membershipId: string,
+    month?: string
+  ): Promise<{
+    summary: {
+      totalDays: number;
+      presentDays: number;
+      absentDays: number;
+      lateDays: number;
+      leaveDays: number;
+      attendanceRate: number;
+    };
+    records: {
+      date: string;
+      status: string;
+      checkInTime?: string;
+      checkOutTime?: string;
+      notes?: string;
+    }[];
+  }> {
+    let dateFilter = '';
+    const params: any[] = [institutionId, membershipId];
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      params.push(`${month}-01`);
+      dateFilter = ` and date >= $3 and date < ($3::date + interval '1 month')`;
+    }
+
+    const { rows: statRows } = await client.query(
+      `select 
+        count(*)::int as "totalDays",
+        count(*) filter (where status = 'present')::int as "presentDays",
+        count(*) filter (where status = 'absent')::int as "absentDays",
+        count(*) filter (where status = 'late')::int as "lateDays",
+        count(*) filter (where status in ('on_leave', 'leave'))::int as "leaveDays"
+       from employee_attendance
+       where institution_id = $1 and membership_id = $2${dateFilter}`,
+      params
+    );
+
+    const { rows: records } = await client.query(
+      `select 
+        date::text,
+        status,
+        check_in_time as "checkInTime",
+        check_out_time as "checkOutTime",
+        notes
+       from employee_attendance
+       where institution_id = $1 and membership_id = $2${dateFilter}
+       order by date asc`,
+      params
+    );
+
+    const stats = statRows[0] || { totalDays: 0, presentDays: 0, absentDays: 0, lateDays: 0, leaveDays: 0 };
+    const totalDays = stats.totalDays || 0;
+    const presentDays = (stats.presentDays || 0) + (stats.lateDays || 0);
+    const rate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
+
+    return {
+      summary: {
+        totalDays: stats.totalDays || 0,
+        presentDays: stats.presentDays || 0,
+        absentDays: stats.absentDays || 0,
+        lateDays: stats.lateDays || 0,
+        leaveDays: stats.leaveDays || 0,
+        attendanceRate: rate,
+      },
+      records,
+    };
+  },
+
+  async getMyStudentAttendanceHistory(
+    client: PoolClient,
+    institutionId: string,
+    studentId: string,
+    month?: string
+  ): Promise<{
+    summary: {
+      totalDays: number;
+      presentDays: number;
+      absentDays: number;
+      lateDays: number;
+      leaveDays: number;
+      attendanceRate: number;
+    };
+    records: {
+      date: string;
+      status: string;
+      remarks?: string;
+    }[];
+  }> {
+    let dateFilter = '';
+    const params: any[] = [institutionId, studentId];
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      params.push(`${month}-01`);
+      dateFilter = ` and date >= $3 and date < ($3::date + interval '1 month')`;
+    }
+
+    const { rows: statRows } = await client.query(
+      `select 
+        count(*)::int as "totalDays",
+        count(*) filter (where status = 'present')::int as "presentDays",
+        count(*) filter (where status = 'absent')::int as "absentDays",
+        count(*) filter (where status = 'late')::int as "lateDays",
+        count(*) filter (where status in ('excused', 'leave', 'on_leave'))::int as "leaveDays"
+       from attendance
+       where institution_id = $1 and student_id = $2 and session_type = 'daily'${dateFilter}`,
+      params
+    );
+
+    const { rows: records } = await client.query(
+      `select 
+        date::text,
+        status,
+        remarks
+       from attendance
+       where institution_id = $1 and student_id = $2 and session_type = 'daily'${dateFilter}
+       order by date asc`,
+      params
+    );
+
+    const stats = statRows[0] || { totalDays: 0, presentDays: 0, absentDays: 0, lateDays: 0, leaveDays: 0 };
+    const totalDays = stats.totalDays || 0;
+    const presentDays = (stats.presentDays || 0) + (stats.lateDays || 0);
+    const rate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
+
+    return {
+      summary: {
+        totalDays: stats.totalDays || 0,
+        presentDays: stats.presentDays || 0,
+        absentDays: stats.absentDays || 0,
+        lateDays: stats.lateDays || 0,
+        leaveDays: stats.leaveDays || 0,
+        attendanceRate: rate,
+      },
+      records,
     };
   },
 };

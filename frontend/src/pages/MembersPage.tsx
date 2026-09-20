@@ -31,6 +31,7 @@ import { MemberDocumentModal } from '../components/members/MemberDocumentModal';
 export const MembersPage: React.FC = () => {
   const { user, hasPermission, impersonateUser } = useSession();
   const canImpersonate = hasPermission('users.impersonate') || hasPermission('memberships.manage');
+  const canGenerateDocuments = hasPermission('templates.read') || hasPermission('templates.manage');
   const [members, setMembers] = useState<Member[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
@@ -550,13 +551,15 @@ export const MembersPage: React.FC = () => {
                             title="Login As (Support & Password Recovery)"
                           />
                         )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDocumentTargetMember(m)}
-                          icon={<FileBadge size={13} style={{ color: 'var(--brand-primary)' }} />}
-                          title="Generate Staff Document / ID Card / Appointment"
-                        />
+                        {canGenerateDocuments && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDocumentTargetMember(m)}
+                            icon={<FileBadge size={13} style={{ color: 'var(--brand-primary)' }} />}
+                            title="Generate Staff Document / ID Card / Appointment"
+                          />
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"

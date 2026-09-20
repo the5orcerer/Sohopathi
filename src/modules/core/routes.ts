@@ -381,6 +381,11 @@ export async function listTasks(req: Request, res: Response, client: PoolClient)
 }
 
 export async function createTask(req: Request, res: Response, client: PoolClient) {
+  const roleName = (req.ctx?.roleName || '').toLowerCase();
+  if (roleName.includes('student') || roleName.includes('guardian')) {
+    return res.status(403).json({ error: 'Students and guardians cannot create or assign tasks', code: 'FORBIDDEN' });
+  }
+
   const task = await coreRepository.createTask(client, req.ctx!.institutionId, {
     ...req.body,
     creatorMembershipId: req.ctx?.membershipId,

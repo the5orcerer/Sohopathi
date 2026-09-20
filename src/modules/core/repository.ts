@@ -1358,7 +1358,7 @@ export const coreRepository = {
         g.id,
         g.name,
         g.phone,
-        sg.relation,
+        sg.relation_type as "relation",
         sg.is_primary as "isPrimary"
        from student_guardian sg
        join guardian g on g.id = sg.guardian_id
@@ -1845,6 +1845,7 @@ export const coreRepository = {
         t.institution_id as "institutionId",
         t.creator_membership_id as "creatorMembershipId",
         t.assignee_membership_id as "assigneeMembershipId",
+        t.assignee_student_id as "assigneeStudentId",
         t.title,
         t.description,
         t.priority,
@@ -1853,21 +1854,27 @@ export const coreRepository = {
         t.created_at as "createdAt",
         t.updated_at as "updatedAt",
         cp.name as "creatorName",
-        ap.name as "assigneeName",
-        ar.name as "assigneeRole"
+        coalesce(ap.name, st.name) as "assigneeName",
+        coalesce(ar.name, case when st.id is not null then 'Student' else 'Member' end) as "assigneeRole",
+        case when st.id is not null then 'student' else 'staff' end as "assigneeType"
       from user_task t
       left join membership cm on cm.id = t.creator_membership_id
       left join profile cp on cp.id = cm.user_id
       left join membership am on am.id = t.assignee_membership_id
       left join profile ap on ap.id = am.user_id
       left join role ar on ar.id = am.role_id
+      left join student st on st.id = t.assignee_student_id
       where t.institution_id = $1
     `;
     const params: any[] = [institutionId];
 
     if (grantedScope === 'self' || filter === 'my_tasks') {
       params.push(membershipId);
-      query += ` and t.assignee_membership_id = $${params.length}`;
+      query += ` and (t.assignee_membership_id = $${params.length} or t.assignee_student_id in (
+        select s.id from student s
+        join membership m on m.user_id = s.user_id and m.institution_id = s.institution_id
+        where m.id = $${params.length}
+      ))`;
     } else if (filter === 'assigned_by_me') {
       params.push(membershipId);
       query += ` and t.creator_membership_id = $${params.length}`;
@@ -1886,6 +1893,8 @@ export const coreRepository = {
       creatorMembershipId?: string;
       assigneeMembershipId?: string;
       assigneeMembershipIds?: string[];
+      assigneeStudentId?: string;
+      assigneeStudentIds?: string[];
       title: string;
       description?: string;
       priority?: string;
@@ -1895,17 +1904,22 @@ export const coreRepository = {
     assertContentLength(data.title, 'title', CONTENT_LIMITS.TITLE_MAX, true);
     assertContentLength(data.description, 'taskDescription', CONTENT_LIMITS.TASK_DESCRIPTION_MAX);
 
-    const assignees = Array.from(new Set([
+    const staffAssignees = Array.from(new Set([
       ...(data.assigneeMembershipIds || []),
       ...(data.assigneeMembershipId ? [data.assigneeMembershipId] : []),
     ])).filter(Boolean);
 
-    if (assignees.length === 0) {
+    const studentAssignees = Array.from(new Set([
+      ...(data.assigneeStudentIds || []),
+      ...(data.assigneeStudentId ? [data.assigneeStudentId] : []),
+    ])).filter(Boolean);
+
+    if (staffAssignees.length === 0 && studentAssignees.length === 0) {
       throw new Error('At least one task assignee must be specified');
     }
 
     const createdTasks: any[] = [];
-    for (const assigneeId of assignees) {
+    for (const assigneeId of staffAssignees) {
       const { rows } = await client.query(
         `insert into user_task (institution_id, creator_membership_id, assignee_membership_id, title, description, priority, due_date, status)
          values ($1, $2, $3, $4, $5, coalesce($6, 'medium'), $7, 'pending')
@@ -1935,6 +1949,50 @@ export const coreRepository = {
       } catch {
         // notification failure shouldn't block task creation
       }
+
+      await logAudit(client, {
+        institutionId,
+        actorMembershipId: data.creatorMembershipId,
+        action: 'create',
+        entityType: 'task',
+        entityId: task.id,
+        after: task,
+      });
+    }
+
+    for (const studentId of studentAssignees) {
+      const { rows } = await client.query(
+        `insert into user_task (institution_id, creator_membership_id, assignee_student_id, title, description, priority, due_date, status)
+         values ($1, $2, $3, $4, $5, coalesce($6, 'medium'), $7, 'pending')
+         returning id, institution_id as "institutionId", creator_membership_id as "creatorMembershipId", assignee_student_id as "assigneeStudentId", title, description, priority, due_date as "dueDate", status, created_at as "createdAt"`,
+        [
+          institutionId,
+          data.creatorMembershipId || null,
+          studentId,
+          data.title.trim(),
+          data.description?.trim() || null,
+          data.priority || 'medium',
+          data.dueDate || null,
+        ]
+      );
+      const task = rows[0];
+      createdTasks.push(task);
+
+      try {
+        const { rows: stRows } = await client.query(
+          `select m.id as membership_id from student s join membership m on m.user_id = s.user_id and m.institution_id = s.institution_id where s.id = $1`,
+          [studentId]
+        );
+        if (stRows.length > 0) {
+          await coreRepository.createNotification(client, institutionId, {
+            recipientMembershipId: stRows[0].membership_id,
+            title: `New Task Assigned: ${task.title}`,
+            body: data.description || 'Your faculty assigned you a coursework task.',
+            type: 'task_assigned',
+            data: { taskId: task.id },
+          });
+        }
+      } catch {}
 
       await logAudit(client, {
         institutionId,
@@ -2525,17 +2583,18 @@ export const coreRepository = {
         [student.sectionId, currentDay, today, institutionId]
       );
 
-      let currentPeriod: any = null;
-      let nextPeriod: any = null;
+      let runningClass: any = null;
+      const upcomingClasses: any[] = [];
+      const previousClasses: any[] = [];
+
       for (const s of schedRows) {
         if (currentTimeStr >= s.startTime && currentTimeStr <= s.endTime) {
-          currentPeriod = { ...s, isOngoing: true };
-        } else if (currentTimeStr < s.startTime && !nextPeriod) {
-          nextPeriod = s;
+          runningClass = { ...s, isOngoing: true, status: 'running' };
+        } else if (currentTimeStr < s.startTime) {
+          upcomingClasses.push({ ...s, status: 'upcoming' });
+        } else {
+          previousClasses.push({ ...s, status: 'completed' });
         }
-      }
-      if (!currentPeriod && schedRows.length > 0 && currentTimeStr < schedRows[0].startTime) {
-        nextPeriod = schedRows[0];
       }
 
       return {
@@ -2543,8 +2602,11 @@ export const coreRepository = {
         studentName: student.name,
         className: student.className,
         sectionName: student.sectionName,
-        currentPeriod,
-        nextPeriod,
+        currentPeriod: runningClass,
+        nextPeriod: upcomingClasses[0] || null,
+        runningClass,
+        upcomingClasses,
+        previousClasses,
         todaySchedule: schedRows,
       };
     } else if (isTeacher) {
@@ -2572,23 +2634,27 @@ export const coreRepository = {
         [ctx.membershipId, currentDay, today, institutionId]
       );
 
-      let currentPeriod: any = null;
-      let nextPeriod: any = null;
+      let runningClass: any = null;
+      const upcomingClasses: any[] = [];
+      const previousClasses: any[] = [];
+
       for (const s of schedRows) {
         if (currentTimeStr >= s.startTime && currentTimeStr <= s.endTime) {
-          currentPeriod = { ...s, isOngoing: true };
-        } else if (currentTimeStr < s.startTime && !nextPeriod) {
-          nextPeriod = s;
+          runningClass = { ...s, isOngoing: true, status: 'running' };
+        } else if (currentTimeStr < s.startTime) {
+          upcomingClasses.push({ ...s, status: 'upcoming' });
+        } else {
+          previousClasses.push({ ...s, status: 'completed' });
         }
-      }
-      if (!currentPeriod && schedRows.length > 0 && currentTimeStr < schedRows[0].startTime) {
-        nextPeriod = schedRows[0];
       }
 
       return {
         role: 'teacher',
-        currentPeriod,
-        nextPeriod,
+        currentPeriod: runningClass,
+        nextPeriod: upcomingClasses[0] || null,
+        runningClass,
+        upcomingClasses,
+        previousClasses,
         todaySchedule: schedRows,
       };
     } else {

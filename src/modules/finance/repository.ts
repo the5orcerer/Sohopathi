@@ -60,6 +60,50 @@ export interface FinanceSummary {
   monthlyCollection: Array<{ month: string; amount: number }>;
 }
 
+export interface FeePolicy {
+  id: string;
+  institutionId: string;
+  name: string;
+  description?: string | null;
+  category: string;
+  amount: number;
+  billingCycle: 'monthly' | 'term' | 'annual' | 'one_time' | 'per_absence';
+  targetAudience: 'all_students' | 'class' | 'section' | 'custom';
+  targetClassId?: string | null;
+  targetClassName?: string | null;
+  targetSectionId?: string | null;
+  targetSectionName?: string | null;
+  targetStudentIds?: string[];
+  isActive: boolean;
+  autoApplyOnAbsence: boolean;
+  finePerDay?: number;
+  dueDaysAfter: number;
+  createdByMembershipId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentLedgerItem {
+  id: string;
+  institutionId: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  receiptNumber: string;
+  amount: number;
+  paymentDate: string;
+  method: string;
+  transactionId?: string | null;
+  notes?: string | null;
+  payerName: string;
+  payerType: string;
+  className?: string | null;
+  studentRollNo?: string | null;
+  category: string;
+  invoiceTitle: string;
+  cashierName?: string | null;
+  createdAt: string;
+}
+
 export const financeRepository = {
   async listInvoices(
     client: PoolClient,
@@ -718,5 +762,617 @@ export const financeRepository = {
         principalSignatureUrl: instSettings.settings.principalSignatureUrl,
       },
     };
+  },
+
+  async getStudentFinanceSummary(client: PoolClient, institutionId: string, studentId: string): Promise<FinanceSummary> {
+    const { rows: invStats } = await client.query(
+      `select 
+        coalesce(sum(case when fi.status != 'cancelled' then coalesce(fi.total_amount, fi.amount, 0) - coalesce(fi.discount_amount, 0) else 0 end), 0)::numeric as "totalBilled",
+        coalesce(sum(case when fi.status != 'cancelled' then fi.paid_amount else 0 end), 0)::numeric as "totalCollected"
+       from fee_invoice fi
+       where fi.institution_id = $1 and fi.student_id = $2`,
+      [institutionId, studentId]
+    );
+
+    const totalBilled = Number(invStats[0]?.totalBilled || 0);
+    const totalCollected = Number(invStats[0]?.totalCollected || 0);
+    const totalPending = Math.max(0, totalBilled - totalCollected);
+    const collectionRate = totalBilled > 0 ? Math.round((totalCollected / totalBilled) * 100) : 100;
+
+    const { rows: monthlyRows } = await client.query(
+      `select 
+        to_char(p.payment_date, 'Mon YYYY') as month,
+        sum(p.amount)::numeric as amount
+       from payment p
+       join fee_invoice fi on fi.id = p.invoice_id
+       where p.institution_id = $1 and fi.student_id = $2
+       group by to_char(p.payment_date, 'Mon YYYY'), date_trunc('month', p.payment_date)
+       order by date_trunc('month', p.payment_date) desc
+       limit 6`,
+      [institutionId, studentId]
+    );
+
+    return {
+      totalBilled,
+      totalCollected,
+      totalPending,
+      totalDisbursements: 0,
+      collectionRate,
+      monthlyCollection: monthlyRows.map((r) => ({ month: r.month, amount: Number(r.amount) })).reverse(),
+    };
+  },
+
+  async getFeeSettings(client: PoolClient, institutionId: string): Promise<{
+    enableAbsentFine: boolean;
+    absentFinePerDay: number;
+    enableLatePaymentFine: boolean;
+    latePaymentFine: number;
+    customFeeCategories: string[];
+  }> {
+    const { rows } = await client.query(
+      `select settings from institution_setting where institution_id = $1`,
+      [institutionId]
+    );
+    const settings = rows[0]?.settings?.feeSettings || {};
+    return {
+      enableAbsentFine: settings.enableAbsentFine ?? true,
+      absentFinePerDay: Number(settings.absentFinePerDay ?? 50),
+      enableLatePaymentFine: settings.enableLatePaymentFine ?? false,
+      latePaymentFine: Number(settings.latePaymentFine ?? 100),
+      customFeeCategories: settings.customFeeCategories || [
+        'Tuition Fee',
+        'Examination Fee',
+        'Admission / Registration',
+        'Transport Bus Fee',
+        'Library & Books',
+        'Laboratory & Science',
+        'Sports & Extra-curricular',
+        'Absenteeism Fine',
+        'Late Payment Fine',
+        'General Miscellaneous',
+      ],
+    };
+  },
+
+  async updateFeeSettings(
+    client: PoolClient,
+    institutionId: string,
+    data: {
+      enableAbsentFine?: boolean;
+      absentFinePerDay?: number;
+      enableLatePaymentFine?: boolean;
+      latePaymentFine?: number;
+      customFeeCategories?: string[];
+    }
+  ): Promise<any> {
+    const current = await financeRepository.getFeeSettings(client, institutionId);
+    const updated = {
+      ...current,
+      ...data,
+      absentFinePerDay: data.absentFinePerDay !== undefined ? Number(data.absentFinePerDay) : current.absentFinePerDay,
+      latePaymentFine: data.latePaymentFine !== undefined ? Number(data.latePaymentFine) : current.latePaymentFine,
+    };
+
+    await client.query(
+      `insert into institution_setting (institution_id, settings, updated_at)
+       values ($1, jsonb_build_object('feeSettings', $2::jsonb), now())
+       on conflict (institution_id) do update
+       set settings = coalesce(institution_setting.settings, '{}'::jsonb) || jsonb_build_object('feeSettings', $2::jsonb),
+           updated_at = now()`,
+      [institutionId, JSON.stringify(updated)]
+    );
+
+    return updated;
+  },
+
+  async generateAbsentFines(
+    client: PoolClient,
+    institutionId: string,
+    data: { month: string; classId?: string; sectionId?: string },
+    actorMembershipId?: string
+  ): Promise<{ issuedCount: number; invoices: Invoice[] }> {
+    const feeSettings = await financeRepository.getFeeSettings(client, institutionId);
+    if (!feeSettings.enableAbsentFine || feeSettings.absentFinePerDay <= 0) {
+      throw new Error('Absenteeism fine policy is currently disabled or rate is 0 in Fee Settings');
+    }
+
+    const monthStr = data.month;
+    if (!/^\d{4}-\d{2}$/.test(monthStr)) {
+      throw new Error('Valid month format (YYYY-MM) is required');
+    }
+
+    const startDate = `${monthStr}-01`;
+
+    let studentFilter = `where s.institution_id = $1 and e.status = 'active'`;
+    const params: any[] = [institutionId, startDate];
+
+    if (data.classId) {
+      params.push(data.classId);
+      studentFilter += ` and e.class_id = $${params.length}`;
+    }
+    if (data.sectionId) {
+      params.push(data.sectionId);
+      studentFilter += ` and e.section_id = $${params.length}`;
+    }
+
+    const { rows: absentRows } = await client.query(
+      `select 
+        s.id as student_id,
+        s.name as student_name,
+        count(a.id)::int as absent_days
+       from student s
+       join enrollment e on e.student_id = s.id
+       join attendance a on a.student_id = s.id and a.session_type = 'daily' and a.status = 'absent'
+         and a.date >= $2::date and a.date < ($2::date + interval '1 month')
+       ${studentFilter}
+       group by s.id, s.name
+       having count(a.id) > 0`,
+      params
+    );
+
+    const invoices: Invoice[] = [];
+    const dueDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    for (const r of absentRows) {
+      const fineAmount = Number(r.absent_days) * feeSettings.absentFinePerDay;
+      const title = `Absenteeism Fine (${r.absent_days} Days) - ${monthStr}`;
+      const desc = `Penalty fine for ${r.absent_days} unexcused absent days during ${monthStr} at ৳${feeSettings.absentFinePerDay}/day.`;
+
+      const inv = await financeRepository.createInvoice(
+        client,
+        institutionId,
+        {
+          recipientType: 'student',
+          studentId: r.student_id,
+          category: 'Absenteeism Fine',
+          title,
+          description: desc,
+          totalAmount: fineAmount,
+          dueDate,
+          items: [
+            {
+              label: `Unexcused Absences (${r.absent_days} days × ৳${feeSettings.absentFinePerDay})`,
+              amount: fineAmount,
+            },
+          ],
+        },
+        actorMembershipId
+      );
+      invoices.push(inv);
+    }
+
+    return { issuedCount: invoices.length, invoices };
+  },
+
+  // --- Fee Policy Management ---
+  async listFeePolicies(client: PoolClient, institutionId: string): Promise<FeePolicy[]> {
+    const { rows } = await client.query(
+      `select 
+        fp.id,
+        fp.institution_id as "institutionId",
+        fp.name,
+        fp.description,
+        fp.category,
+        fp.amount::numeric as amount,
+        fp.billing_cycle as "billingCycle",
+        fp.target_audience as "targetAudience",
+        fp.target_class_id as "targetClassId",
+        c.name as "targetClassName",
+        fp.target_section_id as "targetSectionId",
+        sec.name as "targetSectionName",
+        fp.target_student_ids as "targetStudentIds",
+        fp.is_active as "isActive",
+        fp.auto_apply_on_absence as "autoApplyOnAbsence",
+        fp.fine_per_day::numeric as "finePerDay",
+        fp.due_days_after as "dueDaysAfter",
+        fp.created_by_membership_id as "createdByMembershipId",
+        fp.created_at as "createdAt",
+        fp.updated_at as "updatedAt"
+      from fee_policy fp
+      left join class c on c.id = fp.target_class_id
+      left join section sec on sec.id = fp.target_section_id
+      where fp.institution_id = $1
+      order by fp.created_at desc`,
+      [institutionId]
+    );
+    return rows.map((r) => ({
+      ...r,
+      amount: Number(r.amount),
+      finePerDay: r.finePerDay ? Number(r.finePerDay) : undefined,
+    }));
+  },
+
+  async createFeePolicy(
+    client: PoolClient,
+    institutionId: string,
+    data: Partial<FeePolicy>,
+    actorMembershipId?: string
+  ): Promise<FeePolicy> {
+    const { rows } = await client.query(
+      `insert into fee_policy (
+        institution_id, name, description, category, amount, billing_cycle,
+        target_audience, target_class_id, target_section_id, target_student_ids,
+        is_active, auto_apply_on_absence, fine_per_day, due_days_after, created_by_membership_id
+      ) values (
+        $1, $2, $3, coalesce($4, 'Tuition Fee'), coalesce($5, 0), coalesce($6, 'monthly'),
+        coalesce($7, 'all_students'), $8, $9, coalesce($10::jsonb, '[]'::jsonb),
+        coalesce($11, true), coalesce($12, false), coalesce($13, 0), coalesce($14, 15), $15
+      )
+      returning
+        id, institution_id as "institutionId", name, description, category,
+        amount::numeric as amount, billing_cycle as "billingCycle",
+        target_audience as "targetAudience", target_class_id as "targetClassId",
+        target_section_id as "targetSectionId", target_student_ids as "targetStudentIds",
+        is_active as "isActive", auto_apply_on_absence as "autoApplyOnAbsence",
+        fine_per_day::numeric as "finePerDay", due_days_after as "dueDaysAfter",
+        created_by_membership_id as "createdByMembershipId", created_at as "createdAt", updated_at as "updatedAt"`,
+      [
+        institutionId,
+        data.name?.trim() || 'New Fee Policy',
+        data.description?.trim() || null,
+        data.category || 'Tuition Fee',
+        Number(data.amount) || 0,
+        data.billingCycle || 'monthly',
+        data.targetAudience || 'all_students',
+        data.targetClassId || null,
+        data.targetSectionId || null,
+        data.targetStudentIds ? JSON.stringify(data.targetStudentIds) : '[]',
+        data.isActive ?? true,
+        data.autoApplyOnAbsence ?? false,
+        Number(data.finePerDay) || 0,
+        Number(data.dueDaysAfter) || 15,
+        actorMembershipId || null,
+      ]
+    );
+
+    const created = { ...rows[0], amount: Number(rows[0].amount) };
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'create_fee_policy',
+      entityType: 'fee_policy',
+      entityId: created.id,
+      after: created,
+    });
+
+    return created;
+  },
+
+  async updateFeePolicy(
+    client: PoolClient,
+    institutionId: string,
+    policyId: string,
+    data: Partial<FeePolicy>,
+    actorMembershipId?: string
+  ): Promise<FeePolicy> {
+    const { rows: existing } = await client.query(
+      `select * from fee_policy where id = $1 and institution_id = $2`,
+      [policyId, institutionId]
+    );
+    if (existing.length === 0) throw new Error('Fee policy not found');
+
+    const cur = existing[0];
+    const { rows } = await client.query(
+      `update fee_policy set
+        name = coalesce($1, name),
+        description = coalesce($2, description),
+        category = coalesce($3, category),
+        amount = coalesce($4, amount),
+        billing_cycle = coalesce($5, billing_cycle),
+        target_audience = coalesce($6, target_audience),
+        target_class_id = case when $7::text is not null then $7::uuid else target_class_id end,
+        target_section_id = case when $8::text is not null then $8::uuid else target_section_id end,
+        target_student_ids = coalesce($9::jsonb, target_student_ids),
+        is_active = coalesce($10, is_active),
+        auto_apply_on_absence = coalesce($11, auto_apply_on_absence),
+        fine_per_day = coalesce($12, fine_per_day),
+        due_days_after = coalesce($13, due_days_after),
+        updated_at = now()
+      where id = $14 and institution_id = $15
+      returning
+        id, institution_id as "institutionId", name, description, category,
+        amount::numeric as amount, billing_cycle as "billingCycle",
+        target_audience as "targetAudience", target_class_id as "targetClassId",
+        target_section_id as "targetSectionId", target_student_ids as "targetStudentIds",
+        is_active as "isActive", auto_apply_on_absence as "autoApplyOnAbsence",
+        fine_per_day::numeric as "finePerDay", due_days_after as "dueDaysAfter",
+        created_by_membership_id as "createdByMembershipId", created_at as "createdAt", updated_at as "updatedAt"`,
+      [
+        data.name?.trim() || null,
+        data.description !== undefined ? data.description?.trim() || null : null,
+        data.category || null,
+        data.amount !== undefined ? Number(data.amount) : null,
+        data.billingCycle || null,
+        data.targetAudience || null,
+        data.targetClassId || null,
+        data.targetSectionId || null,
+        data.targetStudentIds ? JSON.stringify(data.targetStudentIds) : null,
+        data.isActive !== undefined ? data.isActive : null,
+        data.autoApplyOnAbsence !== undefined ? data.autoApplyOnAbsence : null,
+        data.finePerDay !== undefined ? Number(data.finePerDay) : null,
+        data.dueDaysAfter !== undefined ? Number(data.dueDaysAfter) : null,
+        policyId,
+        institutionId,
+      ]
+    );
+
+    const updated = { ...rows[0], amount: Number(rows[0].amount) };
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'update_fee_policy',
+      entityType: 'fee_policy',
+      entityId: updated.id,
+      before: cur,
+      after: updated,
+    });
+
+    return updated;
+  },
+
+  async deleteFeePolicy(
+    client: PoolClient,
+    institutionId: string,
+    policyId: string,
+    actorMembershipId?: string
+  ): Promise<void> {
+    const { rows } = await client.query(
+      `delete from fee_policy where id = $1 and institution_id = $2 returning id, name`,
+      [policyId, institutionId]
+    );
+    if (rows.length === 0) throw new Error('Fee policy not found');
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'delete_fee_policy',
+      entityType: 'fee_policy',
+      entityId: policyId,
+      before: rows[0],
+    });
+  },
+
+  async applyFeePolicy(
+    client: PoolClient,
+    institutionId: string,
+    policyId: string,
+    options: {
+      targetMonth?: string;
+      dueDate?: string;
+      overrideAmount?: number;
+      classId?: string;
+      sectionId?: string;
+    } = {},
+    actorMembershipId?: string
+  ): Promise<{ appliedCount: number; totalAmount: number; invoices: Invoice[] }> {
+    const { rows: polRows } = await client.query(
+      `select * from fee_policy where id = $1 and institution_id = $2`,
+      [policyId, institutionId]
+    );
+    if (polRows.length === 0) throw new Error('Fee policy not found');
+    const policy = polRows[0];
+
+    const feeAmount = options.overrideAmount !== undefined ? Number(options.overrideAmount) : Number(policy.amount);
+    const dueDate =
+      options.dueDate ||
+      new Date(Date.now() + (Number(policy.due_days_after) || 15) * 86400000).toISOString().split('T')[0];
+    const monthStr = options.targetMonth || new Date().toISOString().slice(0, 7);
+
+    // Resolve eligible students based on policy audience or options overrides
+    let studentFilter = `where s.institution_id = $1 and s.status = 'active'`;
+    const params: any[] = [institutionId];
+
+    const targetClassId = options.classId || policy.target_class_id;
+    const targetSectionId = options.sectionId || policy.target_section_id;
+
+    if (targetSectionId) {
+      params.push(targetSectionId);
+      studentFilter += ` and exists (select 1 from enrollment e where e.student_id = s.id and e.section_id = $${params.length} and e.status = 'enrolled')`;
+    } else if (targetClassId) {
+      params.push(targetClassId);
+      studentFilter += ` and exists (select 1 from enrollment e where e.student_id = s.id and e.class_id = $${params.length} and e.status = 'enrolled')`;
+    } else if (policy.target_audience === 'custom' && Array.isArray(policy.target_student_ids) && policy.target_student_ids.length > 0) {
+      params.push(policy.target_student_ids);
+      studentFilter += ` and s.id = any($${params.length}::uuid[])`;
+    }
+
+    const { rows: students } = await client.query(
+      `select s.id, s.name, s.admission_no from student s ${studentFilter}`,
+      params
+    );
+
+    const invoices: Invoice[] = [];
+    let totalGeneratedAmount = 0;
+
+    for (const st of students) {
+      const title = `${policy.name} - ${monthStr}`;
+      const desc = policy.description || `Applied fee policy: ${policy.name} for billing cycle ${monthStr}`;
+
+      const inv = await financeRepository.createInvoice(
+        client,
+        institutionId,
+        {
+          recipientType: 'student',
+          studentId: st.id,
+          category: policy.category || 'Tuition Fee',
+          title,
+          description: desc,
+          totalAmount: feeAmount,
+          dueDate,
+          items: [
+            {
+              label: `${policy.name} (${monthStr})`,
+              amount: feeAmount,
+            },
+          ],
+          notes: `policy_id:${policy.id};cycle:${monthStr}`,
+        },
+        actorMembershipId
+      );
+
+      invoices.push(inv);
+      totalGeneratedAmount += feeAmount;
+    }
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'apply_fee_policy',
+      entityType: 'fee_policy',
+      entityId: policy.id,
+      after: {
+        policyName: policy.name,
+        appliedCount: invoices.length,
+        totalAmount: totalGeneratedAmount,
+        month: monthStr,
+      },
+    });
+
+    return { appliedCount: invoices.length, totalAmount: totalGeneratedAmount, invoices };
+  },
+
+  // --- Payment Ledger & Cashier Transactions ---
+  async listPayments(
+    client: PoolClient,
+    institutionId: string,
+    options: {
+      method?: string;
+      startDate?: string;
+      endDate?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): Promise<{ payments: PaymentLedgerItem[]; totalCount: number; totalCollected: number }> {
+    let whereClause = `where p.institution_id = $1`;
+    const params: any[] = [institutionId];
+
+    if (options.method && options.method !== 'all') {
+      params.push(options.method);
+      whereClause += ` and lower(p.method) = lower($${params.length})`;
+    }
+
+    if (options.startDate) {
+      params.push(options.startDate);
+      whereClause += ` and p.payment_date >= $${params.length}::date`;
+    }
+
+    if (options.endDate) {
+      params.push(options.endDate);
+      whereClause += ` and p.payment_date <= $${params.length}::date`;
+    }
+
+    if (options.search?.trim()) {
+      params.push(`%${options.search.trim().toLowerCase()}%`);
+      whereClause += ` and (
+        lower(p.receipt_number) like $${params.length} or
+        lower(p.transaction_id) like $${params.length} or
+        lower(i.invoice_number) like $${params.length} or
+        lower(s.name) like $${params.length} or
+        lower(coalesce(ep.name, '')) like $${params.length}
+      )`;
+    }
+
+    // Get aggregates
+    const { rows: aggRows } = await client.query(
+      `select 
+        count(p.id)::int as "totalCount",
+        coalesce(sum(p.amount), 0)::numeric as "totalCollected"
+      from payment p
+      join fee_invoice i on i.id = p.invoice_id
+      left join student s on s.id = i.student_id
+      left join membership em on em.id = i.employee_membership_id
+      left join profile ep on ep.id = em.user_id
+      ${whereClause}`,
+      params
+    );
+
+    const totalCount = aggRows[0]?.totalCount || 0;
+    const totalCollected = Number(aggRows[0]?.totalCollected || 0);
+
+    const limit = Math.min(options.limit || 50, 200);
+    const offset = options.offset || 0;
+    params.push(limit, offset);
+
+    const { rows } = await client.query(
+      `select
+        p.id,
+        p.institution_id as "institutionId",
+        p.invoice_id as "invoiceId",
+        i.invoice_number as "invoiceNumber",
+        p.receipt_number as "receiptNumber",
+        p.amount::numeric as amount,
+        p.payment_date as "paymentDate",
+        p.method,
+        p.transaction_id as "transactionId",
+        p.notes,
+        coalesce(s.name, ep.name, 'Institution') as "payerName",
+        i.recipient_type as "payerType",
+        c.name as "className",
+        e.roll_no as "studentRollNo",
+        i.category,
+        i.title as "invoiceTitle",
+        cp.name as "cashierName",
+        p.created_at as "createdAt"
+      from payment p
+      join fee_invoice i on i.id = p.invoice_id
+      left join student s on s.id = i.student_id
+      left join enrollment e on e.student_id = s.id
+      left join class c on c.id = e.class_id
+      left join membership em on em.id = i.employee_membership_id
+      left join profile ep on ep.id = em.user_id
+      left join membership cm on cm.id = p.recorded_by_membership_id
+      left join profile cp on cp.id = cm.user_id
+      ${whereClause}
+      order by p.payment_date desc, p.created_at desc
+      limit $${params.length - 1} offset $${params.length}`,
+      params
+    );
+
+    const payments: PaymentLedgerItem[] = rows.map((r) => ({
+      ...r,
+      amount: Number(r.amount),
+    }));
+
+    return { payments, totalCount, totalCollected };
+  },
+
+  // --- Invoice Voiding ---
+  async voidInvoice(
+    client: PoolClient,
+    institutionId: string,
+    invoiceId: string,
+    reason?: string,
+    actorMembershipId?: string
+  ): Promise<Invoice> {
+    const inv = await financeRepository.getInvoiceById(client, institutionId, invoiceId);
+    if (!inv) throw new Error('Invoice not found');
+    if (inv.status === 'cancelled') throw new Error('Invoice is already cancelled/voided');
+    if (inv.paidAmount > 0) throw new Error('Cannot void invoice with recorded payments; refund payments first');
+
+    await client.query(
+      `update fee_invoice set
+        status = 'cancelled',
+        notes = coalesce(notes, '') || case when notes is not null and notes != '' then ' | ' else '' end || 'VOIDED: ' || $1,
+        updated_at = now()
+      where id = $2 and institution_id = $3`,
+      [reason?.trim() || 'Voided by accounts officer', invoiceId, institutionId]
+    );
+
+    const updated = (await financeRepository.getInvoiceById(client, institutionId, invoiceId))!;
+
+    await logAudit(client, {
+      institutionId,
+      actorMembershipId,
+      action: 'void_invoice',
+      entityType: 'fee_invoice',
+      entityId: invoiceId,
+      before: { status: inv.status },
+      after: { status: 'cancelled', reason },
+    });
+
+    return updated;
   },
 };

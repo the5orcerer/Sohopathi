@@ -344,3 +344,34 @@ export async function getEmployeeAttendanceSummary(req: Request, res: Response, 
   res.json(summary);
 }
 
+export async function getMyEmployeeAttendanceHistory(req: Request, res: Response, client: PoolClient) {
+  const month = req.query.month as string | undefined;
+  const membershipId = req.ctx!.membershipId;
+  const history = await attendanceRepository.getMyEmployeeAttendanceHistory(
+    client,
+    req.ctx!.institutionId,
+    membershipId,
+    month
+  );
+  res.json(history);
+}
+
+export async function getMyStudentAttendanceHistory(req: Request, res: Response, client: PoolClient) {
+  const month = req.query.month as string | undefined;
+  let studentId = req.query.studentId as string | undefined;
+  if (!studentId || req.grantedScope === 'self') {
+    const selfStudentId = await attendanceRepository.getStudentIdForUser(client, req.ctx!.userId);
+    if (!selfStudentId) {
+      return res.json({ summary: { totalDays: 0, presentDays: 0, absentDays: 0, lateDays: 0, leaveDays: 0, attendanceRate: 100 }, records: [] });
+    }
+    studentId = selfStudentId;
+  }
+  const history = await attendanceRepository.getMyStudentAttendanceHistory(
+    client,
+    req.ctx!.institutionId,
+    studentId,
+    month
+  );
+  res.json(history);
+}
+

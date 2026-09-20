@@ -31,6 +31,17 @@ describe('Permission Dependencies & Scope Hierarchy', () => {
     expect(resolved.get('templates.read')).toBe('institution');
   });
 
+  it('resolves requests.manage to requests.create', () => {
+    const initial = new Map<string, string>([
+      ['requests.manage', 'institution'],
+    ]);
+    const resolved = resolvePermissionDependencies(initial);
+
+    expect(resolved.has('requests.manage')).toBe(true);
+    expect(resolved.has('requests.create')).toBe(true);
+    expect(resolved.get('requests.create')).toBe('institution');
+  });
+
   it('resolves multi-level transitive dependencies', () => {
     // sections.manage -> classes.manage -> academic_years.manage
     const initial = new Map<string, string>([

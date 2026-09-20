@@ -66,7 +66,10 @@ from (values
   ('transport.manage', 'transport', 'Manage transport fleet and route stops', array['institution']),
 
   ('templates.read', 'core', 'View document templates and generated certificates', array['institution', 'assigned_sections', 'self']),
-  ('templates.manage', 'core', 'Create and edit document certificates and print templates', array['institution'])
+  ('templates.manage', 'core', 'Create and edit document certificates and print templates', array['institution']),
+  ('requests.create', 'core', 'Submit leave, break, or schedule change requests to manager', array['institution', 'assigned_sections', 'self']),
+  ('requests.manage', 'core', 'Review and approve team and student requests', array['institution', 'assigned_sections']),
+  ('reports.read', 'core', 'View consolidated institutional reports and executive analytics', array['institution', 'assigned_sections', 'self'])
 ) as p(key, module_key, description, scope_options)
 join m on m.key = p.module_key
 on conflict (key) do update set description = excluded.description, scope_options = excluded.scope_options;
@@ -123,9 +126,11 @@ from (values
   ('Institution Admin', 'admissions.approve', 'institution'),
   ('Institution Admin', 'templates.read', 'institution'),
   ('Institution Admin', 'templates.manage', 'institution'),
+  ('Institution Admin', 'requests.create', 'institution'),
+  ('Institution Admin', 'requests.manage', 'institution'),
+  ('Institution Admin', 'reports.read', 'institution'),
 
   ('Teacher', 'students.read', 'assigned_sections'),
-  ('Teacher', 'templates.read', 'assigned_sections'),
   ('Teacher', 'schedules.read', 'assigned_sections'),
   ('Teacher', 'tasks.read', 'self'),
   ('Teacher', 'attendance.read', 'assigned_sections'),
@@ -137,6 +142,8 @@ from (values
   ('Teacher', 'assignments.update', 'assigned_sections'),
   ('Teacher', 'assignments.grade', 'assigned_sections'),
   ('Teacher', 'notices.read', 'institution'),
+  ('Teacher', 'requests.create', 'self'),
+  ('Teacher', 'attendance.employee.read', 'self'),
 
   ('Student', 'students.read', 'self'),
   ('Student', 'schedules.read', 'self'),
@@ -145,13 +152,20 @@ from (values
   ('Student', 'assignments.read', 'self'),
   ('Student', 'assignments.submit', 'self'),
   ('Student', 'notices.read', 'institution'),
+  ('Student', 'requests.create', 'self'),
+  ('Student', 'tasks.read', 'self'),
+  ('Student', 'finance.read', 'self'),
+  ('Student', 'finance.payment', 'self'),
 
   ('Guardian', 'students.read', 'self'),
   ('Guardian', 'schedules.read', 'self'),
   ('Guardian', 'attendance.read', 'self'),
   ('Guardian', 'marks.read', 'self'),
   ('Guardian', 'assignments.read', 'self'),
-  ('Guardian', 'notices.read', 'institution')
+  ('Guardian', 'notices.read', 'institution'),
+  ('Guardian', 'requests.create', 'self'),
+  ('Guardian', 'finance.read', 'self'),
+  ('Guardian', 'finance.payment', 'self')
 ) as g(role_name, permission_key, scope)
 join r on r.name = g.role_name
 join p on p.key = g.permission_key
@@ -217,6 +231,11 @@ from (values
   ('Institution Admin', 'admissions.read', 'institution'),
   ('Institution Admin', 'admissions.write', 'institution'),
   ('Institution Admin', 'admissions.approve', 'institution'),
+  ('Institution Admin', 'templates.read', 'institution'),
+  ('Institution Admin', 'templates.manage', 'institution'),
+  ('Institution Admin', 'requests.create', 'institution'),
+  ('Institution Admin', 'requests.manage', 'institution'),
+  ('Institution Admin', 'reports.read', 'institution'),
 
   ('Academic Coordinator', 'academic_years.manage', 'institution'),
   ('Academic Coordinator', 'classes.manage', 'institution'),
@@ -226,6 +245,7 @@ from (values
   ('Academic Coordinator', 'students.read', 'institution'),
   ('Academic Coordinator', 'students.write', 'institution'),
   ('Academic Coordinator', 'notices.read', 'institution'),
+  ('Academic Coordinator', 'requests.create', 'self'),
 
   ('Teacher', 'students.read', 'assigned_sections'),
   ('Teacher', 'schedules.read', 'assigned_sections'),
@@ -239,6 +259,8 @@ from (values
   ('Teacher', 'assignments.update', 'assigned_sections'),
   ('Teacher', 'assignments.grade', 'assigned_sections'),
   ('Teacher', 'notices.read', 'institution'),
+  ('Teacher', 'requests.create', 'self'),
+  ('Teacher', 'attendance.employee.read', 'self'),
 
   ('Student', 'students.read', 'self'),
   ('Student', 'schedules.read', 'self'),
@@ -247,13 +269,20 @@ from (values
   ('Student', 'assignments.read', 'self'),
   ('Student', 'assignments.submit', 'self'),
   ('Student', 'notices.read', 'institution'),
+  ('Student', 'requests.create', 'self'),
+  ('Student', 'tasks.read', 'self'),
+  ('Student', 'finance.read', 'self'),
+  ('Student', 'finance.payment', 'self'),
 
   ('Guardian', 'students.read', 'self'),
   ('Guardian', 'schedules.read', 'self'),
   ('Guardian', 'attendance.read', 'self'),
   ('Guardian', 'marks.read', 'self'),
   ('Guardian', 'assignments.read', 'self'),
-  ('Guardian', 'notices.read', 'institution')
+  ('Guardian', 'notices.read', 'institution'),
+  ('Guardian', 'requests.create', 'self'),
+  ('Guardian', 'finance.read', 'self'),
+  ('Guardian', 'finance.payment', 'self')
 ) as g(role_name, permission_key, scope)
 join ir on ir.name = g.role_name
 join p on p.key = g.permission_key

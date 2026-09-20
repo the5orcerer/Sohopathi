@@ -113,6 +113,7 @@ export const AdmissionsPage: React.FC = () => {
   const { hasPermission } = useSession();
   const canWrite = hasPermission('admissions.write');
   const canApprove = hasPermission('admissions.approve');
+  const canGenerateDocuments = hasPermission('templates.read') || hasPermission('templates.manage');
 
   const resetCreateForm = () => {
     setAddName('');
@@ -568,14 +569,16 @@ export const AdmissionsPage: React.FC = () => {
 
                     <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDocumentTargetApp(app)}
-                          title="Generate Admission Document / Admit Card / Form"
-                        >
-                          <FileBadge size={14} style={{ color: 'var(--brand-primary)' }} />
-                        </Button>
+                        {canGenerateDocuments && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDocumentTargetApp(app)}
+                            title="Generate Admission Document / Admit Card / Form"
+                          >
+                            <FileBadge size={14} style={{ color: 'var(--brand-primary)' }} />
+                          </Button>
+                        )}
 
                         {canWrite && (
                           <Button variant="ghost" size="sm" onClick={() => handleOpenReview(app)} title="Review Application">

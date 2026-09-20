@@ -254,7 +254,9 @@ export interface UserTaskItem {
   id: string;
   institutionId: string;
   creatorMembershipId: string | null;
-  assigneeMembershipId: string;
+  assigneeMembershipId?: string;
+  assigneeStudentId?: string | null;
+  assigneeType?: 'staff' | 'student';
   title: string;
   description: string | null;
   priority: 'low' | 'medium' | 'high' | 'urgent';
@@ -915,6 +917,58 @@ export interface ReceiptData {
   };
 }
 
+export interface FeeSettings {
+  enableAbsentFine: boolean;
+  absentFinePerDay: number;
+  enableLatePaymentFine: boolean;
+  latePaymentFine: number;
+  customFeeCategories: string[];
+}
+
+export interface FeePolicy {
+  id: string;
+  institutionId: string;
+  name: string;
+  description?: string | null;
+  category: string;
+  amount: number;
+  billingCycle: 'monthly' | 'term' | 'annual' | 'one_time' | 'per_absence';
+  targetAudience: 'all_students' | 'class' | 'section' | 'custom';
+  targetClassId?: string | null;
+  targetClassName?: string | null;
+  targetSectionId?: string | null;
+  targetSectionName?: string | null;
+  targetStudentIds?: string[];
+  isActive: boolean;
+  autoApplyOnAbsence: boolean;
+  finePerDay?: number;
+  dueDaysAfter: number;
+  createdByMembershipId?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface PaymentLedgerItem {
+  id: string;
+  institutionId: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  receiptNumber: string;
+  amount: number;
+  paymentDate: string;
+  method: string;
+  transactionId?: string | null;
+  notes?: string | null;
+  payerName: string;
+  payerType: string;
+  className?: string | null;
+  studentRollNo?: string | null;
+  category: string;
+  invoiceTitle: string;
+  cashierName?: string | null;
+  createdAt: string;
+}
+
 export interface Persona {
   id: string;
   label: string;
@@ -1059,7 +1113,29 @@ export interface LivePeriodData {
   sectionName?: string;
   currentPeriod: any | null;
   nextPeriod: any | null;
+  runningClass?: any | null;
+  upcomingClasses?: any[];
+  previousClasses?: any[];
   todaySchedule: any[];
   runningNow?: any[];
   activeClassroomsCount?: number;
+}
+
+export interface PersonalAttendanceHistory {
+  summary: {
+    totalDays: number;
+    presentDays: number;
+    absentDays: number;
+    lateDays: number;
+    leaveDays: number;
+    attendanceRate: number;
+  };
+  records: {
+    date: string;
+    status: string;
+    checkInTime?: string;
+    checkOutTime?: string;
+    notes?: string;
+    remarks?: string;
+  }[];
 }

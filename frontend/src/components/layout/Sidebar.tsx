@@ -89,6 +89,7 @@ const getLocalizedNavLabel = (path: string, defaultLabel: string, t: (key: strin
     case '/billing':
     case '/invoices':
     case '/finance':
+      if (defaultLabel === 'My Fees & Invoices') return defaultLabel;
       return t('nav.finance', 'Finance & Invoicing');
     case '/reports': return t('nav.reports', 'Reports');
     case '/members': return t('nav.members', 'Members');
@@ -122,10 +123,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const seen = new Set<string>();
     return (navItems || []).filter((item) => {
       if (!item?.path || seen.has(item.path)) return false;
+      if (item.requiredPermission && typeof hasPermission === 'function' && !hasPermission(item.requiredPermission)) {
+        return false;
+      }
       seen.add(item.path);
       return true;
     });
-  }, [navItems]);
+  }, [navItems, hasPermission]);
 
   const categories = React.useMemo(() => {
     const allItems = [...uniqueNavItems];

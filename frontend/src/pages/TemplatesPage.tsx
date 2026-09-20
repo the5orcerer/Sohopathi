@@ -37,9 +37,10 @@ interface TemplatesPageProps {
 }
 
 export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
-  const { activeMembership, institutionName } = useSession();
+  const { activeMembership, institutionName, hasPermission } = useSession();
   const { t } = useLanguage();
-  const canManage = activeMembership?.roleName?.toLowerCase().includes('admin');
+  const canManage = hasPermission('templates.manage') || activeMembership?.roleName?.toLowerCase().includes('admin');
+  const canGenerate = hasPermission('templates.read') || canManage;
 
   // Navigation tab: 'templates' | 'archive'
   const [activeTab, setActiveTab] = useState<'templates' | 'archive'>('templates');
@@ -543,29 +544,33 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                           {t('common.preview', 'Preview')}
                         </Button>
 
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleOpenBulk(tmpl)}
-                          icon={<Users size={14} />}
-                          title="Bulk Generate / Print"
-                        >
-                          {t('templates.bulk_generate', 'Bulk')}
-                        </Button>
+                        {canGenerate && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenBulk(tmpl)}
+                            icon={<Users size={14} />}
+                            title="Bulk Generate / Print"
+                          >
+                            {t('templates.bulk_generate', 'Bulk')}
+                          </Button>
+                        )}
                       </div>
 
                       <div style={{ display: 'flex', gap: '0.4rem' }}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDuplicate(tmpl)}
-                          icon={<Copy size={14} />}
-                          title="Duplicate template"
-                        >
-                          {t('common.clone', 'Clone')}
-                        </Button>
+                        {canManage && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDuplicate(tmpl)}
+                            icon={<Copy size={14} />}
+                            title="Duplicate template"
+                          >
+                            {t('common.clone', 'Clone')}
+                          </Button>
+                        )}
 
-                        {!isSys && !tmpl.isDefault && (
+                        {canManage && !isSys && !tmpl.isDefault && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -577,7 +582,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                           </Button>
                         )}
 
-                        {!isSys && (
+                        {canManage && !isSys && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -589,7 +594,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                           </Button>
                         )}
 
-                        {onNavigate && (
+                        {canManage && onNavigate && (
                           <Button
                             variant="secondary"
                             size="sm"
@@ -600,7 +605,7 @@ export const TemplatesPage: React.FC<TemplatesPageProps> = ({ onNavigate }) => {
                           </Button>
                         )}
 
-                        {!isSys && (
+                        {canManage && !isSys && (
                           <button
                             type="button"
                             onClick={() => handleDeleteTemplate(tmpl)}
