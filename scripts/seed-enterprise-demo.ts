@@ -163,13 +163,12 @@ async function seedEnterpriseDemo() {
         const created = await coreRepository.createStudent(client, instId, {
           name: sd.name,
           admissionNo: sd.admissionNo,
-          rollNumber: sd.roll,
-          email: sd.email,
+          rollNo: String(sd.roll),
           classId: class9.id,
           sectionId: sec9A.id,
-          status: 'enrolled',
           guardianName: `${sd.name} Parent`,
           guardianPhone: '+8801700112233',
+          customFields: { email: sd.email },
         });
         sId = created.id;
       }
@@ -207,14 +206,19 @@ async function seedEnterpriseDemo() {
     console.log(`✅ [6] Fee Invoice issued: ${createdInvoice.invoiceNumber} (Net: ৳${createdInvoice.dueAmount})`);
 
     // Record Payment
-    const { payment: paymentRecord, invoice: paidInvoice } = await financeRepository.recordPayment(client, instId, createdInvoice.id, {
-      amount: 3500,
-      paymentDate: '2026-10-10',
-      method: 'bKash',
-      transactionId: 'BKASH-DEMO-99182',
-      notes: 'Mobile money counter settlement',
-      recordedByMembershipId: facultyMembers[2].id, // Mahbubul Alam (Accountant)
-    });
+    const { payment: paymentRecord, invoice: paidInvoice } = await financeRepository.recordPayment(
+      client,
+      instId,
+      createdInvoice.id,
+      {
+        amount: 3500,
+        paymentDate: '2026-10-10',
+        method: 'bKash',
+        transactionId: 'BKASH-DEMO-99182',
+        notes: 'Mobile money counter settlement',
+      },
+      facultyMembers[2].id // Mahbubul Alam (Accountant)
+    );
     console.log(`✅ [7] Payment recorded: Receipt ${paymentRecord.receiptNumber}, Amount ৳${paymentRecord.amount}`);
 
     // Verify Official Receipt

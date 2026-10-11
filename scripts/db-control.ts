@@ -32,7 +32,22 @@ export function getComposeCommand(): ComposeCommand {
 export function startContainers(): void {
   const composeCmd = getComposeCommand();
   if (composeCmd) {
-    execSync(`${composeCmd} -f db/docker-compose.yml up -d --remove-orphans`, { cwd: rootDir, stdio: 'inherit' });
+    // 1. Mandatory: Start PostgreSQL
+    execSync(`${composeCmd} -f db/docker-compose.yml up -d postgres --remove-orphans`, {
+      cwd: rootDir,
+      stdio: 'inherit',
+    });
+
+    // 2. Optional: Attempt to start MinIO S3
+    try {
+      execSync(`${composeCmd} -f db/docker-compose.yml up -d s3`, {
+        cwd: rootDir,
+        stdio: 'inherit',
+      });
+    } catch {
+      console.warn('\n⚠️  MinIO S3 container could not be started (e.g. image unavailable or registry rate limit).');
+      console.warn('📁 The platform seamlessly falls back to built-in local filesystem storage (./uploads).\n');
+    }
     return;
   }
 
@@ -43,7 +58,7 @@ export function startContainers(): void {
       execSync('docker network create biddyapith_net', { stdio: 'ignore', timeout: 5000 });
     } catch {}
 
-    // 1. PostgreSQL container
+    // 1. PostgreSQL container (Mandatory)
     let pgRunning = false;
     let pgExists = false;
     try {
@@ -74,35 +89,39 @@ export function startContainers(): void {
       console.log('📦 biddyapith_postgres is already running.');
     }
 
-    // 2. MinIO S3 container
-    let s3Running = false;
-    let s3Exists = false;
+    // 2. MinIO S3 container (Optional)
     try {
-      const inspect = execSync('docker inspect -f "{{.State.Status}}" biddyapith_s3', {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 3000,
-      }).trim();
-      s3Running = inspect === 'running';
-      s3Exists = true;
-    } catch {}
+      let s3Running = false;
+      let s3Exists = false;
+      try {
+        const inspect = execSync('docker inspect -f "{{.State.Status}}" biddyapith_s3', {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 3000,
+        }).trim();
+        s3Running = inspect === 'running';
+        s3Exists = true;
+      } catch {}
 
-    if (!s3Running) {
-      if (s3Exists) {
-        console.log('📦 Starting existing biddyapith_s3 container...');
-        execSync('docker start biddyapith_s3', { stdio: 'inherit' });
+      if (!s3Running) {
+        if (s3Exists) {
+          console.log('📦 Starting existing biddyapith_s3 container...');
+          execSync('docker start biddyapith_s3', { stdio: 'inherit' });
+        } else {
+          console.log('📦 Creating and starting biddyapith_s3 container...');
+          execSync(
+            `docker run -d --name biddyapith_s3 --restart unless-stopped -p 9000:9000 -p 9001:9001 ` +
+            `-e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin ` +
+            `-v biddyapith_s3data:/data ` +
+            `quay.io/minio/minio:latest server /data --console-address ":9001"`,
+            { stdio: 'inherit' }
+          );
+        }
       } else {
-        console.log('📦 Creating and starting biddyapith_s3 container...');
-        execSync(
-          `docker run -d --name biddyapith_s3 --restart unless-stopped -p 9000:9000 -p 9001:9001 ` +
-          `-e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin ` +
-          `-v biddyapith_s3data:/data ` +
-          `minio/minio:latest server /data --console-address ":9001"`,
-          { stdio: 'inherit' }
-        );
+        console.log('📦 biddyapith_s3 is already running.');
       }
-    } else {
-      console.log('📦 biddyapith_s3 is already running.');
+    } catch {
+      console.warn('⚠️  Could not start biddyapith_s3 container. Local filesystem storage (./uploads) will be used.');
     }
   } catch (err: any) {
     console.error('Failed to start containers with native Docker:', err.message);

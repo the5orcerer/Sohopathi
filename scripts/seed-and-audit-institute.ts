@@ -36,7 +36,7 @@ async function main() {
 
   const client = await pool.connect();
   let server: http.Server;
-  let baseUrl: string;
+  let baseUrl = '';
 
   try {
     // 0. Clean prior institution with subdomain 'ideal' if exists

@@ -21,7 +21,7 @@ services:
       start_period: 30s
 
   s3:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: biddyapith_s3
     restart: unless-stopped
     ports:

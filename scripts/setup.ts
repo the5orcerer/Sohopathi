@@ -50,8 +50,8 @@ JWT_SECRET=biddyapith-secure-jwt-secret-local-dev-2026
 SUPABASE_URL=http://localhost:54321
 SUPABASE_SERVICE_ROLE_KEY=test-service-role-key
 
-# Local S3/R2 Object Storage (MinIO)
-STORAGE_PROVIDER=s3
+# Storage Provider (local = zero-dependency filesystem in ./uploads; s3 = MinIO / AWS S3 / Cloudflare R2)
+STORAGE_PROVIDER=local
 STORAGE_ENDPOINT=http://127.0.0.1:9000
 STORAGE_ACCESS_KEY_ID=minioadmin
 STORAGE_SECRET_ACCESS_KEY=minioadmin
@@ -76,7 +76,14 @@ SENTRY_TRACES_SAMPLE_RATE=1.0
       console.log('🛡️  Existing .env has NODE_ENV=production. Preserving your cloud production settings.');
       return;
     }
-    console.log('ℹ️  Existing .env found for development. Preserving current values.');
+    // If previous .env had local MinIO configured, seamlessly switch to zero-dependency local storage
+    if (existingContent.includes('STORAGE_PROVIDER=s3') && existingContent.includes('127.0.0.1:9000')) {
+      console.log('📁 Configuring local storage provider (./uploads) in .env...');
+      const updated = existingContent.replace(/STORAGE_PROVIDER=s3/, 'STORAGE_PROVIDER=local');
+      fs.writeFileSync(envPath, updated, 'utf8');
+    } else {
+      console.log('ℹ️  Existing .env found for development. Preserving current values.');
+    }
   } else {
     console.log('📝 Creating local development .env file from template...');
     fs.writeFileSync(envPath, defaultDevEnv, 'utf8');
@@ -278,10 +285,10 @@ async function main() {
   logStep(3, 'Installing Dependencies (Root, Frontend, Home)');
   installDependencies();
 
-  // Step 4: Boot Local Services (PostgreSQL & MinIO S3)
+  // Step 4: Boot Local Services (PostgreSQL Database)
   let workingHost = '127.0.0.1';
   if (hasDocker) {
-    logStep(4, 'Starting Local Services (PostgreSQL & MinIO S3)');
+    logStep(4, 'Starting Local Database (PostgreSQL)');
     startContainers();
     process.stdout.write('⏳ Waiting for PostgreSQL container on port 5433 to become ready');
     const waitResult = await waitForPostgres(75);
@@ -344,7 +351,7 @@ Next Steps:
      • Home Landing Page:  http://www.biddyapith.local:3000  (or http://localhost:3000)
      • Application Portal: http://app.biddyapith.local:3000  (or http://localhost:3000/app)
      • Backend API & Docs: http://api.biddyapith.local:3000  (or http://localhost:3000/docs)
-     • MinIO S3 Console:   http://localhost:9001 (User: minioadmin / Pass: minioadmin)
+     • MinIO S3 Console:   http://localhost:9001 (if S3 container enabled)
 
   Demo Credentials:
      • Admin:   admin@biddyapith.tech   / password123 (or username: admin)
