@@ -100,31 +100,136 @@ function installDependencies() {
   }
 }
 
-async function waitForPostgres(maxAttempts = 30): Promise<boolean> {
-  const dbUrl = 'postgresql://postgres:postgres@127.0.0.1:5433/biddyapith_dev';
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+async function probePostgres(connectionString: string): Promise<boolean> {
+  const pool = new Pool({ connectionString, connectionTimeoutMillis: 3000 });
+  try {
+    const client = await pool.connect();
     try {
-      const pool = new Pool({ connectionString: dbUrl, connectionTimeoutMillis: 1500 });
-      const client = await pool.connect();
       await client.query('SELECT 1;');
-      client.release();
-      await pool.end();
       return true;
-    } catch {
-      process.stdout.write('.');
-      await new Promise((r) => setTimeout(r, 1000));
+    } finally {
+      client.release();
     }
+  } catch {
+    return false;
+  } finally {
+    await pool.end().catch(() => {});
   }
-  return false;
 }
 
-async function initializeDatabase(hasDocker: boolean) {
+interface PostgresWaitResult {
+  ready: boolean;
+  host: string;
+  error?: string;
+}
+
+async function waitForPostgres(maxAttempts = 75): Promise<PostgresWaitResult> {
+  const candidateHosts = ['127.0.0.1', 'localhost'];
+  let lastError: string | undefined;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // 1. Proactively check if container died or exited
+    try {
+      const status = execSync('docker inspect -f "{{.State.Status}}" biddyapith_postgres', {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 3000,
+      }).trim();
+      if (status === 'exited' || status === 'dead') {
+        return {
+          ready: false,
+          host: '127.0.0.1',
+          error: `PostgreSQL container exited unexpectedly with status "${status}".`,
+        };
+      }
+    } catch {
+      // Ignore inspect failures (e.g. docker command busy)
+    }
+
+    // 2. Try candidate hosts (IPv4 loopback first, then localhost fallback)
+    for (const host of candidateHosts) {
+      let maintenancePool: Pool | null = null;
+      try {
+        // Connect to 'postgres' maintenance DB to ensure PostgreSQL daemon is accepting connections
+        maintenancePool = new Pool({
+          host,
+          port: 5433,
+          user: 'postgres',
+          password: 'postgres',
+          database: 'postgres',
+          connectionTimeoutMillis: 2000,
+        });
+
+        const client = await maintenancePool.connect();
+        try {
+          // Check if target database 'biddyapith_dev' exists, create if not
+          const dbCheck = await client.query("SELECT 1 FROM pg_database WHERE datname = 'biddyapith_dev'");
+          if (dbCheck.rowCount === 0) {
+            await client.query('CREATE DATABASE biddyapith_dev');
+          }
+        } finally {
+          client.release();
+        }
+        await maintenancePool.end().catch(() => {});
+        maintenancePool = null;
+
+        // Verify connection into 'biddyapith_dev'
+        const devPool = new Pool({
+          host,
+          port: 5433,
+          user: 'postgres',
+          password: 'postgres',
+          database: 'biddyapith_dev',
+          connectionTimeoutMillis: 2000,
+        });
+
+        const devClient = await devPool.connect();
+        try {
+          await devClient.query('SELECT 1;');
+          return { ready: true, host };
+        } finally {
+          devClient.release();
+          await devPool.end().catch(() => {});
+        }
+      } catch (err: any) {
+        lastError = err?.message || String(err);
+      } finally {
+        if (maintenancePool) {
+          await maintenancePool.end().catch(() => {});
+        }
+      }
+    }
+
+    process.stdout.write('.');
+    if (attempt % 15 === 0) {
+      process.stdout.write(' (still initializing database cluster, please wait...) ');
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  return { ready: false, host: '127.0.0.1', error: lastError };
+}
+
+async function initializeDatabase(hasDocker: boolean, host: string = '127.0.0.1') {
   console.log('🚀 Initializing database schema and seed data...');
   const connStr = hasDocker
-    ? 'postgresql://postgres:postgres@127.0.0.1:5433/biddyapith_dev'
-    : (process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5433/biddyapith_dev');
+    ? `postgresql://postgres:postgres@${host}:5433/biddyapith_dev`
+    : (process.env.DATABASE_URL || `postgresql://postgres:postgres@${host}:5433/biddyapith_dev`);
 
   process.env.DATABASE_URL = connStr;
+
+  if (!hasDocker) {
+    const isReachable = await probePostgres(connStr);
+    if (!isReachable) {
+      console.error(`\n❌ Could not connect to PostgreSQL at ${connStr}`);
+      console.error('Docker daemon is not running and no native PostgreSQL service was found on port 5433.');
+      console.error('\n💡 To resolve this:');
+      console.error('   1. Start Docker Desktop, then rerun: setup.bat');
+      console.error('   OR');
+      console.error('   2. Start a local PostgreSQL service and set DATABASE_URL in your .env file.\n');
+      throw new Error(`Cannot connect to database at ${connStr}`);
+    }
+  }
 
   const { runDatabaseInit } = await import('../db/init');
   await runDatabaseInit({
@@ -174,21 +279,44 @@ async function main() {
   installDependencies();
 
   // Step 4: Boot Local Services (PostgreSQL & MinIO S3)
+  let workingHost = '127.0.0.1';
   if (hasDocker) {
     logStep(4, 'Starting Local Services (PostgreSQL & MinIO S3)');
     startContainers();
-    process.stdout.write('⏳ Waiting for PostgreSQL container on 127.0.0.1:5433 to become ready');
-    const isReady = await waitForPostgres();
+    process.stdout.write('⏳ Waiting for PostgreSQL container on port 5433 to become ready');
+    const waitResult = await waitForPostgres(75);
     console.log('');
-    if (!isReady) {
+    if (!waitResult.ready) {
+      console.error('\n❌ PostgreSQL failed to become ready within the allocated time.');
+      if (waitResult.error) {
+        console.error(`   Last connection error: ${waitResult.error}`);
+      }
+      try {
+        const logs = execSync('docker logs biddyapith_postgres --tail 25', {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 5000,
+        }).trim();
+        if (logs) {
+          console.error('\n📋 Docker Container Logs (biddyapith_postgres):');
+          console.error(logs);
+        }
+      } catch {}
+      console.error('\n💡 Troubleshooting Tips:');
+      console.error('   1. If your database volume or credentials are stale/corrupted, run a clean reinstall:');
+      console.error('      Windows:     setup.bat --fresh');
+      console.error('      Linux/macOS: npm run setup:fresh');
+      console.error('   2. Verify Docker Desktop is running and healthy.');
+      console.error('   3. Check that port 5433 is not blocked by another process or firewall.\n');
       throw new Error('Timed out waiting for PostgreSQL container to become ready on port 5433.');
     }
-    console.log('✅ PostgreSQL is ready and accepting connections on port 5433.');
+    workingHost = waitResult.host;
+    console.log(`✅ PostgreSQL is ready and accepting connections on ${workingHost}:5433.`);
   }
 
   // Step 5: Database Migration and Seed
   logStep(5, 'Applying Canonical Schema & Seed Data');
-  await initializeDatabase(hasDocker);
+  await initializeDatabase(hasDocker, workingHost);
 
   // Step 6: Vhosts Information
   logStep(6, 'Local Virtual Hosts (biddyapith.local)');

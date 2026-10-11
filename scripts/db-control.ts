@@ -7,8 +7,8 @@ export type ComposeCommand = 'docker compose' | 'docker-compose' | null;
 
 export function isDockerAvailable(): boolean {
   try {
-    execSync('docker --version', { stdio: 'ignore' });
-    execSync('docker ps', { stdio: 'ignore' });
+    execSync('docker --version', { stdio: 'ignore', timeout: 5000 });
+    execSync('docker ps', { stdio: 'ignore', timeout: 5000 });
     return true;
   } catch {
     return false;
@@ -17,11 +17,11 @@ export function isDockerAvailable(): boolean {
 
 export function getComposeCommand(): ComposeCommand {
   try {
-    execSync('docker compose version', { stdio: 'ignore' });
+    execSync('docker compose version', { stdio: 'ignore', timeout: 5000 });
     return 'docker compose';
   } catch {
     try {
-      execSync('docker-compose --version', { stdio: 'ignore' });
+      execSync('docker-compose --version', { stdio: 'ignore', timeout: 5000 });
       return 'docker-compose';
     } catch {
       return null;
@@ -39,12 +39,24 @@ export function startContainers(): void {
   // Native Docker fallback when compose plugin is not installed
   console.log('ℹ️  Docker Compose plugin not detected. Using direct Docker container management...');
   try {
-    execSync('docker network create biddyapith_net >/dev/null 2>&1 || true', { stdio: 'ignore' });
+    try {
+      execSync('docker network create biddyapith_net', { stdio: 'ignore', timeout: 5000 });
+    } catch {}
 
     // 1. PostgreSQL container
-    const pgRunning = execSync('docker ps -q -f name=^/biddyapith_postgres$', { encoding: 'utf8' }).trim();
+    let pgRunning = false;
+    let pgExists = false;
+    try {
+      const inspect = execSync('docker inspect -f "{{.State.Status}}" biddyapith_postgres', {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 3000,
+      }).trim();
+      pgRunning = inspect === 'running';
+      pgExists = true;
+    } catch {}
+
     if (!pgRunning) {
-      const pgExists = execSync('docker ps -a -q -f name=^/biddyapith_postgres$', { encoding: 'utf8' }).trim();
       if (pgExists) {
         console.log('📦 Starting existing biddyapith_postgres container...');
         execSync('docker start biddyapith_postgres', { stdio: 'inherit' });
@@ -63,9 +75,19 @@ export function startContainers(): void {
     }
 
     // 2. MinIO S3 container
-    const s3Running = execSync('docker ps -q -f name=^/biddyapith_s3$', { encoding: 'utf8' }).trim();
+    let s3Running = false;
+    let s3Exists = false;
+    try {
+      const inspect = execSync('docker inspect -f "{{.State.Status}}" biddyapith_s3', {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 3000,
+      }).trim();
+      s3Running = inspect === 'running';
+      s3Exists = true;
+    } catch {}
+
     if (!s3Running) {
-      const s3Exists = execSync('docker ps -a -q -f name=^/biddyapith_s3$', { encoding: 'utf8' }).trim();
       if (s3Exists) {
         console.log('📦 Starting existing biddyapith_s3 container...');
         execSync('docker start biddyapith_s3', { stdio: 'inherit' });
@@ -98,10 +120,10 @@ export function stopContainers(removeVolumes = false): void {
 
   // Native Docker fallback
   console.log('🛑 Stopping containers with native Docker...');
-  execSync('docker stop biddyapith_postgres biddyapith_s3 >/dev/null 2>&1 || true', { stdio: 'ignore' });
+  try { execSync('docker stop biddyapith_postgres biddyapith_s3', { stdio: 'ignore' }); } catch {}
   if (removeVolumes) {
-    execSync('docker rm -f biddyapith_postgres biddyapith_s3 >/dev/null 2>&1 || true', { stdio: 'ignore' });
-    execSync('docker volume rm -f biddyapith_pgdata biddyapith_s3data >/dev/null 2>&1 || true', { stdio: 'ignore' });
+    try { execSync('docker rm -f biddyapith_postgres biddyapith_s3', { stdio: 'ignore' }); } catch {}
+    try { execSync('docker volume rm -f biddyapith_pgdata biddyapith_s3data', { stdio: 'ignore' }); } catch {}
   }
 }
 
@@ -111,12 +133,17 @@ export function cleanContainers(isFresh = false): void {
 
   for (const name of staleContainers) {
     try {
-      const inspectOutput = execSync(`docker ps -a -q -f name=^/${name}$`, { encoding: 'utf8' }).trim();
+      const inspectOutput = execSync(`docker inspect -f "{{.State.Status}}" ${name}`, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 3000,
+      }).trim();
+
       if (inspectOutput) {
-        if (isFresh || name === 'edu_postgres') {
-          console.log(`🧹 Removing stale container: ${name}...`);
-          execSync(`docker stop ${name} >/dev/null 2>&1 || true`, { stdio: 'ignore' });
-          execSync(`docker rm -f ${name} >/dev/null 2>&1 || true`, { stdio: 'ignore' });
+        if (isFresh || name === 'edu_postgres' || inspectOutput === 'exited' || inspectOutput === 'dead') {
+          console.log(`🧹 Removing stale container: ${name} (Status: ${inspectOutput})...`);
+          try { execSync(`docker stop ${name}`, { stdio: 'ignore', timeout: 5000 }); } catch {}
+          try { execSync(`docker rm -f ${name}`, { stdio: 'ignore', timeout: 5000 }); } catch {}
         }
       }
     } catch {}
