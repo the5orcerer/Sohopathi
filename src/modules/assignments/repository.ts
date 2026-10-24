@@ -2,6 +2,7 @@ import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
 import { dispatchNotificationAndTask } from '../core/notification-task-service';
 import { assertContentLength, CONTENT_LIMITS } from '../../core/validation/content-limits';
+import { appCache } from '../../core/cache';
 
 export interface Assignment {
   id: string;
@@ -155,6 +156,8 @@ export const assignmentRepository = {
         // Notification dispatch failure should not block assignment creation
       }
     }
+
+    appCache.del(`stats:assignments:${institutionId}`);
 
     return assignment;
   },
@@ -580,6 +583,8 @@ export const assignmentRepository = {
       }
     }
 
+    appCache.del(`stats:assignments:${institutionId}`);
+
     return sub;
   },
 
@@ -799,10 +804,16 @@ export const assignmentRepository = {
       // Ignore notification failure
     }
 
+    appCache.del(`stats:assignments:${institutionId}`);
+
     return gradeRecord;
   },
 
   async getStats(client: PoolClient, institutionId: string): Promise<any> {
+    const cacheKey = `stats:assignments:${institutionId}`;
+    const cached = appCache.get<any>(cacheKey);
+    if (cached) return cached;
+
     const { rows } = await client.query(
       `select count(*)::int as "totalAssignments",
               (select count(*)::int from assignment_submission) as "totalSubmissions",
@@ -810,6 +821,8 @@ export const assignmentRepository = {
        from assignment`,
       []
     );
-    return rows[0] ?? { totalAssignments: 0, totalSubmissions: 0, totalGraded: 0 };
+    const result = rows[0] ?? { totalAssignments: 0, totalSubmissions: 0, totalGraded: 0 };
+    appCache.set(cacheKey, result, 30);
+    return result;
   },
 };

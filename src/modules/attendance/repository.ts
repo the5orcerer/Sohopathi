@@ -2,6 +2,7 @@ import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
 import { assertContentLength, CONTENT_LIMITS } from '../../core/validation/content-limits';
 import { dispatchNotificationAndTask } from '../core/notification-task-service';
+import { appCache } from '../../core/cache';
 
 export interface AttendanceRecord {
   id: string;
@@ -469,6 +470,8 @@ export const attendanceRepository = {
       });
     }
 
+    appCache.invalidatePrefix(`stats:att:${institutionId}`);
+
     return results;
   },
 
@@ -562,6 +565,10 @@ export const attendanceRepository = {
     institutionId: string,
     filters: { sectionId?: string; date?: string; allowedSectionIds?: string[] }
   ): Promise<AttendanceSummary[]> {
+    const cacheKey = `stats:att:${institutionId}:${filters.sectionId || 'all'}:${filters.date || 'all'}:${(filters.allowedSectionIds || []).join(',')}`;
+    const cached = appCache.get<AttendanceSummary[]>(cacheKey);
+    if (cached) return cached;
+
     let query = `
       select section_id as "sectionId", date,
              count(*)::int as "totalStudents",
@@ -590,6 +597,7 @@ export const attendanceRepository = {
 
     query += ` group by section_id, date order by date desc limit 30`;
     const { rows } = await client.query(query, params);
+    appCache.set(cacheKey, rows, 30);
     return rows;
   },
 
@@ -1442,6 +1450,8 @@ export const attendanceRepository = {
       });
     }
 
+    appCache.invalidatePrefix(`stats:empatt:${institutionId}`);
+
     return results;
   },
 
@@ -1460,6 +1470,10 @@ export const attendanceRepository = {
     unmarkedToday: number;
     attendanceRate: number;
   }> {
+    const cacheKey = `stats:empatt:${institutionId}:${date}`;
+    const cached = appCache.get<any>(cacheKey);
+    if (cached) return cached;
+
     const { rows: staffCountRows } = await client.query(
       `select count(*)::int as total from membership where institution_id = $1 and status = 'active'`,
       [institutionId]
@@ -1484,7 +1498,7 @@ export const attendanceRepository = {
     const unmarkedToday = Math.max(0, totalStaff - markedTotal);
     const attendanceRate = totalStaff > 0 ? Math.round(((presentCount + (stats.late || 0)) / totalStaff) * 100) : 100;
 
-    return {
+    const result = {
       date,
       totalStaff,
       presentToday: presentCount,
@@ -1495,6 +1509,8 @@ export const attendanceRepository = {
       unmarkedToday,
       attendanceRate,
     };
+    appCache.set(cacheKey, result, 30);
+    return result;
   },
 
   async getMyEmployeeAttendanceHistory(

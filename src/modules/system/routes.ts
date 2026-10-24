@@ -2,8 +2,15 @@ import { Request, Response } from 'express';
 import { PoolClient } from 'pg';
 import { registeredManifests } from '../../core/registry/module-registry';
 import { WidgetDefinition, NavItemDefinition } from '../../core/registry/types';
+import { appCache } from '../../core/cache';
 
 export async function getMe(req: Request, res: Response, client: PoolClient) {
+  const cacheKey = `user:me:${req.ctx!.userId}:${req.ctx!.institutionId}`;
+  const cached = appCache.get<any>(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   const { rows: userRows } = await client.query(
     `select p.id, p.name, p.phone, p.avatar_url, coalesce(u.email, '') as email
      from profile p
@@ -22,7 +29,7 @@ export async function getMe(req: Request, res: Response, client: PoolClient) {
   const user = userRows[0] || { id: req.ctx!.userId, name: 'User' };
   const institution = instRows[0] || { id: req.ctx!.institutionId, name: 'Institution', subdomain: 'school' };
 
-  res.json({
+  const responseData = {
     user,
     institution,
     membership: {
@@ -32,7 +39,10 @@ export async function getMe(req: Request, res: Response, client: PoolClient) {
       roleName: req.ctx!.roleName,
     },
     permissions: Array.from(req.ctx!.permissions.keys()),
-  });
+  };
+
+  appCache.set(cacheKey, responseData, 60);
+  res.json(responseData);
 }
 
 export async function getNav(req: Request, res: Response, client?: PoolClient) {
@@ -49,16 +59,23 @@ export async function getNav(req: Request, res: Response, client?: PoolClient) {
 
   // Load institution feature settings if client & institutionId available
   let settings: Record<string, any> = {};
-  if (client && req.ctx?.institutionId) {
-    try {
-      const { rows } = await client.query(
-        `select settings from institution_setting where institution_id = $1`,
-        [req.ctx.institutionId]
-      );
-      if (rows.length > 0 && rows[0].settings) {
-        settings = rows[0].settings;
-      }
-    } catch {}
+  if (req.ctx?.institutionId) {
+    const instSettingsKey = `inst:settings:${req.ctx.institutionId}`;
+    const cachedSettings = appCache.get<Record<string, any>>(instSettingsKey);
+    if (cachedSettings) {
+      settings = cachedSettings;
+    } else if (client) {
+      try {
+        const { rows } = await client.query(
+          `select settings from institution_setting where institution_id = $1`,
+          [req.ctx.institutionId]
+        );
+        if (rows.length > 0 && rows[0].settings) {
+          settings = rows[0].settings;
+          appCache.set(instSettingsKey, settings, 120);
+        }
+      } catch {}
+    }
   }
 
   const featureLimitations = settings.featureLimitations || {};
@@ -134,6 +151,12 @@ export async function getNav(req: Request, res: Response, client?: PoolClient) {
 }
 
 export async function getDashboard(req: Request, res: Response, client: PoolClient) {
+  const cacheKey = `dash:widgets:${req.ctx!.userId}:${req.ctx!.roleId}:${req.ctx!.institutionId}`;
+  const cached = appCache.get<any>(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   // Collect all widgets across registered modules
   const allWidgets: WidgetDefinition[] = [];
   for (const manifest of registeredManifests) {
@@ -197,7 +220,7 @@ export async function getDashboard(req: Request, res: Response, client: PoolClie
     };
   });
 
-  res.json({
-    widgets: resultWidgets,
-  });
+  const responseData = { widgets: resultWidgets };
+  appCache.set(cacheKey, responseData, 60);
+  res.json(responseData);
 }

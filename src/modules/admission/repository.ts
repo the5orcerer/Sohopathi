@@ -2,6 +2,7 @@ import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
 import { provisionStudentUserAccount } from '../core/repository';
 import { dispatchNotificationAndTask } from '../core/notification-task-service';
+import { appCache } from '../../core/cache';
 
 export interface AdmissionApplication {
   id: string;
@@ -120,6 +121,10 @@ export const admissionRepository = {
   },
 
   async getStats(client: PoolClient, institutionId: string): Promise<any> {
+    const cacheKey = `stats:admission:${institutionId}`;
+    const cached = appCache.get<any>(cacheKey);
+    if (cached) return cached;
+
     const { rows: statusRows } = await client.query(
       `select 
          count(*)::int as total,
@@ -146,7 +151,7 @@ export const admissionRepository = {
       [institutionId]
     );
 
-    return {
+    const result = {
       summary: statusRows[0] || {
         total: 0,
         submitted: 0,
@@ -158,6 +163,8 @@ export const admissionRepository = {
       },
       classBreakdown,
     };
+    appCache.set(cacheKey, result, 30);
+    return result;
   },
 
   async getApplicationById(client: PoolClient, institutionId: string, id: string): Promise<AdmissionApplication | null> {
@@ -298,6 +305,8 @@ export const admissionRepository = {
       after: created,
     });
 
+    appCache.del(`stats:admission:${institutionId}`);
+
     return created;
   },
 
@@ -345,6 +354,8 @@ export const admissionRepository = {
       entityId: id,
       after: updated,
     });
+
+    appCache.del(`stats:admission:${institutionId}`);
 
     return updated;
   },
@@ -478,6 +489,8 @@ export const admissionRepository = {
       // Non-blocking notification dispatch
     }
 
+    appCache.del(`stats:admission:${institutionId}`);
+
     return {
       student,
       username,
@@ -488,6 +501,7 @@ export const admissionRepository = {
 
   async deleteApplication(client: PoolClient, institutionId: string, id: string, actorMembershipId?: string): Promise<void> {
     await client.query(`delete from admission_application where id = $1 and institution_id = $2`, [id, institutionId]);
+    appCache.del(`stats:admission:${institutionId}`);
     await logAudit(client, {
       institutionId,
       actorMembershipId,

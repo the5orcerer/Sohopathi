@@ -2,6 +2,7 @@ import { PoolClient } from 'pg';
 import { logAudit } from '../../core/audit/audit-logger';
 import { coreRepository } from '../core/repository';
 import { dispatchNotificationAndTask } from '../core/notification-task-service';
+import { appCache } from '../../core/cache';
 
 export interface InvoiceItem {
   label: string;
@@ -455,6 +456,8 @@ export const financeRepository = {
       after: created,
     });
 
+    appCache.del(`stats:finance:${institutionId}`);
+
     return created;
   },
 
@@ -674,10 +677,16 @@ export const financeRepository = {
       }
     } catch {}
 
+    appCache.del(`stats:finance:${institutionId}`);
+
     return { payment, invoice: updatedInvoice };
   },
 
   async getFinanceSummary(client: PoolClient, institutionId: string): Promise<FinanceSummary> {
+    const cacheKey = `stats:finance:${institutionId}`;
+    const cached = appCache.get<FinanceSummary>(cacheKey);
+    if (cached) return cached;
+
     const { rows: invStats } = await client.query(
       `select 
         coalesce(sum(case when fi.status != 'cancelled' then coalesce(fi.total_amount, fi.amount, 0) - coalesce(fi.discount_amount, 0) else 0 end), 0)::numeric as "totalBilled",
@@ -707,7 +716,7 @@ export const financeRepository = {
       [institutionId]
     );
 
-    return {
+    const summaryResult: FinanceSummary = {
       totalBilled,
       totalCollected,
       totalPending,
@@ -715,6 +724,8 @@ export const financeRepository = {
       collectionRate,
       monthlyCollection: monthlyRows.map((r) => ({ month: r.month, amount: Number(r.amount) })),
     };
+    appCache.set(cacheKey, summaryResult, 30);
+    return summaryResult;
   },
 
   async getReceiptData(client: PoolClient, institutionId: string, paymentId: string): Promise<any> {

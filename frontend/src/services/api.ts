@@ -124,6 +124,7 @@ interface ApiCacheEntry<T> {
   expiresAt: number;
 }
 const apiCache = new Map<string, ApiCacheEntry<any>>();
+const inFlightRequests = new Map<string, Promise<any>>();
 
 export function invalidateApiCache(prefix?: string) {
   if (!prefix) {
@@ -171,6 +172,10 @@ export async function fetchWithAuth<T = any>(
     if (cached && Date.now() < cached.expiresAt) {
       return cached.data as T;
     }
+    const inFlight = inFlightRequests.get(cacheKey);
+    if (inFlight) {
+      return inFlight as Promise<T>;
+    }
   } else {
     // Automatically invalidate related cache keys upon mutation
     if (url.includes('/attendance')) invalidateApiCache('/attendance');
@@ -196,60 +201,72 @@ export async function fetchWithAuth<T = any>(
     ...(options.headers as Record<string, string>),
   };
 
-  try {
-    const res = await fetch(fullUrl, {
-      ...options,
-      headers,
-    });
+  const executeFetch = async (): Promise<T> => {
+    try {
+      const res = await fetch(fullUrl, {
+        ...options,
+        headers,
+      });
 
-    const durationMs = Date.now() - startTime;
+      const durationMs = Date.now() - startTime;
 
-    if (res.ok) {
-      const data = res.status === 204 ? ({} as T) : await res.json();
-      if (isGet) {
-        // Cache idempotent GET results for 15s to keep UI snappy and DB healthy
-        apiCache.set(cacheKey, { data, expiresAt: Date.now() + 15000 });
+      if (res.ok) {
+        const data = res.status === 204 ? ({} as T) : await res.json();
+        if (isGet) {
+          // Cache idempotent GET results for 15s to keep UI snappy and DB healthy
+          apiCache.set(cacheKey, { data, expiresAt: Date.now() + 15000 });
+        }
+        recordLog({
+          id: Math.random().toString(36).substring(2, 9),
+          timestamp: new Date().toLocaleTimeString(),
+          method: options.method || 'GET',
+          url,
+          status: res.status,
+          headers,
+          responsePayload: data,
+          durationMs,
+        });
+        return data as T;
+      } else {
+        const err = await res.json().catch(() => ({ error: `Request failed with HTTP ${res.status}` }));
+        recordLog({
+          id: Math.random().toString(36).substring(2, 9),
+          timestamp: new Date().toLocaleTimeString(),
+          method: options.method || 'GET',
+          url,
+          status: res.status,
+          headers,
+          responsePayload: err,
+          durationMs,
+        });
+        throw new Error(sanitizeClientErrorMessage(err.error || `HTTP ${res.status}`));
       }
-      recordLog({
-        id: Math.random().toString(36).substring(2, 9),
-        timestamp: new Date().toLocaleTimeString(),
-        method: options.method || 'GET',
-        url,
-        status: res.status,
-        headers,
-        responsePayload: data,
-        durationMs,
-      });
-      return data as T;
-    } else {
-      const err = await res.json().catch(() => ({ error: `Request failed with HTTP ${res.status}` }));
-      recordLog({
-        id: Math.random().toString(36).substring(2, 9),
-        timestamp: new Date().toLocaleTimeString(),
-        method: options.method || 'GET',
-        url,
-        status: res.status,
-        headers,
-        responsePayload: err,
-        durationMs,
-      });
-      throw new Error(sanitizeClientErrorMessage(err.error || `HTTP ${res.status}`));
+    } catch (error: any) {
+      if (!error.message?.startsWith('HTTP') && !error.message?.includes('Request failed')) {
+        recordLog({
+          id: Math.random().toString(36).substring(2, 9),
+          timestamp: new Date().toLocaleTimeString(),
+          method: options.method || 'GET',
+          url,
+          status: 0,
+          headers,
+          responsePayload: { error: error.message },
+          durationMs: Date.now() - startTime,
+        });
+      }
+      throw error;
     }
-  } catch (error: any) {
-    if (!error.message?.startsWith('HTTP') && !error.message?.includes('Request failed')) {
-      recordLog({
-        id: Math.random().toString(36).substring(2, 9),
-        timestamp: new Date().toLocaleTimeString(),
-        method: options.method || 'GET',
-        url,
-        status: 0,
-        headers,
-        responsePayload: { error: error.message },
-        durationMs: Date.now() - startTime,
-      });
-    }
-    throw error;
+  };
+
+  if (isGet) {
+    const fetchPromise = executeFetch().finally(() => {
+      inFlightRequests.delete(cacheKey);
+    });
+    inFlightRequests.set(cacheKey, fetchPromise);
+    return fetchPromise;
   }
+
+  return executeFetch();
 }
 
 // ============================================================

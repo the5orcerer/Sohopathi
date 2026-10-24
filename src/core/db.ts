@@ -3,10 +3,12 @@ import { env } from './env';
 
 const cleanConnectionString = env.DATABASE_URL.replace(/[\?&]sslmode=[^&]+/, '');
 const isLocal = env.DATABASE_URL.includes('127.0.0.1') || env.DATABASE_URL.includes('localhost');
+const isAiven = env.DATABASE_URL.includes('aivencloud.com');
+const maxPool = isAiven ? Math.min(env.PG_MAX_POOL, 8) : env.PG_MAX_POOL;
 
 export const pool = new Pool({
   connectionString: cleanConnectionString,
-  max: env.PG_MAX_POOL,
+  max: maxPool,
   connectionTimeoutMillis: 5000,
   idleTimeoutMillis: 30000,
   maxUses: 7500,
@@ -30,6 +32,11 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
         create role app_user with login password 'password' nosuperuser nobypassrls;
       exception
         when duplicate_object then null;
+      end;
+      begin
+        grant app_user to current_user;
+      exception
+        when others then null;
       end;
     end $$;
     grant all on schema public to app_user;
@@ -571,74 +578,57 @@ export async function ensureTenantRLS(client: PoolClient): Promise<void> {
     on conflict (role_id, permission_id) do nothing;
   `);
 
-  const tenantTables = [
-    'institution_module','campus','academic_year','membership',
-    'membership_scope','event','audit_log','student','guardian','student_guardian',
-    'class','section','subject','class_subject_teacher','enrollment','attendance',
-    'exam','mark','notice','fee_invoice','payment','assignment','assignment_attachment',
-    'assignment_submission','assignment_grade','vehicle','transport_driver',
-    'transport_route','transport_stop','transport_route_stop','student_transport_assignment',
-    'role_permission','institution','role','dashboard_layout',
-    'custom_field_definition','class_schedule','exam_paper',
-    'notification','user_task','institution_setting',
-    'admission_application','notice_read_receipt','employee_attendance',
-    'classroom', 'schedule_substitution', 'member_request', 'template', 'generated_document', 'exam_room_assignment',
-    'fee_policy'
-  ];
-
   await client.query(`
     grant all on all tables in schema public to app_user;
     grant all on all sequences in schema public to app_user;
-  `);
 
-  for (const t of tenantTables) {
-    await client.query(`alter table public.${t} force row level security;`);
-    if (t === 'institution') {
-      await client.query(`
-        do $$
-        begin
-          if not exists (
-            select 1 from pg_policies where schemaname = 'public' and tablename = 'institution' and policyname = 'tenant_isolation'
-          ) then
-            create policy tenant_isolation on public.institution
-              using (id = public.current_institution_id() or public.current_institution_id() is null)
-              with check (true);
+    do $$
+    declare
+      t text;
+      tenant_tables text[] := array[
+        'institution_module','campus','academic_year','membership',
+        'membership_scope','event','audit_log','student','guardian','student_guardian',
+        'class','section','subject','class_subject_teacher','enrollment','attendance',
+        'exam','mark','notice','fee_invoice','payment','assignment','assignment_attachment',
+        'assignment_submission','assignment_grade','vehicle','transport_driver',
+        'transport_route','transport_stop','transport_route_stop','student_transport_assignment',
+        'role_permission','institution','role','dashboard_layout',
+        'custom_field_definition','class_schedule','exam_paper',
+        'notification','user_task','institution_setting',
+        'admission_application','notice_read_receipt','employee_attendance',
+        'classroom', 'schedule_substitution', 'member_request', 'template', 'generated_document', 'exam_room_assignment',
+        'fee_policy'
+      ];
+    begin
+      foreach t in array tenant_tables loop
+        if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = t) then
+          execute format('alter table public.%I force row level security;', t);
+          
+          if t = 'institution' then
+            if not exists (
+              select 1 from pg_policies where schemaname = 'public' and tablename = 'institution' and policyname = 'tenant_isolation'
+            ) then
+              create policy tenant_isolation on public.institution
+                using (id = public.current_institution_id() or public.current_institution_id() is null)
+                with check (true);
+            end if;
+          elsif t in ('role', 'role_permission', 'template', 'dashboard_layout') then
+            if not exists (
+              select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = 'tenant_isolation'
+            ) then
+              execute format('create policy tenant_isolation on public.%I using (institution_id = public.current_institution_id() or institution_id is null) with check (true);', t);
+            end if;
+          else
+            if not exists (
+              select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = 'tenant_isolation'
+            ) then
+              execute format('create policy tenant_isolation on public.%I using (institution_id = public.current_institution_id());', t);
+            end if;
           end if;
-        exception
-          when others then null;
-        end $$;
-      `);
-    } else if (['role', 'role_permission', 'template', 'dashboard_layout'].includes(t)) {
-      await client.query(`
-        do $$
-        begin
-          if not exists (
-            select 1 from pg_policies where schemaname = 'public' and tablename = '${t}' and policyname = 'tenant_isolation'
-          ) then
-            create policy tenant_isolation on public.${t}
-              using (institution_id = public.current_institution_id() or institution_id is null)
-              with check (true);
-          end if;
-        exception
-          when others then null;
-        end $$;
-      `);
-    } else {
-      // Ensure standard tenant policy exists for newly added tables
-      await client.query(`
-        do $$
-        begin
-          if not exists (
-            select 1 from pg_policies where schemaname = 'public' and tablename = '${t}' and policyname = 'tenant_isolation'
-          ) then
-            create policy tenant_isolation on public.${t} using (institution_id = public.current_institution_id());
-          end if;
-        exception
-          when others then null;
-        end $$;
-      `);
-    }
-  }
+        end if;
+      end loop;
+    end $$;
+  `);
 
   // 10. Performance Composite Indexes for Supabase Compact Compute
   await client.query(`
@@ -752,14 +742,14 @@ export async function withTenantContext<T>(
   const client: PoolClient = isClient ? (targetPoolOrClient as PoolClient) : await (targetPoolOrClient as Pool).connect();
 
   try {
-    await client.query('BEGIN');
     if (institutionId) {
       if (!UUID_REGEX.test(institutionId)) {
         throw new Error(`Invalid institutionId format: ${institutionId}`);
       }
-      await client.query('SET LOCAL ROLE app_user');
-      // SET LOCAL is transaction-scoped — safe with transaction poolers
-      await client.query(`SET LOCAL app.current_institution_id = '${institutionId}'`);
+      // Combine transaction start and tenant context into a single network roundtrip
+      await client.query(`BEGIN; SET LOCAL ROLE app_user; SET LOCAL app.current_institution_id = '${institutionId}';`);
+    } else {
+      await client.query('BEGIN');
     }
     const result = await fn(client);
     try {
