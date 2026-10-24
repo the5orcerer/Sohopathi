@@ -3,7 +3,7 @@ import { bootApp } from './app';
 import { env } from './core/env';
 import { logger } from './core/logger';
 import { getStorageAdapter, s3StorageAdapter } from './core/storage';
-import { pool, ensureTenantRLS } from './core/db';
+import { pool, ensureTenantRLS, runStorageRetentionCleanup } from './core/db';
 
 async function main() {
   try {
@@ -11,6 +11,10 @@ async function main() {
     try {
       await ensureTenantRLS(client);
       logger.info('Database schema and tenant RLS policies verified');
+      const cleanup = await runStorageRetentionCleanup(client);
+      if (cleanup.deletedNotifications > 0 || cleanup.deletedEvents > 0) {
+        logger.info(cleanup, 'Free-tier database retention cleanup executed successfully');
+      }
     } finally {
       client.release();
     }

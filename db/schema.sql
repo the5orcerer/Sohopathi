@@ -955,6 +955,22 @@ create index if not exists idx_enrollment_student on public.enrollment (student_
 create index if not exists idx_attendance_date on public.attendance (institution_id, date);
 create index if not exists idx_employee_attendance_date on public.employee_attendance (institution_id, date);
 
+-- Performance Composite Indexes for High Concurrency (Supabase Free Tier)
+create index if not exists idx_notification_recipient_user_unread on public.notification (institution_id, recipient_user_id, is_read, created_at desc);
+create index if not exists idx_notification_recipient_member_unread on public.notification (institution_id, recipient_membership_id, is_read, created_at desc);
+create index if not exists idx_enrollment_sec_status on public.enrollment (section_id, status);
+create index if not exists idx_enrollment_cls_status on public.enrollment (class_id, status);
+create index if not exists idx_enrollment_ay_status on public.enrollment (academic_year_id, status);
+create index if not exists idx_attendance_inst_sec_date on public.attendance (institution_id, section_id, date);
+create index if not exists idx_attendance_student_date on public.attendance (student_id, date);
+create index if not exists idx_fee_invoice_inst_student_status on public.fee_invoice (institution_id, student_id, status);
+create index if not exists idx_fee_invoice_inst_category on public.fee_invoice (institution_id, category, status);
+create index if not exists idx_payment_inst_date on public.payment (institution_id, payment_date desc);
+create index if not exists idx_class_schedule_sec_day on public.class_schedule (section_id, day_of_week);
+create index if not exists idx_class_schedule_teacher_day on public.class_schedule (teacher_membership_id, day_of_week);
+create index if not exists idx_mark_exam_student on public.mark (exam_id, student_id);
+create index if not exists idx_student_guardian_guardian on public.student_guardian (guardian_id);
+
 -- ----------------------------------------------------------------------------
 -- 14. ROW-LEVEL SECURITY & APP USER ROLE
 -- ----------------------------------------------------------------------------

@@ -3,7 +3,7 @@ import { PoolClient } from 'pg';
 import * as Sentry from '@sentry/node';
 import { pool, withTenantContext } from '../db';
 import { supabaseAuthProvider } from '../auth/supabase-auth-provider';
-import { resolveContext, ResolvedContext } from './resolve-permissions';
+import { resolveContext, ResolvedContext, getCachedContext } from './resolve-permissions';
 import { extractTenantFromRequest } from '../tenant-utils';
 import { hasSufficientScope } from './dependencies';
 
@@ -44,6 +44,17 @@ export async function loadContext(req: Request, res: Response, next: NextFunctio
     return res.status(400).json({ error: 'missing institution context', code: 'MISSING_INSTITUTION' });
   }
 
+  // Zero-connection fast path: Check in-memory cache before acquiring pool client
+  if (process.env.NODE_ENV !== 'test') {
+    const cachedCtx = getCachedContext(userId!, institutionId);
+    if (cachedCtx) {
+      req.ctx = cachedCtx;
+      Sentry.setTag('institution_id', cachedCtx.institutionId);
+      Sentry.setTag('role_id', cachedCtx.roleId);
+      return next();
+    }
+  }
+
   const client = await pool.connect();
   try {
     const ctx = await resolveContext(client, userId!, institutionId);
@@ -61,7 +72,7 @@ export async function loadContext(req: Request, res: Response, next: NextFunctio
   }
 }
 
-import { getFeatureForPermission, isFeatureAvailable, requireFeature } from './feature-guard';
+import { getFeatureForPermission, isFeatureAvailable, requireFeature, getCachedFeatureCheck } from './feature-guard';
 
 export { requireFeature };
 
@@ -79,23 +90,40 @@ export function requirePermission(permissionKey: string, requiredScope?: string)
       for (const key of keys) {
         const featureKey = getFeatureForPermission(key);
         if (featureKey) {
-          const client = await pool.connect();
-          try {
-            const check = await isFeatureAvailable(
-              client,
-              institutionId,
-              featureKey,
-              req.ctx?.roleName,
-              req.ctx?.userId
-            );
-            if (!check.available) {
+          // Zero-connection fast path: Check in-memory feature cache
+          const cachedCheck = getCachedFeatureCheck(
+            institutionId,
+            featureKey,
+            req.ctx?.roleName,
+            req.ctx?.userId
+          );
+
+          if (cachedCheck !== null) {
+            if (!cachedCheck.available) {
               return res.status(403).json({
-                error: check.reason || `Feature '${featureKey}' is disabled for this institution`,
+                error: cachedCheck.reason || `Feature '${featureKey}' is disabled for this institution`,
                 code: 'FEATURE_DISABLED',
               });
             }
-          } finally {
-            client.release();
+          } else {
+            const client = await pool.connect();
+            try {
+              const check = await isFeatureAvailable(
+                client,
+                institutionId,
+                featureKey,
+                req.ctx?.roleName,
+                req.ctx?.userId
+              );
+              if (!check.available) {
+                return res.status(403).json({
+                  error: check.reason || `Feature '${featureKey}' is disabled for this institution`,
+                  code: 'FEATURE_DISABLED',
+                });
+              }
+            } finally {
+              client.release();
+            }
           }
           break;
         }

@@ -2,27 +2,29 @@ import React, { useState } from 'react';
 import { SessionProvider, useSession } from './context/SessionContext';
 import { LanguageProvider } from './context/LanguageContext';
 import AppLayout from './components/layout/AppLayout';
-import { AttendancePage } from './pages/AttendancePage';
-import { NoticesPage } from './pages/NoticesPage';
-import { AcademicPage } from './pages/AcademicPage';
-import { StudentsPage } from './pages/StudentsPage';
-import { MembersPage } from './pages/MembersPage';
-import { PermissionMatrixPage } from './pages/PermissionMatrixPage';
-import { ActivityLogPage } from './pages/ActivityLogPage';
-import { ExaminationsPage } from './pages/ExaminationsPage';
-import { AssignmentsPage } from './pages/AssignmentsPage';
-import { TasksPage } from './pages/TasksPage';
-import { AdmissionsPage } from './pages/AdmissionsPage';
-import { ReportsPage } from './pages/ReportsPage';
-import { InstitutionSettingsPage } from './pages/InstitutionSettingsPage';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardGrid } from './components/dashboard/DashboardGrid';
 import { ScopeChip } from './components/common/ScopeChip';
 import { SchoolPulseBanner } from './components/dashboard/SchoolPulseBanner';
-import { TemplatesPage } from './pages/TemplatesPage';
-import { DocumentTemplateBuilder } from './pages/DocumentTemplateBuilder';
-import { RequestsPage } from './pages/RequestsPage';
-import { BillingPage } from './pages/BillingPage';
+
+// Route-based code splitting for 2k daily user performance & compact initial bundle
+const AttendancePage = React.lazy(() => import('./pages/AttendancePage').then((m) => ({ default: m.AttendancePage })));
+const NoticesPage = React.lazy(() => import('./pages/NoticesPage').then((m) => ({ default: m.NoticesPage })));
+const AcademicPage = React.lazy(() => import('./pages/AcademicPage').then((m) => ({ default: m.AcademicPage })));
+const StudentsPage = React.lazy(() => import('./pages/StudentsPage').then((m) => ({ default: m.StudentsPage })));
+const MembersPage = React.lazy(() => import('./pages/MembersPage').then((m) => ({ default: m.MembersPage })));
+const PermissionMatrixPage = React.lazy(() => import('./pages/PermissionMatrixPage').then((m) => ({ default: m.PermissionMatrixPage })));
+const ActivityLogPage = React.lazy(() => import('./pages/ActivityLogPage').then((m) => ({ default: m.ActivityLogPage })));
+const ExaminationsPage = React.lazy(() => import('./pages/ExaminationsPage').then((m) => ({ default: m.ExaminationsPage })));
+const AssignmentsPage = React.lazy(() => import('./pages/AssignmentsPage').then((m) => ({ default: m.AssignmentsPage })));
+const TasksPage = React.lazy(() => import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })));
+const AdmissionsPage = React.lazy(() => import('./pages/AdmissionsPage').then((m) => ({ default: m.AdmissionsPage })));
+const ReportsPage = React.lazy(() => import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })));
+const InstitutionSettingsPage = React.lazy(() => import('./pages/InstitutionSettingsPage').then((m) => ({ default: m.InstitutionSettingsPage })));
+const TemplatesPage = React.lazy(() => import('./pages/TemplatesPage').then((m) => ({ default: m.TemplatesPage })));
+const DocumentTemplateBuilder = React.lazy(() => import('./pages/DocumentTemplateBuilder').then((m) => ({ default: m.DocumentTemplateBuilder })));
+const RequestsPage = React.lazy(() => import('./pages/RequestsPage').then((m) => ({ default: m.RequestsPage })));
+const BillingPage = React.lazy(() => import('./pages/BillingPage').then((m) => ({ default: m.BillingPage })));
 
 // Universal Dashboard
 const DashboardView: React.FC<{ onNavigate: (path: string) => void }> = ({ onNavigate }) => {
@@ -146,7 +148,35 @@ const MainAppContent: React.FC = () => {
 
   return (
     <AppLayout currentPath={currentPath} onNavigate={handleNavigate}>
-      {renderPage()}
+      <React.Suspense
+        fallback={
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: '40vh',
+              color: 'var(--text-muted)',
+              fontSize: '0.9rem',
+            }}
+          >
+            <div
+              className="animate-spin"
+              style={{
+                width: '20px',
+                height: '20px',
+                border: '2px solid var(--border)',
+                borderTopColor: 'var(--primary)',
+                borderRadius: '50%',
+                marginRight: '0.75rem',
+              }}
+            />
+            <span>Loading module...</span>
+          </div>
+        }
+      >
+        {renderPage()}
+      </React.Suspense>
     </AppLayout>
   );
 };

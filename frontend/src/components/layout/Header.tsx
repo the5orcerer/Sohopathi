@@ -28,6 +28,10 @@ export const Header: React.FC<HeaderProps> = ({
   useEffect(() => {
     let mounted = true;
     const checkUnread = async () => {
+      // Free Tier Optimization: Pause polling when the browser tab is hidden or minimized
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
       try {
         const res = await fetchNotifications(10);
         if (mounted) {
@@ -37,10 +41,21 @@ export const Header: React.FC<HeaderProps> = ({
     };
 
     checkUnread();
-    const interval = setInterval(checkUnread, 30000);
+    // 60-second active poll interval (reduced from 30s to protect shared micro compute)
+    const interval = setInterval(checkUnread, 60000);
+
+    // Immediate check when user tabs back into the application
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkUnread();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       mounted = false;
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 

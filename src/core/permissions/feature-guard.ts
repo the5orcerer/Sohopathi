@@ -54,6 +54,63 @@ export function invalidateFeatureCache(institutionId?: string): void {
   }
 }
 
+export function evaluateFeatureConfig(
+  config: FeatureConfig | undefined,
+  featureKey: string,
+  roleName?: string,
+  userId?: string
+): { available: boolean; reason?: string } {
+  if (!config) {
+    return { available: true };
+  }
+
+  // 1. Feature is globally disabled for this institution
+  if (config.enabled === false || config.status === 'disabled') {
+    return {
+      available: false,
+      reason: `Feature '${featureKey}' is disabled for this institution`,
+    };
+  }
+
+  // 2. Feature is restricted to specific roles or users
+  const isRestricted =
+    config.status === 'restricted' ||
+    (Array.isArray(config.allowedRoles) && config.allowedRoles.length > 0);
+
+  if (isRestricted) {
+    const isAdmin = Boolean(roleName?.toLowerCase().includes('admin'));
+    const roleMatch =
+      roleName &&
+      config.allowedRoles &&
+      config.allowedRoles.some(
+        (r) => r.toLowerCase() === roleName.toLowerCase()
+      );
+    const userMatch = userId && config.allowedUsers && config.allowedUsers.includes(userId);
+
+    if (!isAdmin && !roleMatch && !userMatch) {
+      return {
+        available: false,
+        reason: `Feature '${featureKey}' is restricted to specific roles in this institution`,
+      };
+    }
+  }
+
+  return { available: true };
+}
+
+export function getCachedFeatureCheck(
+  institutionId: string,
+  featureKey: string,
+  roleName?: string,
+  userId?: string
+): { available: boolean; reason?: string } | null {
+  if (!institutionId || !featureKey) return { available: true };
+  const cacheKey = `inst:features:${institutionId}`;
+  const features = appCache.get<Record<string, FeatureConfig>>(cacheKey);
+  if (!features) return null;
+  return evaluateFeatureConfig(features[featureKey], featureKey, roleName, userId);
+}
+
 /**
  * Evaluates whether an institutional feature is available to the requesting user/role.
  * Follows Blueprint Section 40 & 41:
@@ -112,43 +169,7 @@ export async function isFeatureAvailable(
     appCache.set(cacheKey, features, 120);
   }
 
-  const config = features[featureKey];
-  if (!config) {
-    return { available: true };
-  }
-
-  // 1. Feature is globally disabled for this institution
-  if (config.enabled === false || config.status === 'disabled') {
-    return {
-      available: false,
-      reason: `Feature '${featureKey}' is disabled for this institution`,
-    };
-  }
-
-  // 2. Feature is restricted to specific roles or users
-  const isRestricted =
-    config.status === 'restricted' ||
-    (Array.isArray(config.allowedRoles) && config.allowedRoles.length > 0);
-
-  if (isRestricted) {
-    const isAdmin = Boolean(roleName?.toLowerCase().includes('admin'));
-    const roleMatch =
-      roleName &&
-      config.allowedRoles &&
-      config.allowedRoles.some(
-        (r) => r.toLowerCase() === roleName.toLowerCase()
-      );
-    const userMatch = userId && config.allowedUsers && config.allowedUsers.includes(userId);
-
-    if (!isAdmin && !roleMatch && !userMatch) {
-      return {
-        available: false,
-        reason: `Feature '${featureKey}' is restricted to specific roles in this institution`,
-      };
-    }
-  }
-
-  return { available: true };
+  return evaluateFeatureConfig(features[featureKey], featureKey, roleName, userId);
 }
 
 /**
@@ -158,6 +179,23 @@ export function requireFeature(featureKey: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const institutionId = req.ctx?.institutionId;
     if (!institutionId) {
+      return next();
+    }
+
+    // Zero-connection fast path
+    const cachedCheck = getCachedFeatureCheck(
+      institutionId,
+      featureKey,
+      req.ctx?.roleName,
+      req.ctx?.userId
+    );
+    if (cachedCheck !== null) {
+      if (!cachedCheck.available) {
+        return res.status(403).json({
+          error: cachedCheck.reason || `Feature '${featureKey}' is disabled`,
+          code: 'FEATURE_DISABLED',
+        });
+      }
       return next();
     }
 

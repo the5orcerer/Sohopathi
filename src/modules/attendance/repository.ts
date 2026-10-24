@@ -178,7 +178,8 @@ export const attendanceRepository = {
     date: string,
     newStatus: string,
     priorStatus?: string,
-    actorMembershipId?: string
+    actorMembershipId?: string,
+    cachedPolicy?: { fineAmount: number; academicYearId: string | null }
   ): Promise<void> {
     try {
       // If status changed away from absent, cancel any pending auto absent fine for this date
@@ -198,39 +199,57 @@ export const attendanceRepository = {
 
       // If marked absent, check if absent fine policy or setting is active
       if (newStatus === 'absent') {
-        let fineAmount = 0;
-        // Check fee_policy first
-        const { rows: polRows } = await client.query(
-          `select amount, fine_per_day
-           from fee_policy
-           where institution_id = $1
-             and is_active = true
-             and (auto_apply_on_absence = true or category = 'Absenteeism Fine')
-           order by created_at desc
-           limit 1`,
-          [institutionId]
-        );
+        let fineAmount = cachedPolicy?.fineAmount ?? 0;
+        let academicYearId = cachedPolicy?.academicYearId ?? null;
 
-        if (polRows.length > 0) {
-          fineAmount = Number(polRows[0].fine_per_day || polRows[0].amount || 0);
-        } else {
-          // Fallback to institution_setting
-          const { rows: setRows } = await client.query(
-            `select value from institution_setting where institution_id = $1 and key = 'fee_settings' limit 1`,
-            [institutionId]
-          );
-          if (setRows.length > 0 && setRows[0].value) {
-            const val = setRows[0].value;
-            if (val.enableAbsentFine && Number(val.absentFinePerDay) > 0) {
-              fineAmount = Number(val.absentFinePerDay);
+        if (cachedPolicy === undefined) {
+          try {
+            // Check fee_policy first
+            const polRes = await client.query(
+              `select amount, fine_per_day
+               from fee_policy
+               where institution_id = $1
+                 and is_active = true
+                 and (auto_apply_on_absence = true or category = 'Absenteeism Fine')
+               order by created_at desc
+               limit 1`,
+              [institutionId]
+            );
+            const polRows = polRes?.rows || [];
+
+            if (polRows.length > 0) {
+              fineAmount = Number(polRows[0].fine_per_day || polRows[0].amount || 0);
+            } else {
+              // Fallback to institution_setting
+              const setRes = await client.query(
+                `select value from institution_setting where institution_id = $1 and key = 'fee_settings' limit 1`,
+                [institutionId]
+              );
+              const setRows = setRes?.rows || [];
+              if (setRows.length > 0 && setRows[0].value) {
+                const val = setRows[0].value;
+                if (val.enableAbsentFine && Number(val.absentFinePerDay) > 0) {
+                  fineAmount = Number(val.absentFinePerDay);
+                }
+              }
             }
+          } catch {}
+
+          if (fineAmount > 0) {
+            try {
+              const ayRes = await client.query(
+                `select id from academic_year where institution_id = $1 and is_active = true limit 1`,
+                [institutionId]
+              );
+              academicYearId = ayRes?.rows?.[0]?.id || null;
+            } catch {}
           }
         }
 
         if (fineAmount <= 0) return;
 
         // Check if an active invoice for this student and date already exists
-        const { rows: existingRows } = await client.query(
+        const existingRes = await client.query(
           `select id from fee_invoice
            where institution_id = $1
              and student_id = $2
@@ -240,15 +259,9 @@ export const attendanceRepository = {
            limit 1`,
           [institutionId, studentId, date]
         );
+        const existingRows = existingRes?.rows || [];
 
         if (existingRows.length > 0) return; // already fined for this date
-
-        // Get active academic year if available
-        const { rows: ayRows } = await client.query(
-          `select id from academic_year where institution_id = $1 and is_active = true limit 1`,
-          [institutionId]
-        );
-        const academicYearId = ayRows[0]?.id || null;
 
         const randSuffix = Math.floor(1000 + Math.random() * 9000);
         const invNum = `INV-ABS-${date.replace(/-/g, '')}-${randSuffix}`;
@@ -307,6 +320,49 @@ export const attendanceRepository = {
   ): Promise<AttendanceRecord[]> {
     const results: AttendanceRecord[] = [];
     let updatedCount = 0;
+
+    // For batch submissions with multiple students, prefetch absent fine policy once to eliminate N+1 queries
+    let batchFinePolicy: { fineAmount: number; academicYearId: string | null } | undefined;
+    if (records.length > 1 && records.some((r) => r.status === 'absent')) {
+      let fineAmount = 0;
+      let academicYearId: string | null = null;
+      try {
+        const polRes = await client.query(
+          `select amount, fine_per_day
+           from fee_policy
+           where institution_id = $1
+             and is_active = true
+             and (auto_apply_on_absence = true or category = 'Absenteeism Fine')
+           order by created_at desc
+           limit 1`,
+          [institutionId]
+        );
+        const polRows = polRes?.rows || [];
+        if (polRows.length > 0) {
+          fineAmount = Number(polRows[0].fine_per_day || polRows[0].amount || 0);
+        } else {
+          const setRes = await client.query(
+            `select value from institution_setting where institution_id = $1 and key = 'fee_settings' limit 1`,
+            [institutionId]
+          );
+          const setRows = setRes?.rows || [];
+          if (setRows.length > 0 && setRows[0].value) {
+            const val = setRows[0].value;
+            if (val.enableAbsentFine && Number(val.absentFinePerDay) > 0) {
+              fineAmount = Number(val.absentFinePerDay);
+            }
+          }
+        }
+        if (fineAmount > 0) {
+          const ayRes = await client.query(
+            `select id from academic_year where institution_id = $1 and is_active = true limit 1`,
+            [institutionId]
+          );
+          academicYearId = ayRes?.rows?.[0]?.id || null;
+        }
+      } catch {}
+      batchFinePolicy = { fineAmount, academicYearId };
+    }
 
     for (const r of records) {
       const sessionType = r.sessionType || 'daily';
@@ -383,7 +439,8 @@ export const attendanceRepository = {
         r.date,
         r.status,
         priorRows[0]?.status,
-        recordedByMembershipId
+        recordedByMembershipId,
+        batchFinePolicy
       );
 
       if (isEdit) {

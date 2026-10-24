@@ -19,6 +19,19 @@ export function invalidateContextCache(userId?: string, institutionId?: string):
   }
 }
 
+export function getCachedContext(userId: string, institutionId: string): ResolvedContext | null {
+  if (!institutionId || !userId) return null;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(institutionId);
+  let resolvedInstId = institutionId;
+  if (!isUuid) {
+    const cachedInstId = appCache.get<string>(`inst:sub:${institutionId.toLowerCase()}`);
+    if (!cachedInstId) return null;
+    resolvedInstId = cachedInstId;
+  }
+  const cacheKey = `ctx:${userId}:${resolvedInstId}`;
+  return appCache.get<ResolvedContext>(cacheKey);
+}
+
 export async function resolveContext(
   client: PoolClient,
   userId: string,

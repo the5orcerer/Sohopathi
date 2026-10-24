@@ -1,4 +1,5 @@
 import { PoolClient } from 'pg';
+import { appCache } from '../../core/cache';
 import { logAudit } from '../../core/audit/audit-logger';
 import { invalidateContextCache } from '../../core/permissions/resolve-permissions';
 import { invalidateFeatureCache } from '../../core/permissions/feature-guard';
@@ -1758,18 +1759,25 @@ export const coreRepository = {
       [institutionId, membershipId, userId, limit]
     );
 
-    const { rows: countRows } = await client.query(
-      `select count(*)::int as "unreadCount"
-       from notification
-       where institution_id = $1
-         and (recipient_membership_id = $2 or recipient_user_id = $3)
-         and is_read = false`,
-      [institutionId, membershipId, userId]
-    );
+    const cacheKey = `notif:unread:${institutionId}:${userId}:${membershipId}`;
+    let unreadCount = appCache.get<number>(cacheKey);
+
+    if (unreadCount === null) {
+      const { rows: countRows } = await client.query(
+        `select count(*)::int as "unreadCount"
+         from notification
+         where institution_id = $1
+           and (recipient_membership_id = $2 or recipient_user_id = $3)
+           and is_read = false`,
+        [institutionId, membershipId, userId]
+      );
+      unreadCount = countRows[0]?.unreadCount || 0;
+      appCache.set(cacheKey, unreadCount, 15);
+    }
 
     return {
       notifications,
-      unreadCount: countRows[0]?.unreadCount || 0,
+      unreadCount: unreadCount ?? 0,
     };
   },
 
@@ -1785,6 +1793,7 @@ export const coreRepository = {
       data?: Record<string, any>;
     }
   ): Promise<any> {
+    appCache.invalidatePrefix(`notif:unread:${institutionId}`);
     let targetUserId = data.recipientUserId;
     if (!targetUserId && data.recipientMembershipId) {
       const { rows } = await client.query(
@@ -1812,6 +1821,7 @@ export const coreRepository = {
   },
 
   async markNotificationRead(client: PoolClient, institutionId: string, notificationId: string): Promise<void> {
+    appCache.invalidatePrefix(`notif:unread:${institutionId}`);
     await client.query(
       `update notification set is_read = true where id = $1 and institution_id = $2`,
       [notificationId, institutionId]
@@ -1824,6 +1834,7 @@ export const coreRepository = {
     userId: string,
     membershipId: string
   ): Promise<void> {
+    appCache.invalidatePrefix(`notif:unread:${institutionId}`);
     await client.query(
       `update notification set is_read = true 
        where institution_id = $1 and (recipient_membership_id = $2 or recipient_user_id = $3)`,

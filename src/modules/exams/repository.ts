@@ -764,6 +764,24 @@ export const examRepository = {
       throw new Error('EXAM_LOCKED: Cannot modify marks for a published examination. Results must be reopened by an Exam Controller.');
     }
 
+    // Prefetch prior marks for batch submissions to eliminate N+1 select queries
+    const priorMarksMap = new Map<string, any>();
+    if (marks.length > 1) {
+      const studentIds = Array.from(new Set(marks.map((m) => m.studentId)));
+      const subjectIds = Array.from(new Set(marks.map((m) => m.subjectId)));
+      try {
+        const { rows: allPriors } = await client.query(
+          `select id, student_id, subject_id, marks_obtained, status
+           from mark
+           where exam_id = $1 and student_id = any($2) and subject_id = any($3)`,
+          [firstExamId, studentIds, subjectIds]
+        );
+        for (const p of allPriors) {
+          priorMarksMap.set(`${p.student_id}:${p.subject_id}`, p);
+        }
+      } catch {}
+    }
+
     for (const m of marks) {
       if (m.remarks) assertContentLength(m.remarks, 'remarks', CONTENT_LIMITS.REASON_MAX);
 
@@ -802,10 +820,17 @@ export const examRepository = {
 
       const { grade, letterGrade, gpa } = calculateGradeAndGPA(totalMarks ?? null, m.maxMarks, m.isAbsent, m.isExempt);
 
-      const { rows: priorMarkRows } = await client.query(
-        `select id, marks_obtained, status from mark where exam_id = $1 and student_id = $2 and subject_id = $3`,
-        [m.examId, m.studentId, m.subjectId]
-      );
+      let priorMarkRows: any[];
+      if (marks.length > 1 && priorMarksMap.size > 0) {
+        const cached = priorMarksMap.get(`${m.studentId}:${m.subjectId}`);
+        priorMarkRows = cached ? [cached] : [];
+      } else {
+        const { rows } = await client.query(
+          `select id, marks_obtained, status from mark where exam_id = $1 and student_id = $2 and subject_id = $3`,
+          [m.examId, m.studentId, m.subjectId]
+        );
+        priorMarkRows = rows;
+      }
 
       const { rows: insertedRows } = await client.query(
         `insert into mark (

@@ -27,6 +27,7 @@ const sanitizeString = (val: unknown, fallback: string): string => {
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   DATABASE_URL: z.string().default('postgresql://postgres:postgres@localhost:5433/biddyapith_dev'),
+  PG_MAX_POOL: z.string().transform((val) => parseInt(val, 10)).default('20'),
   JWT_SECRET: z.string().default('biddyapith-secure-jwt-secret-local-dev-2026'),
   SUPABASE_URL: z.preprocess(sanitizeHttpUrl, z.string().default('http://localhost:54321')),
   SUPABASE_SERVICE_ROLE_KEY: z.preprocess(

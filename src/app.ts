@@ -4,6 +4,7 @@ import express, { Request, Response, Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
+import zlib from 'zlib';
 import { isDevelopment } from './core/env';
 import { errorHandler } from './core/errors';
 import { registerModule } from './core/registry/module-registry';
@@ -34,6 +35,64 @@ function enableCors(app: express.Application) {
       res.sendStatus(204);
       return;
     }
+    next();
+  });
+}
+
+function enableCompression(app: express.Application) {
+  app.use((req: Request, res: Response, next) => {
+    const acceptEncoding = (req.headers['accept-encoding'] as string) || '';
+    if (!acceptEncoding.includes('gzip')) {
+      return next();
+    }
+
+    const originalSend = res.send.bind(res);
+    const originalJson = res.json.bind(res);
+
+    const compressPayload = (body: any, defaultContentType: string) => {
+      if (res.headersSent) return;
+      const buffer = Buffer.isBuffer(body)
+        ? body
+        : typeof body === 'string'
+        ? Buffer.from(body, 'utf8')
+        : Buffer.from(JSON.stringify(body), 'utf8');
+
+      // Do not compress tiny payloads under 1KB
+      if (buffer.length < 1024) {
+        if (!res.getHeader('Content-Type')) {
+          res.setHeader('Content-Type', defaultContentType);
+        }
+        return originalSend(buffer);
+      }
+
+      zlib.gzip(buffer, (err, compressed) => {
+        if (err || res.headersSent) {
+          if (!res.getHeader('Content-Type')) {
+            res.setHeader('Content-Type', defaultContentType);
+          }
+          return originalSend(buffer);
+        }
+        res.setHeader('Content-Encoding', 'gzip');
+        res.setHeader('Content-Type', res.getHeader('Content-Type') || defaultContentType);
+        res.setHeader('Content-Length', compressed.length);
+        originalSend(compressed);
+      });
+    };
+
+    res.json = (body: any): Response => {
+      compressPayload(body, 'application/json; charset=utf-8');
+      return res;
+    };
+
+    res.send = (body: any): Response => {
+      if (typeof body === 'object' && !Buffer.isBuffer(body)) {
+        compressPayload(body, 'application/json; charset=utf-8');
+      } else {
+        compressPayload(body, (res.getHeader('Content-Type') as string) || 'text/html; charset=utf-8');
+      }
+      return res;
+    };
+
     next();
   });
 }
@@ -130,9 +189,20 @@ function mountDomainRouting(app: express.Application) {
       host === 'app.biddyapith.local' ||
       (host.endsWith('.biddyapith.local') && host !== 'api.biddyapith.local' && host !== 'www.biddyapith.local');
 
+    const staticOptions = {
+      maxAge: '1y',
+      immutable: true,
+      setHeaders: (res: Response, filePath: string) => {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    };
+
     const serveFrontend = () => {
       if (fs.existsSync(frontendDistPath)) {
-        express.static(frontendDistPath)(req, res, () => {
+        express.static(frontendDistPath, staticOptions)(req, res, () => {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
           res.sendFile(path.join(frontendDistPath, 'index.html'));
         });
       } else {
@@ -142,7 +212,8 @@ function mountDomainRouting(app: express.Application) {
 
     const serveHome = () => {
       if (fs.existsSync(homeDistPath)) {
-        express.static(homeDistPath)(req, res, () => {
+        express.static(homeDistPath, staticOptions)(req, res, () => {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
           res.sendFile(path.join(homeDistPath, 'index.html'));
         });
       } else {
@@ -170,6 +241,7 @@ function mountDomainRouting(app: express.Application) {
 export function createApp(): express.Application {
   const app = express();
   enableCors(app);
+  enableCompression(app);
   mountStorage(app);
   app.use(express.json());
 
@@ -198,6 +270,7 @@ export function createApp(): express.Application {
 export function bootApp(): express.Application {
   const app = express();
   enableCors(app);
+  enableCompression(app);
   mountStorage(app);
   app.use(express.json());
 
